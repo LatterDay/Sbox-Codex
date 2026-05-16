@@ -114,6 +114,8 @@ If it reports `connected: true` and `handlerCount: 100`, you're set. If it times
 
 ## Available Tools (109 defined)
 
+> **2026-05-16 (v1.3.1):** Discoverability patch. MCP server now ships `instructions` that surface every Claude Code session — explains the screenshot-driven workflow and points at the companion plugin. Bundled README and `.sbproj` description updated to lead with `/plugin install sbox-claude`. No tool changes.
+>
 > **2026-05-16 (v1.3.0):** Closes 5 community issues. Fixed editor bootstrap crash from `Log.Info` during static ctor (PR #6 by @FurkanZhlp). RPCs now process even when the Claude Bridge dock is closed (#2). `get_scene_hierarchy` honors `maxDepth` and accepts optional `rootId` (#4). Removed 10 phantom tools that never had addon handlers (#3). 99 working tools (was 109). See `CHANGELOG.md`.
 >
 > **2026-05-15 (v1.2.0):** Stability release. Fixed install-to-wrong-folder bug, frame-error spam, and play-mode save corruption. Handler registration is now fault-tolerant (one broken handler no longer breaks the rest). See `CHANGELOG.md` and `TROUBLESHOOTING.md`.

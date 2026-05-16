@@ -4,7 +4,7 @@
 
 ## Status: 100 of 109 Tools Implemented
 
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-16 (v1.3.1)
 **Bridge:** File-based IPC ✅ working on main thread
 **Handlers:** 100 compiled and registered (of 109 MCP tools defined)
 **Not implementable:** 9 tools (no s&box API exists — see "Known Issues")

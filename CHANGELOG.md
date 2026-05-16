@@ -2,6 +2,22 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.3.1] — 2026-05-16
+
+**Discoverability patch. No tool changes. Surfaces the new Claude Code plugin and the screenshot-driven workflow inside the existing distribution channels.**
+
+### Added
+
+- **`McpServer.instructions`** — the MCP server now ships an `instructions` string that surfaces at the top of every Claude Code session that uses the bridge (the same mechanism Supabase / TurboTax use). It tells Claude how to work effectively with the bridge: call `get_bridge_status` first, take screenshots and read them after visual changes, use `describe_type` before guessing s&box APIs, scene-mutating tools refuse during play mode, and points at the `sbox-claude` plugin for the full workflow.
+- **`sbox-mcp-server` README rewritten** — leads with the Claude Code plugin install path, falls back to the manual three-step install. Tool table updated to 99 working (was 78 from v1.0.0 docs). Includes the two-discipline summary: screenshot after visual changes, `describe_type` before guessing.
+- **`claudebridge.sbproj` Description rewritten** — mentions the `sbox-claude` plugin install path inline, so users discovering the addon through the s&box Asset Library see the plugin in the first paragraph.
+
+### Why a patch and not a minor
+
+No tool surface changes, no behavior changes outside of the new instructions text that surfaces at session start. Pure DX patch — users on v1.3.0 should upgrade for the better defaults, but nothing they were doing will break.
+
+---
+
 ## [1.3.0] — 2026-05-16
 
 **Closes 5 community issues. Critical bootstrap-crash fix, RPCs work without the dock, hierarchy query gets smarter, phantom tools removed.**

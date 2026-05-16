@@ -105,10 +105,37 @@ TOOLS (99 working — was 109; 10 unimplementable tools removed in v1.3.0)
 }
 
 // ── Server setup ───────────────────────────────────────────────────
-const server = new McpServer({
-  name: "sbox-mcp",
-  version: getVersion(),
-});
+const server = new McpServer(
+  {
+    name: "sbox-mcp",
+    version: getVersion(),
+  },
+  {
+    // The `instructions` field surfaces every Claude Code session that uses this
+    // server (the way other MCP servers like Supabase / TurboTax do). Use it to
+    // tell Claude how to work effectively with the bridge — the disciplines that
+    // are easy to skip without a reminder.
+    instructions: `You are working with the s&box Claude Bridge — a file-based IPC bridge into the s&box game engine editor.
+
+To get good results:
+
+1. Always call \`mcp__sbox__get_bridge_status\` first to confirm the bridge addon is connected and s&box is running. If ping responds but other tools time out, the editor side isn't processing requests.
+
+2. For visual changes (models, positions, animations, UI panels, lighting), call \`mcp__sbox__take_screenshot\` after the change and READ THE PNG yourself. You're a multimodal model — you can see the result. Guessing about visual outcomes from code alone produces long iteration loops. The screenshot tool saves to <sbox-install>/screenshots/sbox.<timestamp>.png — list the newest file and read it.
+
+3. Before writing code that touches an unfamiliar s&box type, call \`mcp__sbox__describe_type\` or \`mcp__sbox__search_types\`. s&box's API changes between SDK versions — reflection is the source of truth, not training data.
+
+4. \`get_scene_hierarchy\` honors \`maxDepth\` (default 10) and accepts optional \`rootId\` to traverse from a specific GameObject. Use these to avoid dumping the entire scene into a tool result.
+
+5. Scene-mutating tools (create_gameobject, set_property, etc.) refuse during play mode and return a clear error. Stop play before making scene edits.
+
+If you're running inside Claude Code, install the companion plugin for the full workflow:
+    /plugin marketplace add LouSputthole/Sbox-Claude
+    /plugin install sbox-claude
+
+The plugin ships an \`sbox-build-feature\` skill that codifies the workflow above plus a list of common s&box gotchas (MathF not available in sandbox, Cloud assets ephemeral, head bone case-sensitive, CitizenAnimationHelper.IkRightHand works at runtime, etc.). Read its SKILL.md before starting non-trivial features.`,
+  },
+);
 
 // Bridge client connects to s&box editor via WebSocket
 const bridge = new BridgeClient(

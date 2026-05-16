@@ -4,7 +4,7 @@
   "Org": "sboxskinsgg",
   "Ident": "claudebridge",
   "Schema": 1,
-  "Description": "Build s&box games by talking to Claude. This MCP bridge connects Claude Code to the s&box editor with 99 tools — exceptional at coding systems (player controllers, networking, UI, AI, prefabs, sound, physics, scripts), serviceable for map building (terrain sculpting, forest generation, cave layout). v1.3.0 fixes the editor bootstrap crash on current s&box builds (PR #6 by @FurkanZhlp), processes RPCs even when the dock is closed, honors maxDepth on get_scene_hierarchy, and removes 10 phantom tools that never had handlers. See TROUBLESHOOTING.md if anything misbehaves.",
+  "Description": "Build s&box games by talking to Claude. 99 tools to drive the s&box editor through conversation — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, type discovery. v1.3.x is stable on current s&box builds (fixed bootstrap crash, dock-independent RPCs, smarter hierarchy query). If you use Claude Code, install the companion plugin: `/plugin marketplace add LouSputthole/Sbox-Claude` then `/plugin install sbox-claude` — it bundles the MCP server registration plus an `sbox-build-feature` skill that codifies the screenshot-driven iteration workflow. See TROUBLESHOOTING.md if anything misbehaves.",
   "IncludeSourceFiles": true,
   "Resources": null,
   "PackageReferences": [],
