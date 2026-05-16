@@ -1,0 +1,23 @@
+{
+  "name": "sbox-claude",
+  "description": "Build s&box games by talking to Claude. Bundles the Claude Bridge MCP server, a screenshot-driven game-dev workflow skill, and an optional sbox-game-dev specialist agent. The s&box editor addon must be installed separately (see README).",
+  "version": "1.0.0",
+  "author": {
+    "name": "sboxskins.gg",
+    "url": "https://sboxskins.gg"
+  },
+  "homepage": "https://github.com/LouSputthole/Sbox-Claude",
+  "repository": "https://github.com/LouSputthole/Sbox-Claude",
+  "license": "GPL-3.0-or-later",
+  "keywords": [
+    "sbox",
+    "s&box",
+    "game-engine",
+    "game-dev",
+    "source2",
+    "ai",
+    "mcp",
+    "bridge",
+    "claude-bridge"
+  ]
+}
