@@ -30,11 +30,23 @@ public static class ClaudeBridge
 	// UTF-8 without BOM — Node.js JSON.parse rejects the BOM prefix
 	private static readonly Encoding _utf8NoBom = new UTF8Encoding( false );
 
+	// Set on the first editor frame after bootstrap, so we don't re-initialize on every frame.
+	private static bool _initialized;
+
 	static ClaudeBridge()
 	{
-		Log.Info( "[SboxBridge] Initializing..." );
-		RegisterHandlers();
-		StartBridge();
+		// Static ctor must stay empty. TypeLibrary is explicitly disabled while
+		// PackageLoader.AddAssembly runs static constructors. Even a Log.Info call
+		// here dispatches to the menu addon's ConsoleOverlay, which constructs a
+		// Panel — Panel..ctor() then accesses TypeLibrary and throws:
+		//
+		//   InvalidOperationException: TypeLibrary is currently inaccessible.
+		//   Reason: Disabled during static constructors.
+		//
+		// That crashes editor bootstrap on current s&box builds and makes any
+		// project depending on this addon unopenable. Real init runs on the
+		// first editor frame instead (see OnEditorFrame). Fix originally
+		// reported and patched in PR #6 by @FurkanZhlp.
 	}
 
 	[Menu( "Editor", "Claude Bridge/Status", "smart_toy" )]
@@ -308,8 +320,9 @@ public static class ClaudeBridge
 	}
 
 	/// <summary>
-	/// Called on the main thread by BridgePoller widget.
-	/// Processes queued requests where scene APIs are safe to call.
+	/// Drains the request queue on the main editor thread. Required because scene
+	/// APIs (CreateObject, AddComponent, Destroy, etc.) are NOT thread-safe and
+	/// must run on the same thread as the rest of the editor.
 	/// </summary>
 	public static void ProcessPendingOnMainThread()
 	{
@@ -334,6 +347,56 @@ public static class ClaudeBridge
 			catch ( Exception ex )
 			{
 				Log.Warning( $"[SboxBridge] Write error: {ex.Message}" );
+			}
+		}
+	}
+
+	// Dedups frame-handler error logs so a broken init doesn't spam 60×/sec.
+	private static string _lastFrameError;
+
+	/// <summary>
+	/// Editor frame tick. Fires every editor frame regardless of UI state.
+	///
+	/// Does two things:
+	/// 1. On the very first frame, runs the bridge initialization (logging,
+	///    handler registration, IPC startup) that can't safely run from the
+	///    static constructor. By the first editor frame, bootstrap has finished
+	///    and TypeLibrary is accessible again. PR #6 by @FurkanZhlp.
+	/// 2. On every frame, drains the IPC request queue. Used to live on the
+	///    BridgePoller Widget, which meant RPCs only processed while the dock
+	///    was open — see GitHub issue #2. Moved here so the bridge works
+	///    whether or not the user opens the dock panel.
+	/// </summary>
+	[EditorEvent.Frame]
+	public static void OnEditorFrame()
+	{
+		if ( !_initialized )
+		{
+			_initialized = true;
+			try
+			{
+				Log.Info( "[SboxBridge] Initializing..." );
+				RegisterHandlers();
+				StartBridge();
+			}
+			catch ( Exception ex )
+			{
+				Log.Warning( $"[SboxBridge] Init failed: {ex}" );
+				return;
+			}
+		}
+
+		try
+		{
+			ProcessPendingOnMainThread();
+		}
+		catch ( Exception ex )
+		{
+			var msg = $"{ex.GetType().Name}: {ex.Message}";
+			if ( msg != _lastFrameError )
+			{
+				_lastFrameError = msg;
+				Log.Warning( $"[SboxBridge] Frame handler error (logged once per unique message): {ex}" );
 			}
 		}
 	}
@@ -487,13 +550,27 @@ public static class ClaudeBridge
 
 	internal static object SerializeGoTree( GameObject go )
 	{
+		return SerializeGoTree( go, 0, int.MaxValue );
+	}
+
+	/// <summary>
+	/// Serialize a GameObject and its descendants, capped at <paramref name="maxDepth"/>
+	/// levels of recursion. depth=0 is the root being serialized; once depth reaches
+	/// maxDepth, children are returned as an empty array instead of being recursed into.
+	/// Critical for large scenes — without this cap the JSON payload overflows token
+	/// budgets (see GitHub issue #4).
+	/// </summary>
+	internal static object SerializeGoTree( GameObject go, int depth, int maxDepth )
+	{
 		return new
 		{
 			id         = go.Id.ToString(),
 			name       = go.Name,
 			enabled    = go.Enabled,
 			components = go.Components.GetAll().Select( c => c.GetType().Name ).ToArray(),
-			children   = go.Children.Select( c => SerializeGoTree( c ) ).ToArray()
+			children   = depth >= maxDepth
+				? Array.Empty<object>()
+				: go.Children.Select( c => SerializeGoTree( c, depth + 1, maxDepth ) ).ToArray()
 		};
 	}
 }
@@ -984,14 +1061,48 @@ public class GetSceneHierarchyHandler : IBridgeHandler
 		if ( scene == null )
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
+		// Honor the maxDepth parameter documented in the MCP tool schema (default 10).
+		// Without this cap the payload overflows Claude's per-tool-result token budget
+		// on any non-trivial scene (GitHub issue #4).
+		var maxDepth = p.TryGetProperty( "maxDepth", out var md ) && md.ValueKind == JsonValueKind.Number
+			? md.GetInt32()
+			: 10;
+		if ( maxDepth < 0 ) maxDepth = 0;
+
+		// Optional: start traversal from a specific GameObject by GUID instead of from
+		// the scene roots. Useful for drilling into one subtree without dumping the
+		// entire scene tree first (GitHub issue #4 bonus suggestion).
+		if ( p.TryGetProperty( "rootId", out var rootProp ) && rootProp.ValueKind == JsonValueKind.String )
+		{
+			var idStr = rootProp.GetString();
+			if ( !string.IsNullOrEmpty( idStr ) )
+			{
+				if ( !Guid.TryParse( idStr, out var rootGuid ) )
+					return Task.FromResult<object>( new { error = $"Invalid rootId: {idStr}" } );
+
+				var root = scene.Directory.FindByGuid( rootGuid );
+				if ( root == null )
+					return Task.FromResult<object>( new { error = $"rootId not found in scene: {idStr}" } );
+
+				return Task.FromResult<object>( new
+				{
+					sceneName = scene.Name,
+					rootId = idStr,
+					maxDepth,
+					hierarchy = new[] { ClaudeBridge.SerializeGoTree( root, 0, maxDepth ) }
+				} );
+			}
+		}
+
 		var roots = scene.Children
-			.Select( go => ClaudeBridge.SerializeGoTree( go ) )
+			.Select( go => ClaudeBridge.SerializeGoTree( go, 0, maxDepth ) )
 			.ToArray();
 
 		return Task.FromResult<object>( new
 		{
 			sceneName = scene.Name,
 			objectCount = scene.GetAllObjects( true ).Count(),
+			maxDepth,
 			hierarchy = roots
 		} );
 	}
@@ -3234,7 +3345,9 @@ public class TriggerHotloadHandler : IBridgeHandler
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Main-thread poller — ensures scene APIs run on the editor thread
+// Status dock — purely informational. The main-thread frame handler
+// lives on ClaudeBridge.OnEditorFrame so RPCs are processed even when
+// this dock is closed (GitHub issue #2).
 // ═══════════════════════════════════════════════════════════════════
 
 [Dock( "Editor", "Claude Bridge", "smart_toy" )]
@@ -3262,28 +3375,6 @@ public class BridgePoller : Widget
 
 		var url = Layout.Add( new Label( "https://sboxskins.gg", this ) );
 		url.SetStyles( "font-size: 10px; color: #888;" );
-	}
-
-	// Tracks the last error message so we log only once per unique error instead of
-	// spamming the console 60×/sec when the static initializer or a handler is broken.
-	private static string _lastFrameError;
-
-	[EditorEvent.Frame]
-	public void OnFrame()
-	{
-		try
-		{
-			ClaudeBridge.ProcessPendingOnMainThread();
-		}
-		catch ( Exception ex )
-		{
-			var msg = $"{ex.GetType().Name}: {ex.Message}";
-			if ( msg != _lastFrameError )
-			{
-				_lastFrameError = msg;
-				Log.Warning( $"[SboxBridge] Frame handler error (logged once per unique message): {ex}" );
-			}
-		}
 	}
 }
 

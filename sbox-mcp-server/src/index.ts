@@ -19,7 +19,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { BridgeClient } from "./transport/bridge-client.js";
 import { registerProjectTools } from "./tools/project.js";
 import { registerScriptTools } from "./tools/scripts.js";
-import { registerConsoleTools } from "./tools/console.js";
 import { registerSceneTools } from "./tools/scenes.js";
 import { registerGameObjectTools } from "./tools/gameobjects.js";
 import { registerComponentTools } from "./tools/components.js";
@@ -74,18 +73,17 @@ ENVIRONMENT VARIABLES
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
-TOOLS (109 total)
+TOOLS (99 working — was 109; 10 unimplementable tools removed in v1.3.0)
   Project:     get_project_info, list_project_files, read_file, write_file
   Scripts:     create_script, edit_script, delete_script, trigger_hotload
-  Console:     get_console_output, get_compile_errors, clear_console
   Scenes:      list_scenes, load_scene, save_scene, create_scene
   GameObjects: create/delete/duplicate/rename_gameobject, set_parent/enabled/transform
   Components:  get/set_property, get_all_properties, list_available_components, add_component_with_properties, set_prefab_ref
-  Hierarchy:   get_scene_hierarchy, get_selected_objects, select_object, focus_object
+  Hierarchy:   get_scene_hierarchy (with maxDepth + rootId), get_selected_objects, select_object, focus_object
   Assets:      search_assets, list_asset_library, install_asset, get_asset_info
   Materials:   assign_model, create_material, assign_material, set_material_property
   Audio:       list_sounds, create_sound_event, assign_sound, play_sound_preview
-  Play Mode:   start/stop/pause/resume_play, is_playing
+  Play Mode:   start_play, stop_play, is_playing
   Runtime:     get/set_runtime_property, take_screenshot
   Editor:      undo, redo
   Prefabs:     create_prefab, instantiate_prefab, list_prefabs, get_prefab_info
@@ -94,8 +92,7 @@ TOOLS (109 total)
   Templates:   create_player_controller, create_npc_controller, create_game_manager, create_trigger_zone
   Networking:  add_network_helper, configure_network, get_network_status, network_spawn, set_ownership
   Net Scripts: add_sync_property, add_rpc_method, create_networked_player, create_lobby_manager, create_network_events
-  Publishing:  get_project_config, set_project_config, validate_project, build_project, get_build_status, clean_build
-  Export:      export_project, set_project_thumbnail, get_package_details, prepare_publish
+  Publishing:  get_project_config, set_project_config, validate_project, set_project_thumbnail, get_package_details
   World Gen:   invoke_button, list_component_buttons, raycast_terrain, build_terrain_mesh
   Map Edit:    add_terrain_hill/clearing/trail, clear_terrain_features, sculpt_terrain
   Caves:       add_cave_waypoint, clear_cave_path
@@ -122,7 +119,6 @@ const bridge = new BridgeClient(
 // Register all tools
 registerProjectTools(server, bridge);
 registerScriptTools(server, bridge);
-registerConsoleTools(server, bridge);
 registerSceneTools(server, bridge);
 registerGameObjectTools(server, bridge);
 registerComponentTools(server, bridge);

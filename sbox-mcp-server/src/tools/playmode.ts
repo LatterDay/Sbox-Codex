@@ -45,37 +45,9 @@ export function registerPlayModeTools(
     }
   );
 
-  // ── pause_play ───────────────────────────────────────────────────
-  server.tool(
-    "pause_play",
-    "Pause the running game — freezes simulation but stays in play mode. Use resume_play to continue",
-    {},
-    async () => {
-      const res = await bridge.send("pause_play");
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
-
-  // ── resume_play ──────────────────────────────────────────────────
-  server.tool(
-    "resume_play",
-    "Resume a paused game — unfreezes simulation",
-    {},
-    async () => {
-      const res = await bridge.send("resume_play");
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
+  // pause_play / resume_play removed in v1.3.0 — s&box does not expose a public
+  // API for pausing the editor's play mode, so the addon has no handler and the
+  // tool only ever returned "Unknown command". See GitHub issue #3.
 
   // ── is_playing ───────────────────────────────────────────────────
   server.tool(

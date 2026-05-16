@@ -196,12 +196,18 @@ export function registerGameObjectTools(
   // ── get_scene_hierarchy ──────────────────────────────────────────
   server.tool(
     "get_scene_hierarchy",
-    "Get the full scene tree — all GameObjects with their names, GUIDs, components, positions, and parent/child relationships. This is how you 'see' the scene",
+    "Get the scene tree — GameObjects with their names, GUIDs, components, and parent/child relationships. Pair maxDepth with rootId to drill into a subtree without paying for the whole scene",
     {
       maxDepth: z
         .number()
+        .int()
+        .nonnegative()
         .optional()
-        .describe("Maximum depth of the tree to return. Defaults to 10"),
+        .describe("Maximum recursion depth. Defaults to 10. Use 1 or 2 for cheap top-level overviews"),
+      rootId: z
+        .string()
+        .optional()
+        .describe("Optional GUID of a GameObject to start traversal from. Omit to walk from the scene roots"),
     },
     async (params) => {
       const res = await bridge.send("get_scene_hierarchy", params);

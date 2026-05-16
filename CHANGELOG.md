@@ -2,6 +2,42 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.3.0] — 2026-05-16
+
+**Closes 5 community issues. Critical bootstrap-crash fix, RPCs work without the dock, hierarchy query gets smarter, phantom tools removed.**
+
+### Fixed
+
+- **Editor bootstrap crash on current s&box builds.** `ClaudeBridge`'s static constructor called `Log.Info`, which dispatches to the menu addon's `ConsoleOverlay`. `ConsoleOverlay.OnConsoleMessage` constructs a `ConsoleEntry` panel, and `Panel..ctor()` calls `InitializeEvents()` which accesses `Game.TypeLibrary` — but `TypeLibrary` is explicitly disabled during `PackageLoader.AddAssembly → RunAllStaticConstructors`. Result: `InvalidOperationException: TypeLibrary is currently inaccessible. Reason: Disabled during static constructors.` and any project depending on this addon becomes unopenable. **Fix:** keep the static constructor empty and run logging / handler registration / IPC bridge startup from the first `[EditorEvent.Frame]` callback (gated by an `_initialized` flag) so init happens after bootstrap completes and `TypeLibrary` is accessible. **Original report and patch by [@FurkanZhlp](https://github.com/FurkanZhlp) in [PR #6](https://github.com/LouSputthole/Sbox-Claude/pull/6).**
+- **GitHub issue [#2](https://github.com/LouSputthole/Sbox-Claude/issues/2)** — RPCs hung for 30s whenever the **Claude Bridge** dock panel wasn't open. Reason: `[EditorEvent.Frame]` was on an instance method of `BridgePoller : Widget`, so it only fired during the lifetime of the dock instance. **Fix:** moved the frame handler to a static method on `ClaudeBridge` itself — `[EditorEvent.Frame] public static void OnEditorFrame()`. The dock widget remains as a status display but the bridge no longer depends on it being open.
+- **GitHub issue [#4](https://github.com/LouSputthole/Sbox-Claude/issues/4)** — `get_scene_hierarchy` ignored its `maxDepth` parameter and always returned the full tree, overflowing token budgets on real scenes. **Fix:** the handler now honors `maxDepth` (default 10) and gates recursion at that depth. **Bonus:** added optional `rootId` parameter to start traversal from a specific GameObject GUID instead of the scene roots — drill into a subtree without paying for the rest of the scene.
+
+### Removed
+
+- **GitHub issue [#3](https://github.com/LouSputthole/Sbox-Claude/issues/3)** — Removed 10 tools from the MCP server that never had handlers in the bridge addon and only ever returned `"Unknown command: ..."`. The s&box editor doesn't expose public APIs for any of these:
+  - **console** (3): `get_console_output`, `get_compile_errors`, `clear_console`
+  - **playmode** (2): `pause_play`, `resume_play`
+  - **publishing** (5): `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish`
+  
+  Tool count goes from 109 → 99 (all working). The MCP `--help` listing and README tables are updated to match. For console output, read `<sbox>/logs/sbox-dev.log` directly.
+
+### Confirmed already fixed
+
+- **GitHub issue [#1](https://github.com/LouSputthole/Sbox-Claude/issues/1)** — UTF-8 BOM in response files causing silent JSON.parse failures. Fixed in **v1.0.0** with `new UTF8Encoding(false)` on the C# write side and `.replace(/^﻿/, "")` on the Node read side.
+- **GitHub issue [#5](https://github.com/LouSputthole/Sbox-Claude/issues/5)** — Tool invocations timing out after a compile error. Fixed in **v1.2.0** when per-handler registration was made fault-tolerant and `OnFrame` was wrapped in try/catch with deduplicated logging.
+
+### Compatibility
+
+Drop-in upgrade from 1.2.0. No breaking changes to working tools. Tools that were already broken (`get_compile_errors`, etc.) are no longer listed — calls to them now fail at the MCP server with "tool not found" instead of round-tripping to "Unknown command".
+
+### Acknowledgments
+
+- **[@FurkanZhlp](https://github.com/FurkanZhlp)** — diagnosed and patched the editor bootstrap crash. Without this fix the addon doesn't load on current s&box builds at all.
+- **[@Jmcasavant](https://github.com/Jmcasavant)** — three detailed bug reports (#1, #2, #3, #4) with stack traces, reproductions, and suggested fixes. Top-tier issue quality, made the fixes nearly mechanical.
+- **[@dvd900](https://github.com/dvd900)** — timeout report (#5) that helped validate the v1.2.0 per-handler resilience work.
+
+---
+
 ## [1.2.0] — 2026-05-15
 
 **Stability release. Same 100 tools, far more resilient. Fixes three reported bugs.**

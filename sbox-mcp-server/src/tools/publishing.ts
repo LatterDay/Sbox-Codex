@@ -4,10 +4,14 @@ import { BridgeClient } from "../transport/bridge-client.js";
 
 /**
  * Publishing tools: get_project_config, set_project_config, validate_project,
- * build_project, get_build_status, clean_build, export_project,
- * set_project_thumbnail, get_package_details, prepare_publish.
+ * set_project_thumbnail, get_package_details.
  *
- * Manages project configuration, building, exporting, and publishing preparation.
+ * Manages project configuration and publishing metadata.
+ *
+ * build_project / get_build_status / clean_build / export_project / prepare_publish
+ * were removed in v1.3.0 — s&box does not expose a public API for these from
+ * inside an addon, so the bridge never had handlers for them and the tools only
+ * ever returned "Unknown command". See GitHub issue #3.
  */
 export function registerPublishingTools(
   server: McpServer,
@@ -89,85 +93,8 @@ export function registerPublishingTools(
     }
   );
 
-  // ── build_project ────────────────────────────────────────────────
-  server.tool(
-    "build_project",
-    "Trigger a full project build/recompilation. Returns build result with error and warning counts",
-    {
-      configuration: z
-        .enum(["Debug", "Release"])
-        .optional()
-        .describe("Build configuration. Defaults to 'Release'"),
-    },
-    async (params) => {
-      const res = await bridge.send("build_project", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
-
-  // ── get_build_status ─────────────────────────────────────────────
-  server.tool(
-    "get_build_status",
-    "Get the current build/compilation status: is compiling, errors, warnings, and full diagnostics list",
-    {},
-    async (params) => {
-      const res = await bridge.send("get_build_status", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
-
-  // ── clean_build ──────────────────────────────────────────────────
-  server.tool(
-    "clean_build",
-    "Clean all compiled output (bin, obj) and trigger a fresh rebuild from scratch",
-    {},
-    async (params) => {
-      const res = await bridge.send("clean_build", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
-
-  // ── export_project ───────────────────────────────────────────────
-  server.tool(
-    "export_project",
-    "Export the project as a standalone game. Copies assemblies, assets, and scenes to an output directory for distribution",
-    {
-      outputPath: z
-        .string()
-        .optional()
-        .describe(
-          "Relative output directory within the project. Defaults to 'export'"
-        ),
-      configuration: z
-        .enum(["Debug", "Release"])
-        .optional()
-        .describe("Build configuration for export. Defaults to 'Release'"),
-    },
-    async (params) => {
-      const res = await bridge.send("export_project", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
+  // build_project / get_build_status / clean_build / export_project removed
+  // in v1.3.0 — no addon handler exists. See GitHub issue #3.
 
   // ── set_project_thumbnail ────────────────────────────────────────
   server.tool(
@@ -222,19 +149,6 @@ export function registerPublishingTools(
     }
   );
 
-  // ── prepare_publish ──────────────────────────────────────────────
-  server.tool(
-    "prepare_publish",
-    "Comprehensive publish preparation: validates project, compiles, checks metadata, and generates a detailed readiness report with issues, warnings, and next steps",
-    {},
-    async (params) => {
-      const res = await bridge.send("prepare_publish", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-      }
-      return {
-        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
-      };
-    }
-  );
+  // prepare_publish removed in v1.3.0 — no addon handler. Equivalent intent is
+  // covered by validate_project (which IS implemented). GitHub issue #3.
 }
