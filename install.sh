@@ -2,147 +2,156 @@
 #
 # s&box Claude Bridge Installer (Linux/WSL/Mac)
 #
-# Detects your s&box installation via Steam, copies the Bridge addon
-# into the addons directory, and verifies the install.
+# Installs the bridge into your project's Libraries folder. The bridge
+# WILL NOT compile if placed in s&box's global addons folder — that
+# folder is built-in only.
 #
 # Usage:
-#   ./install.sh                              # Auto-detect
-#   ./install.sh /path/to/sbox                # Manual path
-#   SBOX_PATH=/path/to/sbox ./install.sh      # Via env var
+#   ./install.sh                                 # Auto-detects single project
+#   ./install.sh /path/to/your/sbox/project      # Explicit project path
+#   ./install.sh --list                          # List projects, then exit
+#   ./install.sh --remove-stale                  # Also delete old wrong-location installs
 
 set -euo pipefail
 
-ADDON_NAME="sbox-bridge-addon"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ADDON_SOURCE="$SCRIPT_DIR/$ADDON_NAME"
+ADDON_SOURCE="$SCRIPT_DIR/sbox-bridge-addon"
+PROJECTS_ROOT="${HOME}/Documents/s&box projects"
+
+REMOVE_STALE=0
+LIST_ONLY=0
+PROJECT_PATH=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --remove-stale) REMOVE_STALE=1 ;;
+        --list)         LIST_ONLY=1 ;;
+        -*)             echo "Unknown flag: $arg" >&2; exit 1 ;;
+        *)              PROJECT_PATH="$arg" ;;
+    esac
+done
 
 echo ""
 echo "=== s&box Claude Bridge Installer ==="
 echo ""
 
-# ── Locate s&box installation ──────────────────────────────────────
-
-find_sbox() {
-    # Check argument first
-    if [[ -n "${1:-}" ]] && [[ -d "$1" ]]; then
-        echo "$1"
-        return
+# ── List mode ─────────────────────────────────────────────────────
+if [[ "$LIST_ONLY" -eq 1 ]]; then
+    if [[ ! -d "$PROJECTS_ROOT" ]]; then
+        echo "No projects directory at: $PROJECTS_ROOT"
+        exit 1
     fi
-
-    # Check env var
-    if [[ -n "${SBOX_PATH:-}" ]] && [[ -d "$SBOX_PATH" ]]; then
-        echo "$SBOX_PATH"
-        return
-    fi
-
-    # Common Steam paths (Linux)
-    local candidates=(
-        "$HOME/.steam/steam/steamapps/common/sbox"
-        "$HOME/.local/share/Steam/steamapps/common/sbox"
-    )
-
-    # WSL: check Windows Steam paths
-    if [[ -d "/mnt/c" ]]; then
-        candidates+=(
-            "/mnt/c/Program Files/Steam/steamapps/common/sbox"
-            "/mnt/c/Program Files (x86)/Steam/steamapps/common/sbox"
-            "/mnt/d/SteamLibrary/steamapps/common/sbox"
-            "/mnt/e/SteamLibrary/steamapps/common/sbox"
-        )
-    fi
-
-    # macOS Steam path
-    candidates+=(
-        "$HOME/Library/Application Support/Steam/steamapps/common/sbox"
-    )
-
-    for path in "${candidates[@]}"; do
-        if [[ -d "$path" ]]; then
-            echo "$path"
-            return
+    echo "Projects under $PROJECTS_ROOT :"
+    for d in "$PROJECTS_ROOT"/*/; do
+        [[ -d "$d" ]] || continue
+        if compgen -G "$d"*.sbproj > /dev/null; then
+            echo "  $(basename "$d")"
         fi
     done
+    exit 0
+fi
 
-    # Try parsing Steam's libraryfolders.vdf
-    local steam_config="$HOME/.steam/steam/steamapps/libraryfolders.vdf"
-    if [[ ! -f "$steam_config" ]]; then
-        steam_config="$HOME/.local/share/Steam/steamapps/libraryfolders.vdf"
+# ── Auto-detect project if none was given ─────────────────────────
+if [[ -z "$PROJECT_PATH" ]]; then
+    if [[ ! -d "$PROJECTS_ROOT" ]]; then
+        echo "Could not find $PROJECTS_ROOT"
+        echo "Pass a project explicitly:  ./install.sh /path/to/project"
+        exit 1
     fi
-
-    if [[ -f "$steam_config" ]]; then
-        while IFS= read -r line; do
-            local lib_path
-            lib_path=$(echo "$line" | grep -oP '"path"\s+"\K[^"]+' 2>/dev/null || true)
-            if [[ -n "$lib_path" ]] && [[ -d "$lib_path/steamapps/common/sbox" ]]; then
-                echo "$lib_path/steamapps/common/sbox"
-                return
-            fi
-        done < "$steam_config"
+    candidates=()
+    for d in "$PROJECTS_ROOT"/*/; do
+        [[ -d "$d" ]] || continue
+        if compgen -G "${d}*.sbproj" > /dev/null; then
+            candidates+=("$d")
+        fi
+    done
+    if [[ "${#candidates[@]}" -eq 0 ]]; then
+        echo "No s&box projects found under $PROJECTS_ROOT"
+        exit 1
     fi
-
-    return 1
-}
-
-SBOX_PATH=$(find_sbox "${1:-}" 2>/dev/null) || {
-    echo "ERROR: Could not auto-detect s&box installation." >&2
-    echo ""
-    echo "Please run again with the path:"
-    echo "  ./install.sh /path/to/sbox"
-    echo ""
-    echo "Common locations:"
-    echo "  Linux:  ~/.steam/steam/steamapps/common/sbox"
-    echo "  WSL:    /mnt/c/Program Files/Steam/steamapps/common/sbox"
-    exit 1
-}
-
-echo "Found s&box at: $SBOX_PATH"
-
-# ── Determine addons directory ─────────────────────────────────────
-
-ADDONS_DIR="$SBOX_PATH/addons"
-if [[ ! -d "$ADDONS_DIR" ]]; then
-    echo "Creating addons directory: $ADDONS_DIR"
-    mkdir -p "$ADDONS_DIR"
+    if [[ "${#candidates[@]}" -eq 1 ]]; then
+        PROJECT_PATH="${candidates[0]%/}"
+        echo "Auto-detected project: $(basename "$PROJECT_PATH")"
+    else
+        echo "Multiple projects found — specify one:"
+        for c in "${candidates[@]}"; do echo "  $c"; done
+        exit 1
+    fi
 fi
 
-echo "Addons directory: $ADDONS_DIR"
-
-# ── Verify source ─────────────────────────────────────────────────
-
-if [[ ! -d "$ADDON_SOURCE" ]]; then
-    echo "ERROR: Cannot find $ADDON_NAME folder at $ADDON_SOURCE" >&2
-    echo "Make sure you're running this from the Sbox-Claude repository." >&2
+# ── Validate ─────────────────────────────────────────────────────
+if [[ ! -d "$PROJECT_PATH" ]]; then
+    echo "Project path not found: $PROJECT_PATH"
+    exit 1
+fi
+if ! compgen -G "$PROJECT_PATH/*.sbproj" > /dev/null; then
+    echo "No .sbproj in: $PROJECT_PATH"
+    echo "Doesn't look like an s&box project folder."
     exit 1
 fi
 
-# ── Copy addon ─────────────────────────────────────────────────────
+echo "Project: $(basename "$PROJECT_PATH")"
+echo "Path:    $PROJECT_PATH"
+echo ""
 
-DESTINATION="$ADDONS_DIR/$ADDON_NAME"
+# ── Confirm addon source ─────────────────────────────────────────
+[[ -d "$ADDON_SOURCE" ]] || { echo "Missing: $ADDON_SOURCE"; exit 1; }
+[[ -f "$ADDON_SOURCE/claudebridge.sbproj" ]] || { echo "Missing: claudebridge.sbproj"; exit 1; }
+[[ -f "$ADDON_SOURCE/Editor/MyEditorMenu.cs" ]] || { echo "Missing: Editor/MyEditorMenu.cs"; exit 1; }
 
-if [[ -d "$DESTINATION" ]]; then
-    echo "Existing installation found. Updating..."
-    rm -rf "$DESTINATION"
+# ── Install into <Project>/Libraries/claudebridge/ ────────────────
+DEST_DIR="$PROJECT_PATH/Libraries/claudebridge"
+EDITOR_DIR="$DEST_DIR/Editor"
+mkdir -p "$EDITOR_DIR"
+
+cp -f "$ADDON_SOURCE/claudebridge.sbproj" "$DEST_DIR/claudebridge.sbproj"
+cp -f "$ADDON_SOURCE/Editor/MyEditorMenu.cs" "$EDITOR_DIR/MyEditorMenu.cs"
+
+# Remove stale auto-generated .csproj if present — s&box will regen on next compile
+STALE_CSPROJ="$EDITOR_DIR/claudebridge.editor.csproj"
+if [[ -f "$STALE_CSPROJ" ]]; then
+    rm -f "$STALE_CSPROJ"
+    echo "Removed stale claudebridge.editor.csproj (s&box will regenerate)"
 fi
 
-echo "Copying Bridge addon to s&box..."
-cp -r "$ADDON_SOURCE" "$DESTINATION"
+echo "Installed:"
+echo "  $DEST_DIR/claudebridge.sbproj"
+echo "  $EDITOR_DIR/MyEditorMenu.cs"
+echo ""
 
-# ── Verify ─────────────────────────────────────────────────────────
-
-if [[ -f "$DESTINATION/$ADDON_NAME.sbproj" ]]; then
+# ── Check for old wrong-location installs ─────────────────────────
+declare -a CANDIDATES
+CANDIDATES=(
+    "$HOME/.steam/steam/steamapps/common/sbox/addons/sbox-bridge-addon"
+    "$HOME/.local/share/Steam/steamapps/common/sbox/addons/sbox-bridge-addon"
+    "/mnt/c/Program Files (x86)/Steam/steamapps/common/sbox/addons/sbox-bridge-addon"
+)
+BAD_INSTALLS=()
+for p in "${CANDIDATES[@]}"; do
+    [[ -d "$p" ]] && BAD_INSTALLS+=("$p")
+done
+if [[ "${#BAD_INSTALLS[@]}" -gt 0 ]]; then
+    echo "Found prior install(s) in s&box's global addons folder (these never compile):"
+    for p in "${BAD_INSTALLS[@]}"; do echo "  $p"; done
+    if [[ "$REMOVE_STALE" -eq 1 ]]; then
+        for p in "${BAD_INSTALLS[@]}"; do
+            rm -rf "$p"
+            echo "Removed: $p"
+        done
+    else
+        echo "Re-run with --remove-stale to delete them."
+    fi
     echo ""
-    echo "Installation successful!"
-    echo ""
-    echo "Installed to: $DESTINATION"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Start (or restart) s&box"
-    echo "  2. The Bridge addon will compile and start automatically"
-    echo "  3. Connect Claude Code:"
-    echo "     claude mcp add sbox -- npx sbox-mcp-server"
-    echo "  4. Start building your game!"
-    echo ""
-else
-    echo "WARNING: Installation may be incomplete. Project file not found." >&2
-    exit 1
 fi
+
+echo "Installation successful."
+echo ""
+echo "Next steps:"
+echo "  1. Open or restart s&box and load this project."
+echo "  2. View -> Claude Bridge (the dock MUST be visible for requests to process)."
+echo "  3. Register the MCP server (one-time):"
+echo "       claude mcp add sbox -- node \"$SCRIPT_DIR/sbox-mcp-server/dist/index.js\""
+echo "  4. In Claude Code: 'check the bridge status'"
+echo ""
+echo "If the dock doesn't appear, tail <sbox>/logs/sbox-dev.log for"
+echo "'Compile of local.<project>.editor Failed' lines."

@@ -1,151 +1,198 @@
 <#
 .SYNOPSIS
-    Installs the s&box Claude Bridge addon.
+    Installs the s&box Claude Bridge into your project's Libraries folder.
 
 .DESCRIPTION
-    Detects your s&box installation, copies the Bridge addon into the
-    addons directory, and verifies the install. After running this,
-    restart s&box and the Bridge will start automatically on port 29015.
+    The bridge addon MUST live inside an s&box PROJECT's Libraries folder.
+    Putting it in s&box's global addons folder will NOT work — those addons
+    are built-in only and will not compile custom C#.
+
+    This installer:
+      1. Locates your s&box project (auto-detects or use -ProjectPath)
+      2. Creates <Project>/Libraries/claudebridge/{Editor/}
+      3. Copies the .sbproj and MyEditorMenu.cs into it
+      4. Tells s&box to regenerate its .csproj files on next launch
+      5. Optionally cleans up any old broken install under sbox/addons/
 
 .EXAMPLE
     .\install.ps1
-    # Auto-detects s&box and installs
+    # Auto-detects the project (works if you have exactly one in Documents\s&box projects)
 
 .EXAMPLE
-    .\install.ps1 -SboxPath "D:\SteamLibrary\steamapps\common\sbox"
-    # Manual path override
+    .\install.ps1 -ProjectPath "D:\sbox-projects\my-game"
+
+.EXAMPLE
+    .\install.ps1 -ListProjects
+    # Lists all projects it can see, then exits
+
+.EXAMPLE
+    .\install.ps1 -RemoveStaleAddons
+    # Also deletes any old install under <sbox>/addons/sbox-bridge-addon
 #>
 
 param(
-    [string]$SboxPath = ""
+    [string]$ProjectPath = "",
+    [switch]$ListProjects,
+    [switch]$RemoveStaleAddons
 )
 
 $ErrorActionPreference = "Stop"
-$addonName = "sbox-bridge-addon"
 
 Write-Host ""
 Write-Host "=== s&box Claude Bridge Installer ===" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Locate s&box installation ──────────────────────────────────────
+# ── Locate the s&box projects directory ────────────────────────────
+$projectsRoot = Join-Path $env:USERPROFILE "Documents\s&box projects"
 
-function Find-SboxPath {
-    # Check common Steam install locations
-    $candidates = @(
-        "$env:ProgramFiles\Steam\steamapps\common\sbox",
-        "${env:ProgramFiles(x86)}\Steam\steamapps\common\sbox",
-        "D:\SteamLibrary\steamapps\common\sbox",
-        "E:\SteamLibrary\steamapps\common\sbox",
-        "F:\SteamLibrary\steamapps\common\sbox",
-        "$env:USERPROFILE\.sbox"
-    )
-
-    foreach ($path in $candidates) {
-        if (Test-Path $path) {
-            return $path
-        }
+if ($ListProjects) {
+    if (-not (Test-Path $projectsRoot)) {
+        Write-Host "No projects directory at: $projectsRoot" -ForegroundColor Yellow
+        exit 1
     }
-
-    # Try reading Steam's libraryfolders.vdf to find all library paths
-    $steamConfig = "${env:ProgramFiles(x86)}\Steam\steamapps\libraryfolders.vdf"
-    if (Test-Path $steamConfig) {
-        $content = Get-Content $steamConfig -Raw
-        $matches = [regex]::Matches($content, '"path"\s+"([^"]+)"')
-        foreach ($match in $matches) {
-            $libPath = $match.Groups[1].Value -replace '\\\\', '\'
-            $sboxPath = Join-Path $libPath "steamapps\common\sbox"
-            if (Test-Path $sboxPath) {
-                return $sboxPath
-            }
-        }
+    Write-Host "Projects under $projectsRoot :" -ForegroundColor Cyan
+    Get-ChildItem $projectsRoot -Directory | ForEach-Object {
+        $sbproj = Get-ChildItem $_.FullName -Filter "*.sbproj" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($sbproj) { Write-Host ("  {0}" -f $_.Name) -ForegroundColor White }
     }
-
-    return $null
+    exit 0
 }
 
-if ($SboxPath -eq "") {
-    Write-Host "Searching for s&box installation..." -ForegroundColor Yellow
-    $SboxPath = Find-SboxPath
+# ── Auto-detect the project if none was passed ─────────────────────
+if (-not $ProjectPath) {
+    if (-not (Test-Path $projectsRoot)) {
+        Write-Host "Could not find $projectsRoot" -ForegroundColor Red
+        Write-Host "Specify your project explicitly:" -ForegroundColor Yellow
+        Write-Host '  .\install.ps1 -ProjectPath "C:\path\to\your\sbox\project"' -ForegroundColor White
+        exit 1
+    }
 
-    if ($null -eq $SboxPath) {
-        Write-Host "Could not auto-detect s&box installation." -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Please run again with the -SboxPath parameter:" -ForegroundColor Yellow
-        Write-Host '  .\install.ps1 -SboxPath "C:\path\to\sbox"' -ForegroundColor White
-        Write-Host ""
-        Write-Host "Your s&box folder is typically at:" -ForegroundColor Yellow
-        Write-Host "  C:\Program Files\Steam\steamapps\common\sbox" -ForegroundColor White
+    $candidates = @()
+    Get-ChildItem $projectsRoot -Directory | ForEach-Object {
+        $sbproj = Get-ChildItem $_.FullName -Filter "*.sbproj" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($sbproj) { $candidates += $_ }
+    }
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "No s&box projects found under $projectsRoot" -ForegroundColor Red
+        Write-Host "Open s&box and create or load a project first, then re-run." -ForegroundColor Yellow
+        exit 1
+    }
+
+    if ($candidates.Count -eq 1) {
+        $ProjectPath = $candidates[0].FullName
+        Write-Host ("Auto-detected project: {0}" -f $candidates[0].Name) -ForegroundColor Green
+    }
+    else {
+        Write-Host "Multiple s&box projects found. Pick one and pass it explicitly:" -ForegroundColor Yellow
+        $candidates | ForEach-Object {
+            Write-Host ("  -ProjectPath ""{0}""" -f $_.FullName) -ForegroundColor White
+        }
         exit 1
     }
 }
 
-if (-not (Test-Path $SboxPath)) {
-    Write-Host "s&box path not found: $SboxPath" -ForegroundColor Red
+# ── Validate the project ───────────────────────────────────────────
+if (-not (Test-Path $ProjectPath)) {
+    Write-Host "Project path not found: $ProjectPath" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Found s&box at: $SboxPath" -ForegroundColor Green
+$sbprojFile = Get-ChildItem $ProjectPath -Filter "*.sbproj" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $sbprojFile) {
+    Write-Host "No .sbproj found in: $ProjectPath" -ForegroundColor Red
+    Write-Host "This does not look like an s&box project folder." -ForegroundColor Yellow
+    exit 1
+}
 
-# ── Determine addons directory ─────────────────────────────────────
+Write-Host ("Project: {0}" -f $sbprojFile.BaseName) -ForegroundColor Green
+Write-Host ("Path:    {0}" -f $ProjectPath) -ForegroundColor Green
+Write-Host ""
 
-$addonsDir = Join-Path $SboxPath "addons"
-if (-not (Test-Path $addonsDir)) {
-    # Some s&box installs use a different addons location
-    $altAddonsDir = Join-Path $env:USERPROFILE ".sbox\addons"
-    if (Test-Path $altAddonsDir) {
-        $addonsDir = $altAddonsDir
-    } else {
-        Write-Host "Creating addons directory: $addonsDir" -ForegroundColor Yellow
-        New-Item -ItemType Directory -Path $addonsDir -Force | Out-Null
+# ── Locate addon source ───────────────────────────────────────────
+$scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$addonSource = Join-Path $scriptDir "sbox-bridge-addon"
+
+if (-not (Test-Path $addonSource)) {
+    Write-Host "Cannot find sbox-bridge-addon folder beside install.ps1." -ForegroundColor Red
+    Write-Host "Run this script from the root of the sbox-claude repo." -ForegroundColor Yellow
+    exit 1
+}
+
+$srcSbproj = Join-Path $addonSource "claudebridge.sbproj"
+$srcCs     = Join-Path $addonSource "Editor\MyEditorMenu.cs"
+
+if (-not (Test-Path $srcSbproj)) { Write-Host "Missing: $srcSbproj" -ForegroundColor Red; exit 1 }
+if (-not (Test-Path $srcCs))     { Write-Host "Missing: $srcCs"     -ForegroundColor Red; exit 1 }
+
+# ── Install into project's Libraries folder ───────────────────────
+$libsDir   = Join-Path $ProjectPath "Libraries"
+$destDir   = Join-Path $libsDir "claudebridge"
+$editorDir = Join-Path $destDir "Editor"
+
+New-Item -ItemType Directory -Force -Path $libsDir   | Out-Null
+New-Item -ItemType Directory -Force -Path $destDir   | Out-Null
+New-Item -ItemType Directory -Force -Path $editorDir | Out-Null
+
+Copy-Item $srcSbproj (Join-Path $destDir "claudebridge.sbproj")  -Force
+Copy-Item $srcCs     (Join-Path $editorDir "MyEditorMenu.cs")    -Force
+
+# If s&box previously scaffolded a stale .csproj here, delete it so the editor regenerates
+# one against the local s&box install path. This is the file that has hardcoded "A:\SteamLibrary"
+# paths and is the #1 source of "Compile of local.<project>.editor Failed" errors after a move.
+$staleCsproj = Join-Path $editorDir "claudebridge.editor.csproj"
+if (Test-Path $staleCsproj) {
+    Remove-Item $staleCsproj -Force
+    Write-Host "Removed stale claudebridge.editor.csproj (s&box will regenerate it)" -ForegroundColor Yellow
+}
+
+Write-Host "Installed:" -ForegroundColor Green
+Write-Host ("  {0}" -f (Join-Path $destDir "claudebridge.sbproj")) -ForegroundColor White
+Write-Host ("  {0}" -f (Join-Path $editorDir "MyEditorMenu.cs")) -ForegroundColor White
+Write-Host ""
+
+# ── Detect and warn about old wrong-location installs ─────────────
+$badInstalls = @()
+$drives = @("C", "D", "E", "F", "A", "G", "H")
+foreach ($d in $drives) {
+    $paths = @(
+        "${d}:\SteamLibrary\steamapps\common\sbox\addons\sbox-bridge-addon",
+        "${d}:\Program Files\Steam\steamapps\common\sbox\addons\sbox-bridge-addon",
+        "${d}:\Program Files (x86)\Steam\steamapps\common\sbox\addons\sbox-bridge-addon"
+    )
+    foreach ($p in $paths) {
+        if (Test-Path $p) { $badInstalls += $p }
     }
 }
 
-Write-Host "Addons directory: $addonsDir" -ForegroundColor Green
-
-# ── Find the addon source ─────────────────────────────────────────
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$addonSource = Join-Path $scriptDir $addonName
-
-if (-not (Test-Path $addonSource)) {
-    # Try parent directory (in case script is in a scripts/ folder)
-    $addonSource = Join-Path (Split-Path -Parent $scriptDir) $addonName
+if ($badInstalls.Count -gt 0) {
+    Write-Host "Found prior install in s&box's global addons folder (these never compile):" -ForegroundColor Yellow
+    $badInstalls | ForEach-Object { Write-Host ("  {0}" -f $_) -ForegroundColor White }
+    if ($RemoveStaleAddons) {
+        $badInstalls | ForEach-Object {
+            Remove-Item -Recurse -Force $_
+            Write-Host ("Removed: {0}" -f $_) -ForegroundColor Green
+        }
+    } else {
+        Write-Host "Re-run with -RemoveStaleAddons to delete them." -ForegroundColor Yellow
+    }
+    Write-Host ""
 }
 
-if (-not (Test-Path $addonSource)) {
-    Write-Host "Cannot find $addonName folder. Make sure you're running this from the Sbox-Claude repository." -ForegroundColor Red
-    exit 1
-}
-
-# ── Copy addon ─────────────────────────────────────────────────────
-
-$destination = Join-Path $addonsDir $addonName
-
-if (Test-Path $destination) {
-    Write-Host "Existing installation found. Updating..." -ForegroundColor Yellow
-    Remove-Item -Recurse -Force $destination
-}
-
-Write-Host "Copying Bridge addon to s&box..." -ForegroundColor Yellow
-Copy-Item -Recurse -Force $addonSource $destination
-
-# ── Verify ─────────────────────────────────────────────────────────
-
-$projectFile = Join-Path $destination "$addonName.sbproj"
-if (Test-Path $projectFile) {
-    Write-Host ""
-    Write-Host "Installation successful!" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Installed to: $destination" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Next steps:" -ForegroundColor Cyan
-    Write-Host "  1. Start (or restart) s&box" -ForegroundColor White
-    Write-Host "  2. The Bridge addon will compile and start automatically" -ForegroundColor White
-    Write-Host "  3. Connect Claude Code:" -ForegroundColor White
-    Write-Host '     claude mcp add sbox -- npx sbox-mcp-server' -ForegroundColor Green
-    Write-Host "  4. Start building your game!" -ForegroundColor White
-    Write-Host ""
-} else {
-    Write-Host "Warning: Installation may be incomplete. Project file not found at expected location." -ForegroundColor Red
-    exit 1
-}
+# ── Done ──────────────────────────────────────────────────────────
+Write-Host "Installation successful." -ForegroundColor Green
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1. Open or restart s&box and load this project." -ForegroundColor White
+Write-Host "  2. Open the dock: View -> Claude Bridge." -ForegroundColor White
+Write-Host "     The dock MUST be visible for the bridge to process requests." -ForegroundColor Yellow
+Write-Host "  3. Register the MCP server with Claude Code (one-time):" -ForegroundColor White
+Write-Host ('       claude mcp add sbox -- node "{0}\sbox-mcp-server\dist\index.js"' -f $scriptDir) -ForegroundColor Green
+Write-Host "     (or, if you prefer npm: claude mcp add sbox -- npx sbox-mcp-server)" -ForegroundColor White
+Write-Host "  4. In Claude Code, ask: 'check the bridge status'" -ForegroundColor White
+Write-Host ""
+Write-Host "If the dock doesn't appear after restart, check:" -ForegroundColor Yellow
+Write-Host "  <sbox>\logs\sbox-dev.log" -ForegroundColor White
+Write-Host "  for any 'Compile of local.<project>.editor Failed' lines and report" -ForegroundColor White
+Write-Host "  them at https://github.com/lousputthole/sbox-claude/issues" -ForegroundColor White
+Write-Host ""

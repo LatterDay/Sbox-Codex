@@ -1,223 +1,193 @@
 # Installation Guide
 
-This guide walks you through setting up the s&box Claude Bridge from scratch. Total setup time: ~5 minutes.
+There is **one** correct place to install the Claude Bridge: inside your s&box **project's** `Libraries/` folder. s&box's global `addons/` folder is built-in only and **will not compile custom C#** — if anything tells you to install there, ignore it. The installer below handles this for you.
+
+Total setup time: ~5 minutes.
 
 ## Prerequisites
 
 - **s&box** installed via Steam
-- **Node.js 18+** installed ([download](https://nodejs.org/))
-- **Claude Code** installed ([setup guide](https://docs.anthropic.com/en/docs/claude-code))
+- **Node.js 18+** ([download](https://nodejs.org/))
+- **Claude Code** ([setup guide](https://docs.anthropic.com/en/docs/claude-code))
+- An s&box **project** you intend to use the bridge with (create one in s&box first if you don't have one yet)
 
-## Install via s&box Asset Library (Easiest)
+---
 
-If the addon has been published to the s&box Asset Library:
-
-1. Open **s&box** editor
-2. Open the **Asset Library** browser (in-editor)
-3. Search for **"Claude Bridge"**
-4. Click **Install**
-5. Restart s&box — the Bridge starts automatically on port 29015
-
-Then connect Claude Code:
-```bash
-claude mcp add sbox -- npx sbox-mcp-server
-```
-
-> **Note:** The Asset Library version may lag behind the latest GitHub release. For the newest features, use the installer scripts below.
-
-## Quick Install (From Source)
+## Install (recommended — uses the installer script)
 
 ### Windows (PowerShell)
 
 ```powershell
-# 1. Clone the repo
 git clone https://github.com/lousputthole/sbox-claude.git
 cd sbox-claude
 
-# 2. Run the installer — auto-detects your s&box install
+# Auto-detects your project if you have exactly one in Documents\s&box projects
 .\install.ps1
 
-# 3. Connect Claude Code (one-time)
-claude mcp add sbox -- npx sbox-mcp-server
+# ...or pass it explicitly:
+.\install.ps1 -ProjectPath "C:\path\to\your\sbox\project"
+
+# Useful flags:
+.\install.ps1 -ListProjects        # show projects, then exit
+.\install.ps1 -RemoveStaleAddons   # also delete any old install under <sbox>/addons/
 ```
 
-### Linux / WSL
+### Linux / WSL / macOS
 
 ```bash
-# 1. Clone the repo
 git clone https://github.com/lousputthole/sbox-claude.git
 cd sbox-claude
 
-# 2. Run the installer
-./install.sh
-
-# 3. Connect Claude Code (one-time)
-claude mcp add sbox -- npx sbox-mcp-server
+./install.sh                                # auto-detect
+./install.sh /path/to/your/sbox/project     # explicit
+./install.sh --list                         # show projects
+./install.sh --remove-stale                 # also clean old addons-folder installs
 ```
 
-### If auto-detect fails
+The installer copies two files into `<your-project>/Libraries/claudebridge/`:
 
-Pass your s&box path manually:
+- `claudebridge.sbproj` (library manifest)
+- `Editor/MyEditorMenu.cs` (the bridge itself)
 
-```powershell
-# Windows
-.\install.ps1 -SboxPath "D:\SteamLibrary\steamapps\common\sbox"
+s&box will auto-generate the matching `.csproj` files on next launch.
 
-# Linux/WSL
-./install.sh /mnt/d/SteamLibrary/steamapps/common/sbox
-```
-
-## Manual Install
-
-If you prefer to install manually (or the installer doesn't work for your setup):
-
-### Step 1: Copy the Bridge Addon
-
-Copy the entire `sbox-bridge-addon/` folder into your s&box addons directory:
-
-| Platform | Typical addons path |
-|----------|-------------------|
-| Windows (Steam) | `C:\Program Files\Steam\steamapps\common\sbox\addons\` |
-| Windows (custom) | `D:\SteamLibrary\steamapps\common\sbox\addons\` |
-| Linux (Steam) | `~/.steam/steam/steamapps/common/sbox/addons/` |
-
-The result should look like:
-```
-sbox/
-  addons/
-    sbox-bridge-addon/
-      sbox-bridge-addon.sbproj
-      Code/
-        Core/
-        Commands/
-      Assets/
-```
-
-### Step 2: Connect Claude Code
-
-Run this once in your terminal:
+### Build the MCP server
 
 ```bash
-claude mcp add sbox -- npx sbox-mcp-server
-```
-
-This registers the MCP server with Claude Code. It will auto-start whenever you open a Claude Code session.
-
-## Verify It's Working
-
-1. **Start s&box** — open the editor with any project
-2. **Open Claude Code** — start a new session
-3. **Test the connection:**
-   ```
-   You: "Check if the bridge is connected"
-   Claude: *calls get_bridge_status* → shows connected, latency, etc.
-   ```
-4. **Try a command:**
-   ```
-   You: "What project is open in s&box?"
-   Claude: *calls get_project_info* → shows project name, path, etc.
-   ```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SBOX_BRIDGE_HOST` | `127.0.0.1` | Bridge WebSocket host |
-| `SBOX_BRIDGE_PORT` | `29015` | Bridge WebSocket port |
-
-### Custom Port
-
-If port 29015 is in use, change it on both sides:
-
-**MCP Server side:**
-```bash
-claude mcp add sbox --env SBOX_BRIDGE_PORT=29016 -- npx sbox-mcp-server
-```
-
-**Bridge Addon side:** Edit `BridgeAddon.cs` line in `OnEditorLoaded()`:
-```csharp
-_ = BridgeServer.Start(29016);
-```
-
-## Updating
-
-### Update the MCP Server
-
-```bash
-npx sbox-mcp-server@latest
-```
-
-Or if using a local install, pull and rebuild:
-```bash
-cd sbox-claude/sbox-mcp-server
-git pull
+cd sbox-mcp-server
 npm install
 npm run build
 ```
 
-### Update the Bridge Addon
+### Register with Claude Code (one-time)
 
-Run the installer again — it detects the existing install and replaces it:
+```bash
+claude mcp add sbox -- node /full/path/to/sbox-claude/sbox-mcp-server/dist/index.js
+```
+
+Or, if the published npm package is available:
+
+```bash
+claude mcp add sbox -- npx sbox-mcp-server
+```
+
+---
+
+## Manual install (fallback, if the installer can't find your project)
+
+1. Open s&box and load your project.
+2. Find your project folder (default: `Documents\s&box projects\<yourgame>`).
+3. Create `Libraries\claudebridge\Editor\` inside that project.
+4. Copy `sbox-bridge-addon\claudebridge.sbproj` from this repo into `Libraries\claudebridge\`.
+5. Copy `sbox-bridge-addon\Editor\MyEditorMenu.cs` from this repo into `Libraries\claudebridge\Editor\`.
+6. Restart s&box.
+
+> Do **not** copy `claudebridge.editor.csproj` — that file has hard-coded paths to s&box on a specific machine. s&box will regenerate a fresh one against your local install on next launch.
+
+---
+
+## Verify it's working
+
+1. Start (or restart) s&box and load your project.
+2. **View → Claude Bridge** to open the dock. **The dock must stay visible** — the bridge's frame handler only fires while the dock is on-screen.
+3. In Claude Code, ask:
+
+```
+"Check the bridge status."
+```
+
+You should get back: `connected: true`, `handlerCount: 100`. Then try:
+
+```
+"What project is open in s&box?"
+```
+
+If both work, you're set. If anything fails, jump to `TROUBLESHOOTING.md`.
+
+---
+
+## Updating
+
+### Update the MCP server
+
+```bash
+cd sbox-claude
+git pull
+cd sbox-mcp-server
+npm install
+npm run build
+```
+
+Restart any open Claude Code sessions so they pick up the new server.
+
+### Update the bridge addon
+
+Re-run the installer — it overwrites the project copy:
 
 ```powershell
 .\install.ps1     # Windows
-./install.sh      # Linux
+./install.sh      # Linux/Mac
 ```
+
+Then in s&box, ask Claude to call `trigger_hotload` (or restart s&box if hotload gets stuck).
+
+---
+
+## Configuration
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SBOX_BRIDGE_HOST` | `127.0.0.1` | Bridge IPC host |
+| `SBOX_BRIDGE_PORT` | `29015` | Bridge ping port |
+
+### Changing the port
+
+If port 29015 is in use, change it on both sides:
+
+**MCP server side:**
+```bash
+claude mcp add sbox --env SBOX_BRIDGE_PORT=29016 -- npx sbox-mcp-server
+```
+
+**Bridge addon side:** edit `MyEditorMenu.cs` and search for `29015`.
+
+---
 
 ## Uninstall
 
-### Remove MCP Server from Claude Code
+### Remove the MCP server from Claude Code
 
 ```bash
 claude mcp remove sbox
 ```
 
-### Remove Bridge Addon from s&box
+### Remove the bridge addon from your project
 
-Delete the `sbox-bridge-addon/` folder from your s&box addons directory.
+Delete `<your-project>/Libraries/claudebridge/`.
+
+---
 
 ## Troubleshooting
 
-### "Cannot connect to s&box Bridge"
-- Is s&box running? The editor must be open
-- Is a project loaded? Open a project in s&box first
-- Check the port: run `get_bridge_status` to see connection details
-- Firewall: ensure localhost:29015 isn't blocked
+See **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** for diagnoses and fixes for the common failure modes: install-in-wrong-folder, `tool.frame` error spam, project save corruption, dock-closed timeouts, and more.
 
-### "npx: command not found"
-- Install Node.js 18+ from [nodejs.org](https://nodejs.org/)
-- Restart your terminal after installing
+---
 
-### "claude: command not found"
-- Install Claude Code: see [setup guide](https://docs.anthropic.com/en/docs/claude-code)
+## Publishing to the s&box Asset Library (maintainers only)
 
-### Installer can't find s&box
-- Pass the path manually (see "If auto-detect fails" above)
-- Check that s&box is installed via Steam and has been run at least once
-
-### Bridge addon won't compile in s&box
-- Check the s&box console for error messages
-- Make sure the addon folder structure is correct (see Manual Install)
-- Some s&box APIs may need adjustment for your SDK version — see `API-NOTE` comments in handler files
-
-## Publishing to the s&box Asset Library (Maintainers)
-
-The Bridge Addon can be published to the s&box Asset Library so users can install it with one click from inside the editor.
+The bridge can be published to the s&box Asset Library so users can install it with one click from inside the editor.
 
 ### Prerequisites
+
 1. A Steam account with s&box access
 2. An organization registered on [sbox.game](https://sbox.game)
 
 ### Steps
-1. Update `Org` and `Ident` in `sbox-bridge-addon.sbproj` to match your sbox.game organization
-2. Open the project in s&box editor
-3. Go to **Edit** → **Publish Project** (or upload at sbox.game → My Creations)
-4. Add a thumbnail image, description, and set visibility to Public
-5. Click **Publish**
 
-The addon will be immediately available in the in-editor Asset Library. Users can search for "Claude Bridge" and install with one click.
+1. Update `Org` and `Ident` in `sbox-bridge-addon/claudebridge.sbproj` to match your sbox.game organization.
+2. Open the bridge as its own project in s&box editor (open the `claudebridge.sbproj` directly).
+3. **Edit → Publish Project**, add a thumbnail and description, set visibility to Public, **Publish**.
 
-### Package ID Format
-The published package ID follows the format `org.ident` (e.g., `sbox-claude.claude-bridge`). This is what users would reference in their project's `PackageReferences` for dependency resolution.
+The addon is then available in the in-editor Asset Library under the chosen name.

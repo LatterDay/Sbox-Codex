@@ -85,149 +85,191 @@ public static class ClaudeBridge
 	static void RegisterHandlers()
 	{
 		// ── Batch 1: File / project basics ──────────────────────────────
-		Register( "get_project_info",    new GetProjectInfoHandler() );
-		Register( "list_project_files",  new ListProjectFilesHandler() );
-		Register( "read_file",           new ReadFileHandler() );
-		Register( "write_file",          new WriteFileHandler() );
-		Register( "create_script",       new CreateScriptHandler() );
-		Register( "edit_script",         new EditScriptHandler() );
-		Register( "delete_script",       new DeleteScriptHandler() );
-		Register( "list_scenes",         new ListScenesHandler() );
+		Register( "get_project_info",    () => new GetProjectInfoHandler() );
+		Register( "list_project_files",  () => new ListProjectFilesHandler() );
+		Register( "read_file",           () => new ReadFileHandler() );
+		Register( "write_file",          () => new WriteFileHandler() );
+		Register( "create_script",       () => new CreateScriptHandler() );
+		Register( "edit_script",         () => new EditScriptHandler() );
+		Register( "delete_script",       () => new DeleteScriptHandler() );
+		Register( "list_scenes",         () => new ListScenesHandler() );
 
 		// ── Batch 2: Scene file operations ──────────────────────────────
-		Register( "load_scene",          new LoadSceneHandler() );
-		Register( "save_scene",          new SaveSceneHandler() );
-		Register( "create_scene",        new CreateSceneHandler() );
+		Register( "load_scene",          () => new LoadSceneHandler() );
+		Register( "save_scene",          () => new SaveSceneHandler() );
+		Register( "create_scene",        () => new CreateSceneHandler() );
 
 		// ── Batch 3: GameObject CRUD ─────────────────────────────────────
-		Register( "create_gameobject",   new CreateGameObjectHandler() );
-		Register( "delete_gameobject",   new DeleteGameObjectHandler() );
-		Register( "duplicate_gameobject",new DuplicateGameObjectHandler() );
-		Register( "rename_gameobject",   new RenameGameObjectHandler() );
-		Register( "set_parent",          new SetParentHandler() );
-		Register( "set_enabled",         new SetEnabledHandler() );
-		Register( "set_transform",       new SetTransformHandler() );
-		Register( "get_scene_hierarchy", new GetSceneHierarchyHandler() );
-		Register( "get_selected_objects",new GetSelectedObjectsHandler() );
-		Register( "select_object",       new SelectObjectHandler() );
-		Register( "focus_object",        new FocusObjectHandler() );
+		Register( "create_gameobject",   () => new CreateGameObjectHandler() );
+		Register( "delete_gameobject",   () => new DeleteGameObjectHandler() );
+		Register( "duplicate_gameobject",() => new DuplicateGameObjectHandler() );
+		Register( "rename_gameobject",   () => new RenameGameObjectHandler() );
+		Register( "set_parent",          () => new SetParentHandler() );
+		Register( "set_enabled",         () => new SetEnabledHandler() );
+		Register( "set_transform",       () => new SetTransformHandler() );
+		Register( "get_scene_hierarchy", () => new GetSceneHierarchyHandler() );
+		Register( "get_selected_objects",() => new GetSelectedObjectsHandler() );
+		Register( "select_object",       () => new SelectObjectHandler() );
+		Register( "focus_object",        () => new FocusObjectHandler() );
 
 		// ── Batch 4: Components ──────────────────────────────────────────
-		Register( "get_property",                   new GetPropertyHandler() );
-		Register( "get_all_properties",             new GetAllPropertiesHandler() );
-		Register( "set_property",                   new SetPropertyHandler() );
-		Register( "set_prefab_ref",                 new SetPrefabRefHandler() );
-		Register( "list_available_components",      new ListAvailableComponentsHandler() );
-		Register( "add_component_with_properties",  new AddComponentWithPropertiesHandler() );
+		Register( "get_property",                   () => new GetPropertyHandler() );
+		Register( "get_all_properties",             () => new GetAllPropertiesHandler() );
+		Register( "set_property",                   () => new SetPropertyHandler() );
+		Register( "set_prefab_ref",                 () => new SetPrefabRefHandler() );
+		Register( "list_available_components",      () => new ListAvailableComponentsHandler() );
+		Register( "add_component_with_properties",  () => new AddComponentWithPropertiesHandler() );
 
 		// ── Batch 5: Play mode ───────────────────────────────────────────
-		Register( "start_play",          new StartPlayHandler() );
-		Register( "stop_play",           new StopPlayHandler() );
+		Register( "start_play",          () => new StartPlayHandler() );
+		Register( "stop_play",           () => new StopPlayHandler() );
 		// pause_play / resume_play — no API found, omitted
-		Register( "is_playing",          new IsPlayingHandler() );
-		Register( "get_runtime_property",new GetRuntimePropertyHandler() );
-		Register( "set_runtime_property",new SetRuntimePropertyHandler() );
+		Register( "is_playing",          () => new IsPlayingHandler() );
+		Register( "get_runtime_property",() => new GetRuntimePropertyHandler() );
+		Register( "set_runtime_property",() => new SetRuntimePropertyHandler() );
 
 		// ── Batch 6: Assets ──────────────────────────────────────────────
-		Register( "search_assets",       new SearchAssetsHandler() );
-		Register( "get_asset_info",      new GetAssetInfoHandler() );
-		Register( "assign_model",        new AssignModelHandler() );
-		Register( "create_material",     new CreateMaterialHandler() );
-		Register( "assign_material",     new AssignMaterialHandler() );
-		Register( "set_material_property", new SetMaterialPropertyHandler() );
+		Register( "search_assets",       () => new SearchAssetsHandler() );
+		Register( "get_asset_info",      () => new GetAssetInfoHandler() );
+		Register( "assign_model",        () => new AssignModelHandler() );
+		Register( "create_material",     () => new CreateMaterialHandler() );
+		Register( "assign_material",     () => new AssignMaterialHandler() );
+		Register( "set_material_property", () => new SetMaterialPropertyHandler() );
 
 		// ── Batch 7: Audio ───────────────────────────────────────────────
-		Register( "list_sounds",         new ListSoundsHandler() );
-		Register( "create_sound_event",  new CreateSoundEventHandler() );
-		Register( "assign_sound",        new AssignSoundHandler() );
-		Register( "play_sound_preview",  new PlaySoundPreviewHandler() );
+		Register( "list_sounds",         () => new ListSoundsHandler() );
+		Register( "create_sound_event",  () => new CreateSoundEventHandler() );
+		Register( "assign_sound",        () => new AssignSoundHandler() );
+		Register( "play_sound_preview",  () => new PlaySoundPreviewHandler() );
 
 		// ── Batch 8: Prefabs ─────────────────────────────────────────────
-		Register( "create_prefab",       new CreatePrefabHandler() );
-		Register( "instantiate_prefab",  new InstantiatePrefabHandler() );
-		Register( "list_prefabs",        new ListPrefabsHandler() );
-		Register( "get_prefab_info",     new GetPrefabInfoHandler() );
+		Register( "create_prefab",       () => new CreatePrefabHandler() );
+		Register( "instantiate_prefab",  () => new InstantiatePrefabHandler() );
+		Register( "list_prefabs",        () => new ListPrefabsHandler() );
+		Register( "get_prefab_info",     () => new GetPrefabInfoHandler() );
 
 		// ── Batch 9: Physics ─────────────────────────────────────────────
-		Register( "add_physics",         new AddPhysicsHandler() );
-		Register( "add_collider",        new AddColliderHandler() );
-		Register( "add_joint",           new AddJointHandler() );
-		Register( "raycast",             new RaycastHandler() );
+		Register( "add_physics",         () => new AddPhysicsHandler() );
+		Register( "add_collider",        () => new AddColliderHandler() );
+		Register( "add_joint",           () => new AddJointHandler() );
+		Register( "raycast",             () => new RaycastHandler() );
 
 		// ── Batch 10: Code templates ─────────────────────────────────────
-		Register( "create_player_controller", new CreatePlayerControllerHandler() );
-		Register( "create_npc_controller",    new CreateNpcControllerHandler() );
-		Register( "create_game_manager",      new CreateGameManagerHandler() );
-		Register( "create_trigger_zone",      new CreateTriggerZoneHandler() );
+		Register( "create_player_controller", () => new CreatePlayerControllerHandler() );
+		Register( "create_npc_controller",    () => new CreateNpcControllerHandler() );
+		Register( "create_game_manager",      () => new CreateGameManagerHandler() );
+		Register( "create_trigger_zone",      () => new CreateTriggerZoneHandler() );
 
 		// ── Batch 11: UI ─────────────────────────────────────────────────
-		Register( "create_razor_ui",     new CreateRazorUIHandler() );
-		Register( "add_screen_panel",    new AddScreenPanelHandler() );
-		Register( "add_world_panel",     new AddWorldPanelHandler() );
+		Register( "create_razor_ui",     () => new CreateRazorUIHandler() );
+		Register( "add_screen_panel",    () => new AddScreenPanelHandler() );
+		Register( "add_world_panel",     () => new AddWorldPanelHandler() );
 
 		// ── Batch 11b: Undo/Redo ─────────────────────────────────────────
-		Register( "undo",                new UndoHandler() );
-		Register( "redo",                new RedoHandler() );
+		Register( "undo",                () => new UndoHandler() );
+		Register( "redo",                () => new RedoHandler() );
 
 		// ── Batch 12: Networking ─────────────────────────────────────────
-		Register( "add_network_helper",  new AddNetworkHelperHandler() );
-		Register( "configure_network",   new ConfigureNetworkHandler() );
-		Register( "get_network_status",  new GetNetworkStatusHandler() );
-		Register( "set_ownership",       new SetOwnershipHandler() );
-		Register( "network_spawn",            new NetworkSpawnHandler() );
-		Register( "add_sync_property",        new AddSyncPropertyHandler() );
-		Register( "add_rpc_method",           new AddRpcMethodHandler() );
-		Register( "create_networked_player",  new CreateNetworkedPlayerHandler() );
-		Register( "create_lobby_manager",     new CreateLobbyManagerHandler() );
-		Register( "create_network_events",    new CreateNetworkEventsHandler() );
+		Register( "add_network_helper",  () => new AddNetworkHelperHandler() );
+		Register( "configure_network",   () => new ConfigureNetworkHandler() );
+		Register( "get_network_status",  () => new GetNetworkStatusHandler() );
+		Register( "set_ownership",       () => new SetOwnershipHandler() );
+		Register( "network_spawn",            () => new NetworkSpawnHandler() );
+		Register( "add_sync_property",        () => new AddSyncPropertyHandler() );
+		Register( "add_rpc_method",           () => new AddRpcMethodHandler() );
+		Register( "create_networked_player",  () => new CreateNetworkedPlayerHandler() );
+		Register( "create_lobby_manager",     () => new CreateLobbyManagerHandler() );
+		Register( "create_network_events",    () => new CreateNetworkEventsHandler() );
 
 		// ── Batch 13: Publishing / config ────────────────────────────────
-		Register( "get_project_config",  new GetProjectConfigHandler() );
-		Register( "set_project_config",  new SetProjectConfigHandler() );
-		Register( "validate_project",    new ValidateProjectHandler() );
-		Register( "set_project_thumbnail",new SetProjectThumbnailHandler() );
-		Register( "get_package_details", new GetPackageDetailsHandler() );
-		Register( "install_asset",       new InstallAssetHandler() );
-		Register( "list_asset_library",  new ListAssetLibraryHandler() );
+		Register( "get_project_config",  () => new GetProjectConfigHandler() );
+		Register( "set_project_config",  () => new SetProjectConfigHandler() );
+		Register( "validate_project",    () => new ValidateProjectHandler() );
+		Register( "set_project_thumbnail",() => new SetProjectThumbnailHandler() );
+		Register( "get_package_details", () => new GetPackageDetailsHandler() );
+		Register( "install_asset",       () => new InstallAssetHandler() );
+		Register( "list_asset_library",  () => new ListAssetLibraryHandler() );
 
 		// ── Batch 14: Console / diagnostics ─────────────────────────────
 		// get_console_output / get_compile_errors / clear_console — LogCapture not available, omitted
-		Register( "take_screenshot",     new TakeScreenshotHandler() );
-		Register( "trigger_hotload",     new TriggerHotloadHandler() );
+		Register( "take_screenshot",     () => new TakeScreenshotHandler() );
+		Register( "trigger_hotload",     () => new TriggerHotloadHandler() );
 
 		// ── Batch 15: Terrain / Map building ────────────────────────────
-		Register( "build_terrain_mesh",       new BuildTerrainMeshHandler() );
-		Register( "invoke_button",            new InvokeButtonHandler() );
-		Register( "list_component_buttons",   new ListComponentButtonsHandler() );
-		Register( "raycast_terrain",          new RaycastTerrainHandler() );
-		Register( "add_terrain_hill",         new AddTerrainHillHandler() );
-		Register( "add_terrain_clearing",     new AddTerrainClearingHandler() );
-		Register( "add_terrain_trail",        new AddTerrainTrailHandler() );
-		Register( "clear_terrain_features",   new ClearTerrainFeaturesHandler() );
-		Register( "add_cave_waypoint",        new AddCaveWaypointHandler() );
-		Register( "clear_cave_path",          new ClearCavePathHandler() );
-		Register( "add_forest_poi",           new AddForestPOIHandler() );
-		Register( "add_forest_trail",         new AddForestTrailHandler() );
-		Register( "set_forest_seed",          new SetForestSeedHandler() );
-		Register( "clear_forest_pois",        new ClearForestPOIsHandler() );
-		Register( "sculpt_terrain",           new SculptTerrainHandler() );
-		Register( "paint_forest_density",     new PaintForestDensityHandler() );
-		Register( "place_along_path",         new PlaceAlongPathHandler() );
+		Register( "build_terrain_mesh",       () => new BuildTerrainMeshHandler() );
+		Register( "invoke_button",            () => new InvokeButtonHandler() );
+		Register( "list_component_buttons",   () => new ListComponentButtonsHandler() );
+		Register( "raycast_terrain",          () => new RaycastTerrainHandler() );
+		Register( "add_terrain_hill",         () => new AddTerrainHillHandler() );
+		Register( "add_terrain_clearing",     () => new AddTerrainClearingHandler() );
+		Register( "add_terrain_trail",        () => new AddTerrainTrailHandler() );
+		Register( "clear_terrain_features",   () => new ClearTerrainFeaturesHandler() );
+		Register( "add_cave_waypoint",        () => new AddCaveWaypointHandler() );
+		Register( "clear_cave_path",          () => new ClearCavePathHandler() );
+		Register( "add_forest_poi",           () => new AddForestPOIHandler() );
+		Register( "add_forest_trail",         () => new AddForestTrailHandler() );
+		Register( "set_forest_seed",          () => new SetForestSeedHandler() );
+		Register( "clear_forest_pois",        () => new ClearForestPOIsHandler() );
+		Register( "sculpt_terrain",           () => new SculptTerrainHandler() );
+		Register( "paint_forest_density",     () => new PaintForestDensityHandler() );
+		Register( "place_along_path",         () => new PlaceAlongPathHandler() );
 
 		// ── Batch 16: Coding / type discovery ───────────────────────────
-		Register( "describe_type",            new DescribeTypeHandler() );
-		Register( "search_types",             new SearchTypesHandler() );
-		Register( "get_method_signature",     new GetMethodSignatureHandler() );
-		Register( "find_in_project",          new FindInProjectHandler() );
+		Register( "describe_type",            () => new DescribeTypeHandler() );
+		Register( "search_types",             () => new SearchTypesHandler() );
+		Register( "get_method_signature",     () => new GetMethodSignatureHandler() );
+		Register( "find_in_project",          () => new FindInProjectHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
 	public static int HandlerCount => _handlers.Count;
 
-	static void Register( string name, IBridgeHandler handler )
+	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
+	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
-		_handlers[name] = handler;
+		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
+		"set_parent", "set_transform", "set_enabled",
+		"add_component_with_properties", "set_property", "set_prefab_ref",
+		"create_script", "edit_script", "delete_script", "trigger_hotload",
+		"create_scene", "load_scene", "save_scene",
+		"assign_model", "create_material", "assign_material", "set_material_property",
+		"create_sound_event", "assign_sound",
+		"create_prefab", "instantiate_prefab",
+		"add_physics", "add_collider", "add_joint",
+		"create_player_controller", "create_npc_controller", "create_game_manager", "create_trigger_zone",
+		"create_razor_ui", "add_screen_panel", "add_world_panel",
+		"network_spawn", "add_sync_property", "add_rpc_method", "create_networked_player",
+		"create_lobby_manager", "create_network_events", "add_network_helper",
+		"configure_network", "set_ownership",
+		"build_terrain_mesh", "add_terrain_hill", "add_terrain_clearing", "add_terrain_trail",
+		"clear_terrain_features", "sculpt_terrain",
+		"add_cave_waypoint", "clear_cave_path",
+		"add_forest_poi", "add_forest_trail", "set_forest_seed", "clear_forest_pois",
+		"paint_forest_density", "place_along_path",
+		"undo", "redo",
+		"set_project_config", "set_project_thumbnail",
+	};
+
+	internal static bool IsSceneMutating( string command ) => _sceneMutatingCommands.Contains( command );
+
+	static void Register( string name, Func<IBridgeHandler> factory )
+	{
+		try
+		{
+			var handler = factory?.Invoke();
+			if ( handler == null )
+			{
+				Log.Warning( $"[SboxBridge] Handler factory for '{name}' returned null — tool unavailable" );
+				return;
+			}
+			_handlers[name] = handler;
+		}
+		catch ( Exception ex )
+		{
+			// One bad handler must not take down the whole bridge. Log and continue.
+			Log.Warning( $"[SboxBridge] Failed to register '{name}': {ex.GetType().Name}: {ex.Message}" );
+		}
 	}
 
 	/// <summary>
@@ -321,6 +363,18 @@ public static class ClaudeBridge
 					handlerCount = _handlers.Count,
 					registeredCommands = _handlers.Keys.ToArray()
 				}
+			} );
+		}
+
+		// Refuse scene-mutating commands while in play mode. Mutations during play can
+		// corrupt the .scene file when serializer state and editor state diverge.
+		if ( IsSceneMutating( command ) && Game.IsPlaying )
+		{
+			return JsonSerializer.Serialize( new
+			{
+				id,
+				success = false,
+				error = $"'{command}' is not allowed while play mode is active. Stop play first (stop_play) and try again."
 			} );
 		}
 
@@ -3210,10 +3264,26 @@ public class BridgePoller : Widget
 		url.SetStyles( "font-size: 10px; color: #888;" );
 	}
 
+	// Tracks the last error message so we log only once per unique error instead of
+	// spamming the console 60×/sec when the static initializer or a handler is broken.
+	private static string _lastFrameError;
+
 	[EditorEvent.Frame]
 	public void OnFrame()
 	{
-		ClaudeBridge.ProcessPendingOnMainThread();
+		try
+		{
+			ClaudeBridge.ProcessPendingOnMainThread();
+		}
+		catch ( Exception ex )
+		{
+			var msg = $"{ex.GetType().Name}: {ex.Message}";
+			if ( msg != _lastFrameError )
+			{
+				_lastFrameError = msg;
+				Log.Warning( $"[SboxBridge] Frame handler error (logged once per unique message): {ex}" );
+			}
+		}
 	}
 }
 

@@ -30,34 +30,67 @@ Communication uses **file-based IPC** through `%TEMP%/sbox-bridge-ipc/` — the 
 
 ## Quick Start
 
-### 1. Create the Bridge Library in s&box
+> **Important:** the bridge addon MUST live inside an s&box **project's** `Libraries/` folder. Putting it in s&box's global `addons/` folder will silently fail to compile. The installer below handles this correctly.
 
-1. Open s&box with your project
-2. Open **Library Manager** (in the editor)
-3. Create a new library called **"claudebridge"**
-4. Copy `sbox-bridge-addon/Editor/MyEditorMenu.cs` into the library's `Editor/` folder
-5. Restart s&box
+### 1. Clone and install the bridge into your project
 
-### 2. Build the MCP Server
+```powershell
+# Windows
+git clone https://github.com/lousputthole/sbox-claude.git
+cd sbox-claude
+.\install.ps1                                    # auto-detects your s&box project
+# or:
+.\install.ps1 -ProjectPath "C:\path\to\your\sbox\project"
+.\install.ps1 -ListProjects                      # show all projects, then exit
+.\install.ps1 -RemoveStaleAddons                 # also clean up old wrong-location installs
+```
 
 ```bash
+# Linux / WSL / macOS
 git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude/sbox-mcp-server
+cd sbox-claude
+./install.sh                                     # auto-detects
+./install.sh /path/to/your/sbox/project          # explicit
+./install.sh --list                              # show projects
+./install.sh --remove-stale                      # also clean up old wrong-location installs
+```
+
+This copies the bridge to `<your-project>/Libraries/claudebridge/`. If you previously ran an older installer that put files under `<sbox>/addons/`, pass `-RemoveStaleAddons` / `--remove-stale` to clean them up — those files never compiled and only cause confusion.
+
+### 2. Build the MCP server
+
+```bash
+cd sbox-mcp-server
 npm install
 npm run build
 ```
 
-### 3. Connect Claude Code
+### 3. Register the MCP server with Claude Code (one-time)
 
 ```bash
-claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+claude mcp add sbox -- node /full/path/to/sbox-claude/sbox-mcp-server/dist/index.js
 ```
 
-### 4. Open the Bridge Dock
+Or, if you have the published npm package:
 
-In s&box, go to **View → Claude Bridge** to open the dock panel. This is required for scene-modifying operations to work (they must run on the main editor thread).
+```bash
+claude mcp add sbox -- npx sbox-mcp-server
+```
 
-### 5. Start Building
+### 4. Open the bridge dock
+
+In s&box, go to **View → Claude Bridge** to open the dock. **The dock must stay visible** — the bridge's frame handler only fires while the dock is on-screen. If you close it, every Claude tool call will time out.
+
+### 5. Verify
+
+Ask Claude:
+```
+"Check the bridge status."
+```
+
+If it reports `connected: true` and `handlerCount: 100`, you're set. If it times out, see `TROUBLESHOOTING.md`.
+
+### 6. Start building
 
 ```
 "Create a first-person player controller with WASD movement and mouse look"
