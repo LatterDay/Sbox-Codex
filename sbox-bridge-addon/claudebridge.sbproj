@@ -4,7 +4,7 @@
   "Org": "sboxskinsgg",
   "Ident": "claudebridge",
   "Schema": 1,
-  "Description": "Build s&box games through conversation with Claude AI. This MCP bridge connects Claude Code to the s&box editor, giving AI access to 100+ tools for creating GameObjects, scripts, scenes, materials, physics, UI, networking, terrain editing, sculpt brushes, forest generation, type discovery, and more — all without writing a line of code yourself.",
+  "Description": "Build s&box games by talking to Claude. This MCP bridge connects Claude Code to the s&box editor with 100+ tools — exceptional at coding systems (player controllers, networking, UI, AI, prefabs, sound, physics, scripts), serviceable for map building (terrain sculpting, forest generation, cave layout). v1.2.0 ships major stability fixes for install, frame errors, and play-mode save corruption. See TROUBLESHOOTING.md if anything misbehaves.",
   "IncludeSourceFiles": true,
   "Resources": null,
   "PackageReferences": [],
@@ -12,9 +12,9 @@
   "Mounts": null,
   "IsStandaloneOnly": false,
   "Metadata": {
-    "Summary": "Let Claude AI build s&box games for you — 100 tools for scenes, scripts, physics, UI, networking, terrain editing, sculpt brushes, forest generation & more",
+    "Summary": "Claude builds s&box game systems for you — 100 tools, stable across SDK updates",
     "Public": true,
-    "Tags": "ai,claude,mcp,tool,editor,bridge,automation,code-generation,terrain,worldgen",
+    "Tags": "ai,claude,mcp,tool,editor,bridge,automation,code-generation,terrain,worldgen,stable",
     "Compiler": {
       "RootNamespace": "Sandbox",
       "DefineConstants": "SANDBOX",

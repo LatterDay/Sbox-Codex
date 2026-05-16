@@ -1,6 +1,6 @@
 {
   "name": "sbox-mcp-server",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MCP Server for s&box game engine — enables Claude to build games through conversation",
   "type": "module",
   "main": "dist/index.js",
@@ -32,12 +32,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/lousputthole/sbox-claude"
+    "url": "https://github.com/LouSputthole/Sbox-Claude"
   },
   "author": "sboxskins.gg (https://sboxskins.gg)",
   "homepage": "https://sboxskins.gg",
   "bugs": {
-    "url": "https://github.com/lousputthole/sbox-claude/issues"
+    "url": "https://github.com/LouSputthole/Sbox-Claude/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
