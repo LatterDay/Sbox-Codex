@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sbox-claude",
+  "description": "Build s&box games by talking to Claude — Claude Bridge MCP server, screenshot-driven game-dev workflow skill, and sbox-game-dev specialist agent.",
+  "owner": {
+    "name": "sboxskins.gg",
+    "url": "https://sboxskins.gg"
+  },
+  "plugins": [
+    {
+      "name": "sbox-claude",
+      "description": "Connects Claude Code to the s&box editor via the Claude Bridge MCP server. Includes 99 tools for driving GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, and type discovery. Bundled skill enforces the screenshot-driven iteration workflow that prevents the guess-and-check loop. Optional sbox-game-dev specialist agent for self-contained game features. The s&box-side bridge addon must be installed separately into your project's Libraries folder (see plugin README).",
+      "author": {
+        "name": "sboxskins.gg",
+        "url": "https://sboxskins.gg"
+      },
+      "category": "game-development",
+      "source": "./plugins/sbox-claude",
+      "homepage": "https://github.com/LouSputthole/Sbox-Claude/tree/main/plugins/sbox-claude",
+      "keywords": [
+        "sbox",
+        "s&box",
+        "game-engine",
+        "game-dev",
+        "source2",
+        "ai",
+        "mcp",
+        "bridge",
+        "claude-bridge"
+      ]
+    }
+  ]
+}

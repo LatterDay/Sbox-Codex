@@ -34,14 +34,14 @@ Communication uses **file-based IPC** through `%TEMP%/sbox-bridge-ipc/` — the 
 
 ### Fastest path — install the Claude Code plugin
 
-If you use Claude Code, the easiest install is the bundled plugin (under `plugin/` in this repo). It registers the MCP server automatically and ships the `sbox-build-feature` skill + `sbox-game-dev` agent.
+If you use Claude Code, the easiest install is the bundled plugin (under `plugins/sbox-claude/` in this repo). It registers the MCP server automatically and ships the `sbox-build-feature` skill + `sbox-game-dev` agent.
 
 ```
 /plugin marketplace add LouSputthole/Sbox-Claude
 /plugin install sbox-claude
 ```
 
-You still need to install the **bridge addon** into your s&box project (Steps 1-4 below) — the plugin only handles the Claude side. See `plugin/README.md` for details.
+You still need to install the **bridge addon** into your s&box project (Steps 1-4 below) — the plugin only handles the Claude side. See `plugins/sbox-claude/README.md` for details.
 
 ### Manual install (no plugin)
 

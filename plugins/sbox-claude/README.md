@@ -35,7 +35,7 @@ Once Claude Code's plugin marketplace catalogs this entry, install with:
 For local development you can also point Claude at the plugin directory directly:
 
 ```
-claude --plugin-dir /path/to/Sbox-Claude/plugin
+claude --plugin-dir /path/to/Sbox-Claude/plugins/sbox-claude
 ```
 
 After install, restart your Claude Code session and run `/reload-plugins` if you make local changes.
