@@ -254,4 +254,49 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── add_trail ────────────────────────────────────────────────────────
+  server.tool(
+    "add_trail",
+    "Attach a motion trail (TrailRenderer) to an existing GameObject (via targetId) so it leaves a trail as it moves — or create a standalone trail object. Only visible while the object is moving.",
+    {
+      targetId: z.string().optional().describe("GUID of the GameObject to attach the trail to (else a new 'Trail' object is made)"),
+      position: Vector3Schema.optional().describe("World position when creating a standalone trail"),
+      lifetime: z.number().optional().describe("How long (seconds) trail points persist"),
+      maxPoints: z.number().optional().describe("Max points in the trail"),
+      pointDistance: z.number().optional().describe("Min distance between trail points"),
+      name: z.string().optional().describe("GameObject name when creating a new one"),
+    },
+    async (params) => {
+      const res = await bridge.send("add_trail", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── add_beam ─────────────────────────────────────────────────────────
+  server.tool(
+    "add_beam",
+    "Create an energy/laser beam (BeamEffect) from a position to a target point — additive, tintable. Good for lasers, tracers, magic beams.",
+    {
+      position: Vector3Schema.optional().describe("Beam start (world position of the beam object)"),
+      target: Vector3Schema.optional().describe("Beam end point in world space (default: 128u up)"),
+      width: z.number().optional().describe("Beam width/scale (default 4)"),
+      color: ColorSchema.optional().describe("Beam colour (default white)"),
+      name: z.string().optional().describe("GameObject name"),
+    },
+    async (params) => {
+      const res = await bridge.send("add_beam", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

@@ -288,6 +288,8 @@ public static class ClaudeBridge
 
 		// ── Batch 18: VFX / particles ───────────────────────────────────
 		Register( "spawn_particle",           () => new SpawnParticleHandler() );
+		Register( "add_trail",                () => new AddTrailHandler() );
+		Register( "add_beam",                 () => new AddBeamHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -298,7 +300,7 @@ public static class ClaudeBridge
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
 		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look", "add_envmap_probe",
-		"spawn_particle",
+		"spawn_particle", "add_trail", "add_beam",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4589,6 +4591,9 @@ public static class VisualHelpers
 	/// <summary>Wrap a plain float as a constant ParticleFloat (the s&box particle curve type).</summary>
 	public static ParticleFloat PF( float v ) => new ParticleFloat { ConstantValue = v };
 
+	/// <summary>Wrap a Color as a constant ParticleGradient.</summary>
+	public static ParticleGradient PG( Color c ) => new ParticleGradient { ConstantValue = c };
+
 	/// <summary>Find the scene's main camera (prefers IsMainCamera), else the first camera, else null.</summary>
 	public static CameraComponent FindMainCamera( Scene scene )
 	{
@@ -4929,5 +4934,72 @@ public class SpawnParticleHandler : IBridgeHandler
 		sr.ParticleEffect = pe;
 
 		return Task.FromResult<object>( new { created = true, kind, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── add_trail (TrailRenderer — trails a moving object) ──────────────
+public class AddTrailHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		// Attach to an existing object (so it trails as that object moves), else a new GO.
+		GameObject go = null;
+		if ( p.TryGetProperty( "targetId", out var tid ) && Guid.TryParse( tid.GetString(), out var tg ) )
+			go = scene.Directory.FindByGuid( tg );
+		if ( go == null )
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Trail";
+			if ( p.TryGetProperty( "position", out var pos ) )
+				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		}
+
+		var tr = go.GetOrAddComponent<TrailRenderer>();
+		tr.Emitting = true;
+		if ( p.TryGetProperty( "lifetime", out var lt ) ) tr.LifeTime = lt.GetSingle();
+		if ( p.TryGetProperty( "maxPoints", out var mp ) ) tr.MaxPoints = mp.GetInt32();
+		if ( p.TryGetProperty( "pointDistance", out var pd ) ) tr.PointDistance = pd.GetSingle();
+		// Color (Gradient) + Width (Curve) left at defaults — those are separate curve structs.
+
+		return Task.FromResult<object>( new { created = true, note = "Trail is only visible while its GameObject moves.", gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── add_beam (BeamEffect — a beam from this object to a target) ─────
+public class AddBeamHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Beam";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+
+		var be = go.AddComponent<BeamEffect>();
+		be.TargetPosition = p.TryGetProperty( "target", out var tgt )
+			? ClaudeBridge.ParseVector3( tgt )
+			: go.WorldPosition + Vector3.Up * 128f;
+		be.Scale = VisualHelpers.PF( p.TryGetProperty( "width", out var w ) ? w.GetSingle() : 4f );
+		be.Brightness = VisualHelpers.PF( 1f );
+		be.Alpha = VisualHelpers.PF( 1f );
+		be.BeamColor = VisualHelpers.PG( p.TryGetProperty( "color", out var cc ) ? VisualHelpers.ParseColorElement( cc, Color.White ) : Color.White );
+		be.Additive = true;
+		be.Lighting = false;
+		be.Texture = Texture.White;
+		be.Looped = true;
+		be.MaxBeams = 4;
+		be.InitialBurst = 1;
+		be.BeamsPerSecond = 2f;
+		be.BeamLifetime = VisualHelpers.PF( 2f );
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}
 }
