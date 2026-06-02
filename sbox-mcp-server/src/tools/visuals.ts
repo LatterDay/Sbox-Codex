@@ -233,4 +233,25 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── spawn_particle (Batch 18: VFX) ───────────────────────────────────
+  server.tool(
+    "spawn_particle",
+    "Spawn an additive particle effect (no texture asset needed): kind = fire (rising flame), embers (slow drifting glow), or sparks (a one-shot burst). Renders as tinted glowing dots — great for campfires, torches, and impacts. (smoke needs a soft sprite; not in v1.)",
+    {
+      kind: z.enum(["fire", "embers", "sparks"]).describe("Particle preset"),
+      position: Vector3Schema.optional().describe("World position"),
+      color: ColorSchema.optional().describe("Override the particle tint"),
+      name: z.string().optional().describe("GameObject name"),
+    },
+    async (params) => {
+      const res = await bridge.send("spawn_particle", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

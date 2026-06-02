@@ -286,6 +286,9 @@ public static class ClaudeBridge
 		Register( "apply_post_fx_look",       () => new ApplyPostFxLookHandler() );
 		Register( "add_envmap_probe",         () => new AddEnvmapProbeHandler() );
 
+		// ── Batch 18: VFX / particles ───────────────────────────────────
+		Register( "spawn_particle",           () => new SpawnParticleHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -295,6 +298,7 @@ public static class ClaudeBridge
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
 		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look", "add_envmap_probe",
+		"spawn_particle",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4582,6 +4586,9 @@ public static class VisualHelpers
 		return new Color( r, g, b, a );
 	}
 
+	/// <summary>Wrap a plain float as a constant ParticleFloat (the s&box particle curve type).</summary>
+	public static ParticleFloat PF( float v ) => new ParticleFloat { ConstantValue = v };
+
 	/// <summary>Find the scene's main camera (prefers IsMainCamera), else the first camera, else null.</summary>
 	public static CameraComponent FindMainCamera( Scene scene )
 	{
@@ -4849,5 +4856,78 @@ public class AddEnvmapProbeHandler : IBridgeHandler
 			probe.Feathering = ft.GetSingle();
 
 		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH 18 — VFX / particles
+// ═══════════════════════════════════════════════════════════════════
+
+// ───────── spawn_particle (additive, texture-free fire/embers/sparks) ──────
+public class SpawnParticleHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var kind = (p.TryGetProperty( "kind", out var k ) ? k.GetString() : "fire")?.ToLowerInvariant();
+
+		Color tint; float rate, life, size, coneAngle, speed, gravity; bool loop;
+		switch ( kind )
+		{
+			case "fire":
+				tint = new Color( 1f, 0.55f, 0.15f ); rate = 70f; life = 1.1f; size = 7f;  coneAngle = 16f; speed = 130f; gravity = 0f;   loop = true;  break;
+			case "embers":
+				tint = new Color( 1f, 0.5f, 0.18f );  rate = 14f; life = 2.6f; size = 2.5f; coneAngle = 32f; speed = 90f;  gravity = 35f;  loop = true;  break;
+			case "sparks":
+				tint = new Color( 1f, 0.85f, 0.45f ); rate = 0f;  life = 0.7f; size = 2f;   coneAngle = 70f; speed = 320f; gravity = 500f; loop = false; break;
+			case "smoke":
+				return Task.FromResult<object>( new { error = "smoke needs a soft smoke sprite (additive squares look bad) — not in v1; use fire | embers | sparks." } );
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown kind '{kind}'. Use fire | embers | sparks." } );
+		}
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : $"Particles ({kind})";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "color", out var cc ) )
+			tint = VisualHelpers.ParseColorElement( cc, tint );
+		// Point the emission cone up (+Z) so fire/embers rise.
+		go.WorldRotation = Rotation.From( -90f, 0f, 0f );
+
+		var pe = go.AddComponent<ParticleEffect>();
+		pe.MaxParticles = 500;
+		pe.Lifetime = VisualHelpers.PF( life );
+		pe.ApplyColor = true;
+		pe.Tint = tint;
+		pe.ApplyShape = true;
+		pe.Scale = VisualHelpers.PF( size );
+		if ( gravity > 0f )
+		{
+			pe.Force = true;
+			pe.ForceDirection = new Vector3( 0f, 0f, -1f );
+			pe.ForceScale = VisualHelpers.PF( gravity );
+		}
+
+		var em = go.AddComponent<ParticleConeEmitter>();
+		em.ConeAngle = VisualHelpers.PF( coneAngle );
+		em.VelocityMultiplier = VisualHelpers.PF( speed );
+		em.Loop = loop;
+		if ( loop )
+			em.Rate = VisualHelpers.PF( rate );
+		else
+			em.Burst = VisualHelpers.PF( 60f );
+
+		var sr = go.AddComponent<ParticleSpriteRenderer>();
+		sr.Texture = Texture.White;   // additive white × tint = a glowing dot (no sprite asset needed)
+		sr.Additive = true;
+		sr.Lighting = false;
+		sr.Scale = 1f;
+		sr.ParticleEffect = pe;
+
+		return Task.FromResult<object>( new { created = true, kind, gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}
 }
