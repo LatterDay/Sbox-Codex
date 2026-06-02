@@ -208,4 +208,29 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── add_envmap_probe ─────────────────────────────────────────────────
+  server.tool(
+    "add_envmap_probe",
+    "Add an environment reflection/ambient probe (EnvmapProbe) at a position with a cubic influence volume — captures local reflections and indirect light for nearby surfaces.",
+    {
+      name: z.string().optional().describe("GameObject name"),
+      position: Vector3Schema.optional().describe("World position (centre of the probe)"),
+      size: z.number().optional().describe("Cubic influence size in units (default 1024)"),
+      tint: ColorSchema.optional().describe("Tint applied to the captured environment"),
+      feathering: z
+        .number()
+        .optional()
+        .describe("Edge feathering 0-1 for blending between overlapping probes"),
+    },
+    async (params) => {
+      const res = await bridge.send("add_envmap_probe", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

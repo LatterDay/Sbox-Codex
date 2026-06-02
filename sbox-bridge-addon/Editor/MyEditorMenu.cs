@@ -284,6 +284,7 @@ public static class ClaudeBridge
 		Register( "set_skybox",               () => new SetSkyboxHandler() );
 		Register( "apply_atmosphere",         () => new ApplyAtmosphereHandler() );
 		Register( "apply_post_fx_look",       () => new ApplyPostFxLookHandler() );
+		Register( "add_envmap_probe",         () => new AddEnvmapProbeHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -293,7 +294,7 @@ public static class ClaudeBridge
 	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
-		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look",
+		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look", "add_envmap_probe",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4822,5 +4823,31 @@ public class ApplyPostFxLookHandler : IBridgeHandler
 		}
 
 		return Task.FromResult<object>( new { applied = true, look, components = applied, camera = go.Name } );
+	}
+}
+
+// ───────── add_envmap_probe ───────────────────────────────────────────────
+public class AddEnvmapProbeHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Envmap Probe";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+
+		var probe = go.AddComponent<EnvmapProbe>();
+		float h = (p.TryGetProperty( "size", out var sz ) ? sz.GetSingle() : 1024f) * 0.5f;
+		probe.Bounds = new BBox( new Vector3( -h, -h, -h ), new Vector3( h, h, h ) );
+		if ( p.TryGetProperty( "tint", out var tn ) )
+			probe.TintColor = VisualHelpers.ParseColorElement( tn, probe.TintColor );
+		if ( p.TryGetProperty( "feathering", out var ft ) )
+			probe.Feathering = ft.GetSingle();
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}
 }
