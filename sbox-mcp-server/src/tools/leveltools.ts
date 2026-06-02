@@ -1,0 +1,202 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { BridgeClient } from "../transport/bridge-client.js";
+
+/**
+ * Scene & level-building tools (Batch 21): snap-to-ground, align, distribute,
+ * grid-duplicate, and measure. Transform-level operations for arranging a
+ * scene — all verifiable via the editor (screenshot or hierarchy/state).
+ */
+
+const Vector3Schema = z
+  .object({ x: z.number(), y: z.number(), z: z.number() })
+  .describe("Vector {x,y,z}");
+
+export function registerLevelTools(
+  server: McpServer,
+  bridge: BridgeClient
+): void {
+  // ── snap_to_ground ─────────────────────────────────────────────────
+  server.tool(
+    "snap_to_ground",
+    "Drop a GameObject straight down onto the surface below it (physics raycast). Works best on collider-less props (an object with its own collider may self-hit). Optional offset lifts it off the surface.",
+    {
+      id: z.string().describe("GUID of the GameObject to snap"),
+      offset: z.number().optional().describe("Height above the surface to place it (default 0)"),
+      startHeight: z.number().optional().describe("How far above the object to start the trace (default 2000)"),
+      maxDistance: z.number().optional().describe("Max trace distance downward (default 20000)"),
+    },
+    async (params) => {
+      const res = await bridge.send("snap_to_ground", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── align_objects ──────────────────────────────────────────────────
+  server.tool(
+    "align_objects",
+    "Align several GameObjects on one axis so they share a coordinate. mode = first (match the first object), min, max, or average.",
+    {
+      ids: z.array(z.string()).describe("GUIDs of the GameObjects to align (>= 2)"),
+      axis: z.enum(["x", "y", "z"]).describe("Axis to align on"),
+      mode: z
+        .enum(["first", "min", "max", "average"])
+        .optional()
+        .describe("Target coordinate to align to (default first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("align_objects", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── distribute_objects ─────────────────────────────────────────────
+  server.tool(
+    "distribute_objects",
+    "Evenly space GameObjects along an axis between the lowest and highest (keeps the two ends fixed, spreads the rest evenly).",
+    {
+      ids: z.array(z.string()).describe("GUIDs of the GameObjects to distribute (>= 3)"),
+      axis: z.enum(["x", "y", "z"]).describe("Axis to distribute along"),
+    },
+    async (params) => {
+      const res = await bridge.send("distribute_objects", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── grid_duplicate ─────────────────────────────────────────────────
+  server.tool(
+    "grid_duplicate",
+    "Clone a GameObject into an X/Y/Z grid with fixed spacing (the original stays in place). Each count is clamped to 50 and total clones to 500. Great for fences, crates, pillars, foliage rows.",
+    {
+      id: z.string().describe("GUID of the GameObject to clone"),
+      countX: z.number().int().optional().describe("Copies along X (default 1)"),
+      countY: z.number().int().optional().describe("Copies along Y (default 1)"),
+      countZ: z.number().int().optional().describe("Copies along Z (default 1)"),
+      spacing: Vector3Schema.optional().describe("Spacing between copies per axis (default 100,100,100)"),
+    },
+    async (params) => {
+      const res = await bridge.send("grid_duplicate", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── measure_distance ───────────────────────────────────────────────
+  server.tool(
+    "measure_distance",
+    "Measure the distance between two points or two GameObjects. Provide a/b as {x,y,z} or idA/idB as GUIDs. Returns straight-line distance, horizontal (ground) distance, and the delta vector. Read-only (works during play).",
+    {
+      a: Vector3Schema.optional().describe("First point {x,y,z}"),
+      b: Vector3Schema.optional().describe("Second point {x,y,z}"),
+      idA: z.string().optional().describe("First GameObject GUID (overrides a)"),
+      idB: z.string().optional().describe("Second GameObject GUID (overrides b)"),
+    },
+    async (params) => {
+      const res = await bridge.send("measure_distance", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── scatter_props ──────────────────────────────────────────────────
+  server.tool(
+    "scatter_props",
+    "Scatter N copies of a model randomly within a radius around a center point — instant foliage, rocks, debris. Each copy gets a random yaw and (by default) is snapped to the ground. Seeded for reproducibility; copies are grouped under one parent by default. Count capped at 300.",
+    {
+      model: z.string().describe("Model path to scatter, e.g. 'models/dev/box.vmdl'"),
+      center: Vector3Schema.optional().describe("Centre of the scatter area (default origin)"),
+      radius: z.number().optional().describe("Scatter radius in units (default 256)"),
+      count: z.number().int().optional().describe("How many to place (default 10, max 300)"),
+      randomYaw: z.boolean().optional().describe("Randomly rotate each around Z (default true)"),
+      snapToGround: z.boolean().optional().describe("Raycast each onto the surface below (default true)"),
+      scaleMin: z.number().optional().describe("Min uniform scale (default 1)"),
+      scaleMax: z.number().optional().describe("Max uniform scale (default 1; set >min for size variation)"),
+      tint: z
+        .object({
+          r: z.number().min(0),
+          g: z.number().min(0),
+          b: z.number().min(0),
+          a: z.number().min(0).max(1).optional(),
+        })
+        .optional()
+        .describe("Tint applied to every copy"),
+      seed: z.number().int().optional().describe("PRNG seed for a reproducible layout (default 1)"),
+      group: z.boolean().optional().describe("Parent all copies under one group object (default true)"),
+      name: z.string().optional().describe("Base name for the props/group (default 'Prop')"),
+    },
+    async (params) => {
+      const res = await bridge.send("scatter_props", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── randomize_transforms ───────────────────────────────────────────
+  server.tool(
+    "randomize_transforms",
+    "Add natural variation to existing objects: random yaw and/or random uniform scale within a range. Great for breaking up repetition in placed foliage/rocks/crates. Seeded.",
+    {
+      ids: z.array(z.string()).describe("GUIDs of the GameObjects to randomize"),
+      randomYaw: z.boolean().optional().describe("Randomize Z rotation (default true)"),
+      scaleMin: z.number().optional().describe("Min uniform scale (default 1)"),
+      scaleMax: z.number().optional().describe("Max uniform scale (default 1; set >min to vary)"),
+      seed: z.number().int().optional().describe("PRNG seed (default 1)"),
+    },
+    async (params) => {
+      const res = await bridge.send("randomize_transforms", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── group_objects ──────────────────────────────────────────────────
+  server.tool(
+    "group_objects",
+    "Parent a set of GameObjects under a new empty group object (placed at their centroid) — tidies the hierarchy and lets you move/rotate them together.",
+    {
+      ids: z.array(z.string()).describe("GUIDs of the GameObjects to group"),
+      name: z.string().optional().describe("Name for the group object (default 'Group')"),
+    },
+    async (params) => {
+      const res = await bridge.send("group_objects", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+}

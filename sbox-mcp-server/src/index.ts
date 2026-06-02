@@ -36,6 +36,9 @@ import { registerPublishingTools } from "./tools/publishing.js";
 import { registerWorldTools } from "./tools/world.js";
 import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerVisualTools } from "./tools/visuals.js";
+import { registerCharacterTools } from "./tools/characters.js";
+import { registerLevelTools } from "./tools/leveltools.js";
+import { registerObjectTools } from "./tools/objecttools.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -76,7 +79,7 @@ ENVIRONMENT VARIABLES
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
-TOOLS (99 working — was 109; 10 unimplementable tools removed in v1.3.0)
+TOOLS (131 — +32 in v1.4.0: visual, characters, scene, environment, utilities)
   Project:     get_project_info, list_project_files, read_file, write_file
   Scripts:     create_script, edit_script, delete_script, trigger_hotload
   Scenes:      list_scenes, load_scene, save_scene, create_scene
@@ -103,6 +106,14 @@ TOOLS (99 working — was 109; 10 unimplementable tools removed in v1.3.0)
   Placement:   place_along_path
   Discovery:   describe_type, search_types, get_method_signature, find_in_project
   Status:      get_bridge_status
+
+  ── New in v1.4.0 ───────────────────────────────────
+  Visual:      add_light, set_fog, add_post_process, set_skybox, add_envmap_probe, apply_atmosphere, apply_post_fx_look
+  Characters:  spawn_model, spawn_citizen, dress_citizen, set_bodygroup, pose_citizen, equip_model, set_look_at, add_ragdoll, set_expression
+  Scene:       snap_to_ground, align_objects, distribute_objects, grid_duplicate, measure_distance
+  Environment: scatter_props, randomize_transforms, group_objects
+  Utilities:   find_objects, set_tint, replace_model, set_tags
+  VFX (exp):   spawn_particle, create_particle_effect, add_trail, add_beam
 `);
   process.exit(0);
 }
@@ -166,6 +177,9 @@ registerPublishingTools(server, bridge);
 registerWorldTools(server, bridge);
 registerDiscoveryTools(server, bridge);
 registerVisualTools(server, bridge);
+registerCharacterTools(server, bridge);
+registerLevelTools(server, bridge);
+registerObjectTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {
