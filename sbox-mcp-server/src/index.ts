@@ -4,11 +4,11 @@
  * Entry point for the sbox-mcp MCP server.
  *
  * Creates an MCP server (stdio transport), connects to the s&box Bridge Addon
- * via WebSocket, and registers all tool handlers. Each tool domain (project,
+ * via file-based IPC (a shared temp dir), and registers all tool handlers. Each tool domain (project,
  * scripts, console, scenes, etc.) has its own register function in src/tools/.
  *
  * CLI flags: --version / -v, --help / -h
- * Environment: SBOX_BRIDGE_HOST, SBOX_BRIDGE_PORT
+ * Environment: SBOX_BRIDGE_IPC_DIR (the real knob); SBOX_BRIDGE_HOST / SBOX_BRIDGE_PORT (legacy, cosmetic)
  */
 
 import { readFileSync } from "fs";
@@ -67,8 +67,10 @@ USAGE
   node dist/index.js --version    Show version
 
 ENVIRONMENT VARIABLES
-  SBOX_BRIDGE_HOST    Bridge WebSocket host (default: 127.0.0.1)
-  SBOX_BRIDGE_PORT    Bridge WebSocket port (default: 29015)
+  SBOX_BRIDGE_IPC_DIR   IPC directory — MUST match the s&box addon's dir.
+                        Default: <os tmpdir>/sbox-bridge-ipc
+  SBOX_BRIDGE_HOST      Legacy/cosmetic — shown in get_bridge_status only
+  SBOX_BRIDGE_PORT      Legacy/cosmetic — shown in get_bridge_status only
 
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
@@ -137,7 +139,7 @@ The plugin ships an \`sbox-build-feature\` skill that codifies the workflow abov
   },
 );
 
-// Bridge client connects to s&box editor via WebSocket
+// Bridge client talks to the s&box editor via file IPC. host/port are cosmetic.
 const bridge = new BridgeClient(
   process.env.SBOX_BRIDGE_HOST ?? "127.0.0.1",
   parseInt(process.env.SBOX_BRIDGE_PORT ?? "29015", 10)
@@ -177,6 +179,8 @@ async function main(): Promise<void> {
   console.error("  ║  https://sboxskins.gg                            ║");
   console.error("  ╚═══════════════════════════════════════════════════╝");
   console.error("");
+
+  console.error(`[sbox-mcp] IPC directory: ${bridge.getIpcDir()}`);
 
   // Attempt initial connection to s&box (non-fatal if it fails)
   try {

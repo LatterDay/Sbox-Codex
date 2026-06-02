@@ -30,6 +30,17 @@ public static class ClaudeBridge
 	// UTF-8 without BOM — Node.js JSON.parse rejects the BOM prefix
 	private static readonly Encoding _utf8NoBom = new UTF8Encoding( false );
 
+	// Bridge build version — surfaced in status.json + the Status menu so a
+	// marketplace-addon-vs-MCP-server skew is visible at a glance.
+	private const string BridgeVersion = "1.3.2";
+
+	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
+	// the heartbeat timestamp is refreshed from the frame loop at most once per
+	// HeartbeatIntervalMs so a closed/stalled editor reads as disconnected.
+	private static string _startedAtIso;
+	private static DateTime _lastHeartbeatUtc = DateTime.MinValue;
+	private const double HeartbeatIntervalMs = 1000;
+
 	// Set on the first editor frame after bootstrap, so we don't re-initialize on every frame.
 	private static bool _initialized;
 
@@ -53,9 +64,48 @@ public static class ClaudeBridge
 	public static void ShowStatus()
 	{
 		var msg = _running
-			? $"Running\nIPC: {_ipcDir}\nHandlers: {_handlers.Count}"
+			? $"Running v{BridgeVersion}\nIPC: {_ipcDir}\nHandlers: {_handlers.Count}"
 			: "Not running";
 		EditorUtility.DisplayDialog( "Claude Bridge", msg );
+	}
+
+	// Resolved via Path.GetTempPath() only. Reading SBOX_BRIDGE_IPC_DIR here would
+	// need Environment.GetEnvironmentVariable, which may be blocked by the s&box
+	// sandbox (env vars are an info-leak vector for untrusted game code) and would
+	// fail at compile time. The dir is LOGGED below and written into status.json,
+	// so to fix a Node-vs-C# temp split you point the MCP server at this dir via
+	// its SBOX_BRIDGE_IPC_DIR env var instead.
+	static string ResolveIpcDir()
+	{
+		return Path.Combine( Path.GetTempPath(), "sbox-bridge-ipc" );
+	}
+
+	/// <summary>
+	/// Write status.json. This doubles as a HEARTBEAT: the `heartbeat` field is
+	/// refreshed from the editor frame loop, so the MCP server can tell a live
+	/// editor from a closed/crashed/frame-stalled one. A write-once status file
+	/// used to leave the bridge reporting "connected" forever after the first run.
+	/// </summary>
+	static void WriteStatus( bool running )
+	{
+		if ( _ipcDir == null ) return;
+		try
+		{
+			var statusPath = Path.Combine( _ipcDir, "status.json" );
+			File.WriteAllText( statusPath, JsonSerializer.Serialize( new
+			{
+				running,
+				version = BridgeVersion,
+				startedAt = _startedAtIso,
+				heartbeat = DateTime.UtcNow.ToString( "o" ),
+				handlerCount = _handlers.Count,
+				ipcDir = _ipcDir
+			} ), _utf8NoBom );
+		}
+		catch ( Exception ex )
+		{
+			Log.Warning( $"[SboxBridge] Status write error: {ex.Message}" );
+		}
 	}
 
 	static void StartBridge()
@@ -64,24 +114,19 @@ public static class ClaudeBridge
 
 		try
 		{
-			_ipcDir = Path.Combine( Path.GetTempPath(), "sbox-bridge-ipc" );
+			_ipcDir = ResolveIpcDir();
 			Directory.CreateDirectory( _ipcDir );
 
-			var statusPath = Path.Combine( _ipcDir, "status.json" );
-			File.WriteAllText( statusPath, JsonSerializer.Serialize( new
-			{
-				running = true,
-				startedAt = DateTime.UtcNow.ToString( "o" ),
-				handlerCount = _handlers.Count
-			} ), _utf8NoBom );
-
+			_startedAtIso = DateTime.UtcNow.ToString( "o" );
 			_running = true;
+			WriteStatus( true );
+			_lastHeartbeatUtc = DateTime.UtcNow;
 
 			// Use a Timer only to read request files from disk (IO is thread-safe)
 			// But queue the actual processing for the main thread
 			_pollTimer = new Timer( ReadRequestFiles, null, 500, 50 );
 
-			Log.Info( $"[SboxBridge] Bridge started — {_handlers.Count} handlers, IPC at {_ipcDir}" );
+			Log.Info( $"[SboxBridge] Bridge v{BridgeVersion} started — {_handlers.Count} handlers, IPC at {_ipcDir}" );
 			Log.Info( "[SboxBridge] s&box Claude Bridge by sboxskins.gg — https://sboxskins.gg" );
 		}
 		catch ( Exception ex )
@@ -384,6 +429,16 @@ public static class ClaudeBridge
 				Log.Warning( $"[SboxBridge] Init failed: {ex}" );
 				return;
 			}
+		}
+
+		// Refresh the liveness heartbeat (throttled). Driven from the frame loop
+		// on purpose: if frames stop firing (editor closed or stalled) the
+		// heartbeat goes stale within seconds and the MCP server reports
+		// "disconnected" instead of a permanent false-positive.
+		if ( _running && (DateTime.UtcNow - _lastHeartbeatUtc).TotalMilliseconds >= HeartbeatIntervalMs )
+		{
+			_lastHeartbeatUtc = DateTime.UtcNow;
+			WriteStatus( true );
 		}
 
 		try

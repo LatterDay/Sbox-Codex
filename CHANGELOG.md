@@ -2,6 +2,28 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.3.2] — 2026-06-02
+
+**Bridge liveness + diagnostics. Fixes the "connected, 0ms ping, but every scene call times out" report: `ping` / `connect` were a file-existence check, not proof the editor was alive.**
+
+### Fixed
+
+- **Permanent false-positive "connected".** `status.json` was written once at startup and never updated or removed, so after the bridge ran even once, `connect()` / `ping()` / `isConnected()` reported "connected" forever — including when the editor was closed, crashed, or its frame loop had stalled (`ping()` only stat'd that file, hence the ~0ms). It is now a **heartbeat**: the addon refreshes `status.json` (with a `heartbeat` timestamp) from the editor frame loop, and the MCP server treats a heartbeat older than 5s as **disconnected**. Driving it from the frame loop means a stalled/closed editor goes stale within seconds — no separate (and unreliable) shutdown event needed. Old addons without a `heartbeat` field are still treated as connected, so upgrading the server alone never regresses a working setup.
+
+### Added
+
+- **`SBOX_BRIDGE_IPC_DIR`** (MCP server) — overrides the IPC directory. The #1 cause of a silent 30s hang is the Node side (`os.tmpdir()`, reads `TEMP` first) and the C# side (`Path.GetTempPath()`, reads `TMP` first) resolving **different** temp dirs; point both at one dir to realign. The addon logs and writes its resolved dir (`[SboxBridge] … IPC at <dir>` and `status.json.ipcDir`) so you know what to match.
+- **Timeouts now name the failing side.** Instead of a bare `Request timed out after 30000ms`, a timeout reports whether the editor never consumed the request (not running / wrong IPC dir) or consumed it but never responded (frame loop stalled / handler errored) — with the IPC dir and a pointer to the `[SboxBridge]` console logs.
+- **Richer `get_bridge_status`** — reports the IPC directory, heartbeat age, and the result of a real round-trip, so "heartbeat live but requests not draining" is distinguishable from "fully working" and "not connected". Also surfaces the bridge build version.
+- **`BridgeVersion`** in `status.json` and the **Editor → Claude Bridge → Status** dialog, so a marketplace-addon-vs-MCP-server skew is visible at a glance.
+- **Transport regression tests** — `npm test` (Node's built-in test runner, zero new deps) covers heartbeat-staleness, the timeout diagnostics, and the IPC-dir override.
+
+### Changed
+
+- Removed the misleading **WebSocket / port 29015** references from code and docs. There is no socket — `SBOX_BRIDGE_HOST` / `SBOX_BRIDGE_PORT` are cosmetic (shown only in `get_bridge_status`). INSTALL.md's old "change the port in `MyEditorMenu.cs`" step (the file no longer contains `29015`) is replaced with a temp-dir-mismatch fix guide.
+
+---
+
 ## [1.3.1] — 2026-05-16
 
 **Discoverability patch. No tool changes. Surfaces the new Claude Code plugin and the screenshot-driven workflow inside the existing distribution channels.**

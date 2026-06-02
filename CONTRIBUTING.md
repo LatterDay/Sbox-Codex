@@ -119,7 +119,8 @@ if ( !fullPath.StartsWith( projectRoot ) )
 - Error format: `Error: ${res.error}`
 
 ### Protocol
-- WebSocket port: 29015 (configurable via `SBOX_BRIDGE_PORT`)
+- Transport: file-based IPC in a shared temp dir (no socket). `SBOX_BRIDGE_IPC_DIR` overrides the dir on the MCP-server side and must match the addon's `Path.GetTempPath()/sbox-bridge-ipc`.
+- `status.json` is a heartbeat (refreshed from the editor frame loop); a stale heartbeat reads as disconnected.
 - Request: `{ id: string, command: string, params: object }`
 - Response: `{ id: string, success: boolean, data?: any, error?: string }`
 - Batch: `{ id: string, commands: [{ command, params }, ...] }`

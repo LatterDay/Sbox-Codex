@@ -135,23 +135,35 @@ Then in s&box, ask Claude to call `trigger_hotload` (or restart s&box if hotload
 
 ## Configuration
 
+The bridge communicates over **file-based IPC** — the MCP server writes
+`req_*.json` and the addon writes `res_*.json` in a shared temp directory. There
+is no network socket; `SBOX_BRIDGE_HOST` / `SBOX_BRIDGE_PORT` are cosmetic (shown
+only in `get_bridge_status`).
+
 ### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SBOX_BRIDGE_HOST` | `127.0.0.1` | Bridge IPC host |
-| `SBOX_BRIDGE_PORT` | `29015` | Bridge ping port |
+| `SBOX_BRIDGE_IPC_DIR` | `<os tmpdir>/sbox-bridge-ipc` | IPC directory. Must match on both sides. |
+| `SBOX_BRIDGE_HOST` | `127.0.0.1` | Legacy/cosmetic — display only |
+| `SBOX_BRIDGE_PORT` | `29015` | Legacy/cosmetic — display only |
 
-### Changing the port
+### Fixing a "connected but every call times out" hang
 
-If port 29015 is in use, change it on both sides:
+This almost always means the MCP server (Node) and the s&box addon (C#) resolved
+**different** temp directories — Node uses `os.tmpdir()` (reads `TEMP` first), C#
+uses `Path.GetTempPath()` (reads `TMP` first), and on some machines those differ.
 
-**MCP server side:**
-```bash
-claude mcp add sbox --env SBOX_BRIDGE_PORT=29016 -- npx sbox-mcp-server
-```
+1. In s&box, open **Editor → Claude Bridge → Status** (or check the editor
+   console for `[SboxBridge] Bridge … IPC at <dir>`). Note that directory.
+2. Point the MCP server at the same directory:
+   ```bash
+   claude mcp add sbox --env SBOX_BRIDGE_IPC_DIR="<that dir>" -- npx sbox-mcp-server
+   ```
 
-**Bridge addon side:** edit `MyEditorMenu.cs` and search for `29015`.
+The addon side resolves its directory from `Path.GetTempPath()` only and does not
+honor an env override (to stay inside the s&box sandbox), so realign from the
+MCP-server side.
 
 ---
 
