@@ -277,6 +277,9 @@ public static class ClaudeBridge
 		Register( "get_method_signature",     () => new GetMethodSignatureHandler() );
 		Register( "find_in_project",          () => new FindInProjectHandler() );
 
+		// ── Batch 17: Visual & atmosphere ───────────────────────────────
+		Register( "add_light",                () => new AddLightHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -285,6 +288,7 @@ public static class ClaudeBridge
 	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
+		"add_light",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4430,5 +4434,96 @@ public class FindInProjectHandler : IBridgeHandler
 		}
 
 		return Task.FromResult<object>( new { symbol, count = hits.Count, results = hits } );
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH 17 — Visual & Atmosphere (lighting, post-fx, fog, sky, presets)
+// ═══════════════════════════════════════════════════════════════════
+
+// ───────── add_light ─────────────────────────────────────────────────────
+public class AddLightHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var type = (p.TryGetProperty( "type", out var t ) ? t.GetString() : "point")?.ToLowerInvariant();
+		var name = p.TryGetProperty( "name", out var n ) ? n.GetString() : null;
+		var brightness = p.TryGetProperty( "brightness", out var br ) ? br.GetSingle() : 1f;
+		var shadows = !p.TryGetProperty( "shadows", out var sh ) || sh.GetBoolean();
+
+		// s&box lights have NO Brightness field — intensity is the LightColor magnitude (HDR),
+		// so we scale the colour's RGB by `brightness` (alpha left intact).
+		var c = ParseColor( p, "color", Color.White );
+		var lit = new Color( c.r * brightness, c.g * brightness, c.b * brightness, c.a );
+
+		var go = scene.CreateObject( true );
+
+		switch ( type )
+		{
+			case "directional":
+				go.Name = name ?? "Directional Light";
+				var dl = go.AddComponent<DirectionalLight>();
+				dl.LightColor = lit;
+				dl.Shadows = shadows;
+				if ( p.TryGetProperty( "skyColor", out _ ) )
+					dl.SkyColor = ParseColor( p, "skyColor", dl.SkyColor );
+				break;
+
+			case "point":
+				go.Name = name ?? "Point Light";
+				var pl = go.AddComponent<PointLight>();
+				pl.LightColor = lit;
+				pl.Shadows = shadows;
+				if ( p.TryGetProperty( "range", out var pr ) ) pl.Radius = pr.GetSingle();
+				break;
+
+			case "spot":
+				go.Name = name ?? "Spot Light";
+				var sl = go.AddComponent<SpotLight>();
+				sl.LightColor = lit;
+				sl.Shadows = shadows;
+				if ( p.TryGetProperty( "range", out var sr ) ) sl.Radius = sr.GetSingle();
+				if ( p.TryGetProperty( "coneInner", out var ci ) ) sl.ConeInner = ci.GetSingle();
+				if ( p.TryGetProperty( "coneOuter", out var co ) ) sl.ConeOuter = co.GetSingle();
+				break;
+
+			case "ambient":
+				go.Name = name ?? "Ambient Light";
+				var al = go.AddComponent<AmbientLight>();
+				al.Color = lit;
+				break;
+
+			default:
+				go.Destroy();
+				return Task.FromResult<object>( new { error = $"Unknown light type '{type}'. Use directional|point|spot|ambient." } );
+		}
+
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "rotation", out var rot ) )
+			go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+		if ( p.TryGetProperty( "parentId", out var pid ) && Guid.TryParse( pid.GetString(), out var parentGuid ) )
+		{
+			var parent = scene.Directory.FindByGuid( parentGuid );
+			if ( parent != null ) go.SetParent( parent, keepWorldPosition: true );
+		}
+
+		return Task.FromResult<object>( new { created = true, type, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+
+	/// <summary>Parse a {r,g,b,a?} colour (0-1 floats) from a named property, or return the fallback.</summary>
+	internal static Color ParseColor( JsonElement p, string key, Color fallback )
+	{
+		if ( !p.TryGetProperty( key, out var col ) || col.ValueKind != JsonValueKind.Object )
+			return fallback;
+		float r = col.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
+		float g = col.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
+		float b = col.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
+		float a = col.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
+		return new Color( r, g, b, a );
 	}
 }

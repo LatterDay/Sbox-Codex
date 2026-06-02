@@ -35,6 +35,7 @@ import { registerNetworkingTools } from "./tools/networking.js";
 import { registerPublishingTools } from "./tools/publishing.js";
 import { registerWorldTools } from "./tools/world.js";
 import { registerDiscoveryTools } from "./tools/discovery.js";
+import { registerVisualTools } from "./tools/visuals.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -164,6 +165,7 @@ registerNetworkingTools(server, bridge);
 registerPublishingTools(server, bridge);
 registerWorldTools(server, bridge);
 registerDiscoveryTools(server, bridge);
+registerVisualTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {
