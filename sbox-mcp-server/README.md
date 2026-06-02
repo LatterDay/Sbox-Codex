@@ -1,6 +1,6 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — 99 working tools for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, and type discovery.
+MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — 131 working tools for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, and type discovery.
 
 ## Fastest install — the Claude Code plugin
 
@@ -54,7 +54,7 @@ Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → 
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
 
-## Tools (99 working)
+## Tools (131 — v1.4.0)
 
 | Category | Tools |
 |----------|-------|
@@ -82,6 +82,12 @@ Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP ser
 | **Placement** | place_along_path |
 | **Discovery** | describe_type, search_types, get_method_signature, find_in_project |
 | **Status** | get_bridge_status |
+| **Visual & atmosphere** *(v1.4.0)* | add_light, set_fog, add_post_process, set_skybox, add_envmap_probe, apply_atmosphere, apply_post_fx_look |
+| **Characters** *(v1.4.0)* | spawn_model, spawn_citizen, dress_citizen, set_bodygroup, pose_citizen, equip_model, set_look_at, add_ragdoll, set_expression |
+| **Scene & level** *(v1.4.0)* | snap_to_ground, align_objects, distribute_objects, grid_duplicate, measure_distance |
+| **Environment** *(v1.4.0)* | scatter_props, randomize_transforms, group_objects |
+| **Object utilities** *(v1.4.0)* | find_objects, set_tint, replace_model, set_tags |
+| **VFX** *(v1.4.0, experimental)* | spawn_particle, create_particle_effect, add_trail, add_beam — compile but runtime rendering unverified through the bridge; use a legacy `.vpcf` for visible particles |
 
 ## Working with Claude effectively
 

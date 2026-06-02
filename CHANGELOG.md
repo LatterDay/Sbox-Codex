@@ -2,6 +2,40 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.4.0] — 2026-06-02
+
+**32 new authoring tools across 7 batches — lighting & atmosphere, characters, scene layout, environment scatter, and object utilities. The bridge goes from "manipulate one object at a time" to "compose a whole scene." Tool count 99 → 131 (handlers 100 → 132).**
+
+### Added
+
+**Visual & Atmosphere (Batch 17 — 7 tools)** — author scene mood directly instead of hand-driving `add_component_with_properties` (which can't even set a Color):
+- `add_light` — directional / point / spot / ambient. Note: s&box lights have **no brightness field** — intensity is the colour's magnitude, so the `brightness` param scales the colour's RGB (use >1 for HDR).
+- `set_fog` (gradient distance haze), `add_post_process` (generic — Bloom / Tonemapping / ColorAdjustments / Vignette / DepthOfField / etc. on the main camera), `set_skybox`, `add_envmap_probe`.
+- Presets: `apply_atmosphere` (`horror-night` / `foggy-dawn` / `warm-interior` / `overcast` — a full day→night transform in one call) and `apply_post_fx_look`.
+
+**Characters & Models (Batches 19–20 — 9 tools)** — spawn, dress, pose, accessorize:
+- `spawn_model` (any model + tint), `spawn_citizen` (animated Citizen + `CitizenAnimationHelper`, idles in-editor), `dress_citizen` (apply `.clothing` resources via `ClothingContainer`), `set_bodygroup`, `pose_citizen` (hold type / move style / sitting / crouch).
+- `equip_model` (attach a prop to a bone or attachment point), `set_look_at` (gaze tracking), `add_ragdoll` (`ModelPhysics`), `set_expression` (facial morphs; call with no morph to list the model's available blendshapes).
+
+**Scene & Level Building (Batch 21 — 5 tools)**:
+- `snap_to_ground` (raycast-drop onto the surface below), `align_objects`, `distribute_objects`, `grid_duplicate` (array copies in an X/Y/Z grid), `measure_distance` (read-only).
+
+**Environment & Props (Batch 22 — 3 tools)**:
+- `scatter_props` (N model copies in a radius — seeded, ground-snapped, grouped), `randomize_transforms` (yaw/scale variation for a natural look), `group_objects` (reparent a set under a centroid empty).
+
+**Object Utilities & Queries (Batch 23 — 4 tools)**:
+- `find_objects` (query by name / component type / tag — read-only, and composable: feed the GUIDs into align / distribute / set_tint / group / delete), `set_tint`, `replace_model`, `set_tags` — each operates on one object or many.
+
+**Experimental — VFX / Particles (Batch 18 — 4 tools):** `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam`. These compile and build the correct component graph, but **runtime particle rendering is currently unverified through the bridge** — s&box's component `ParticleEffect` needs sprite assets plus a live-play view the bridge can't supply. Shipped as experimental; for guaranteed-visible particles use a legacy `.vpcf` + `LegacyParticleSystem`, or wire them up by hand in the editor.
+
+### Notes
+
+- **Design principle this release — verifiable-first.** Every non-experimental tool produces a static mesh / pose / state that renders in the editor viewport (screenshot-verifiable) or returns checkable data. That's the lesson from the particle batch, which is the one category the bridge fundamentally can't see.
+- New MCP tool modules: `tools/visuals.ts`, `tools/characters.ts`, `tools/leveltools.ts`, `tools/objecttools.ts`.
+- **No breaking changes** — every v1.3.2 tool is unchanged.
+
+---
+
 ## [1.3.2] — 2026-06-02
 
 **Bridge liveness + diagnostics. Fixes the "connected, 0ms ping, but every scene call times out" report: `ping` / `connect` were a file-existence check, not proof the editor was alive.**

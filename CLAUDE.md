@@ -2,14 +2,26 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: 100 of 109 Tools Implemented
+## Status: 131 Tools / 132 Handlers (v1.4.0)
 
-**Last updated:** 2026-05-16 (v1.3.1)
+**Last updated:** 2026-06-02 (v1.4.0)
 **Bridge:** File-based IPC ✅ working on main thread
-**Handlers:** 100 compiled and registered (of 109 MCP tools defined)
+**Handlers:** 132 compiled and registered
 **Not implementable:** 9 tools (no s&box API exists — see "Known Issues")
 
-### What's new in this update
+### What's new in v1.4.0
+
+**+32 authoring tools across 7 batches** (tool count 99 → 131, handlers 100 → 132). The bridge goes from one-object-at-a-time to scene composition:
+- **Visual & Atmosphere (Batch 17):** `add_light`, `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe`, `apply_atmosphere`, `apply_post_fx_look`.
+- **Characters & Models (Batches 19–20):** `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression`.
+- **Scene & Level (Batch 21):** `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance`.
+- **Environment (Batch 22):** `scatter_props`, `randomize_transforms`, `group_objects`.
+- **Object Utilities (Batch 23):** `find_objects`, `set_tint`, `replace_model`, `set_tags`.
+- **Experimental — VFX/Particles (Batch 18):** `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` — compile + build the component graph, but runtime rendering is **unverified through the bridge** (component `ParticleEffect` needs sprite assets + a live-play view the bridge can't supply; use legacy `.vpcf` for guaranteed-visible particles).
+
+**Design principle: verifiable-first** — every non-experimental tool renders statically in the editor (screenshot-verifiable) or returns checkable data. New TS modules: `tools/{visuals,characters,leveltools,objecttools}.ts`. Full notes in `CHANGELOG.md` [1.4.0]. No breaking changes.
+
+### What's new in v1.3.1 (previous)
 
 - **Generic component-button driver** — `invoke_button` + `list_component_buttons` work on any component with a `[Button]` attribute. Plus `set_prefab_ref` for assigning prefab GameObjects to component properties.
 - **Map editing primitives** — `add_terrain_hill`, `add_terrain_clearing`, `add_terrain_trail`, `clear_terrain_features` drive a `MapBuilder` component by mutating its editable `Hills`/`Clearings`/`Trails`/`CavePath` lists and rebuilding.
