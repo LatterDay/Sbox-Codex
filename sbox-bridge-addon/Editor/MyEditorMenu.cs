@@ -290,6 +290,7 @@ public static class ClaudeBridge
 		Register( "spawn_particle",           () => new SpawnParticleHandler() );
 		Register( "add_trail",                () => new AddTrailHandler() );
 		Register( "add_beam",                 () => new AddBeamHandler() );
+		Register( "create_particle_effect",   () => new CreateParticleEffectHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -300,7 +301,7 @@ public static class ClaudeBridge
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
 		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look", "add_envmap_probe",
-		"spawn_particle", "add_trail", "add_beam",
+		"spawn_particle", "add_trail", "add_beam", "create_particle_effect",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4888,6 +4889,14 @@ public class SpawnParticleHandler : IBridgeHandler
 				tint = new Color( 1f, 0.5f, 0.18f );  rate = 14f; life = 2.6f; size = 2.5f; coneAngle = 32f; speed = 90f;  gravity = 35f;  loop = true;  break;
 			case "sparks":
 				tint = new Color( 1f, 0.85f, 0.45f ); rate = 0f;  life = 0.7f; size = 2f;   coneAngle = 70f; speed = 320f; gravity = 500f; loop = false; break;
+			case "magic":
+				tint = new Color( 0.6f, 0.3f, 1f );    rate = 30f; life = 1.8f; size = 3f;   coneAngle = 55f; speed = 45f;  gravity = 0f;   loop = true;  break;
+			case "dust":
+				tint = new Color( 0.6f, 0.55f, 0.45f ); rate = 8f;  life = 3.5f; size = 4f;   coneAngle = 80f; speed = 30f;  gravity = 8f;   loop = true;  break;
+			case "blood":
+				tint = new Color( 0.5f, 0.02f, 0.02f ); rate = 0f;  life = 0.9f; size = 3f;   coneAngle = 65f; speed = 220f; gravity = 700f; loop = false; break;
+			case "snow":
+				tint = new Color( 0.95f, 0.97f, 1f );   rate = 25f; life = 6f;   size = 2.5f; coneAngle = 85f; speed = 25f;  gravity = 30f;  loop = true;  break;
 			case "smoke":
 				return Task.FromResult<object>( new { error = "smoke needs a soft smoke sprite (additive squares look bad) — not in v1; use fire | embers | sparks." } );
 			default:
@@ -4999,6 +5008,65 @@ public class AddBeamHandler : IBridgeHandler
 		be.InitialBurst = 1;
 		be.BeamsPerSecond = 2f;
 		be.BeamLifetime = VisualHelpers.PF( 2f );
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── create_particle_effect (generic, raw params) ───────────────────
+public class CreateParticleEffectHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Particle Effect";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		go.WorldRotation = Rotation.From( -90f, 0f, 0f ); // cone emits +Z (up) by default
+
+		float rate      = p.TryGetProperty( "rate", out var r )        ? r.GetSingle()  : 30f;
+		float life      = p.TryGetProperty( "lifetime", out var l )    ? l.GetSingle()  : 2f;
+		float size      = p.TryGetProperty( "size", out var sz )       ? sz.GetSingle() : 4f;
+		float speed     = p.TryGetProperty( "speed", out var sp )      ? sp.GetSingle() : 100f;
+		float coneAngle = p.TryGetProperty( "coneAngle", out var ca )  ? ca.GetSingle() : 40f;
+		float gravity   = p.TryGetProperty( "gravity", out var gr )    ? gr.GetSingle() : 0f;
+		int   maxP      = p.TryGetProperty( "maxParticles", out var m )? m.GetInt32()   : 500;
+		bool  additive  = !p.TryGetProperty( "additive", out var ad )  || ad.GetBoolean();
+		bool  loop      = !p.TryGetProperty( "loop", out var lp )      || lp.GetBoolean();
+		float burst     = p.TryGetProperty( "burst", out var bu )      ? bu.GetSingle() : 30f;
+		var   tint      = p.TryGetProperty( "color", out var cc )      ? VisualHelpers.ParseColorElement( cc, Color.White ) : Color.White;
+
+		var pe = go.AddComponent<ParticleEffect>();
+		pe.MaxParticles = maxP;
+		pe.Lifetime = VisualHelpers.PF( life );
+		pe.ApplyColor = true;
+		pe.Tint = tint;
+		pe.ApplyShape = true;
+		pe.Scale = VisualHelpers.PF( size );
+		if ( gravity > 0f )
+		{
+			pe.Force = true;
+			pe.ForceDirection = new Vector3( 0f, 0f, -1f );
+			pe.ForceScale = VisualHelpers.PF( gravity );
+		}
+
+		var em = go.AddComponent<ParticleConeEmitter>();
+		em.ConeAngle = VisualHelpers.PF( coneAngle );
+		em.VelocityMultiplier = VisualHelpers.PF( speed );
+		em.Loop = loop;
+		if ( loop ) em.Rate = VisualHelpers.PF( rate );
+		else        em.Burst = VisualHelpers.PF( burst );
+
+		var sr = go.AddComponent<ParticleSpriteRenderer>();
+		sr.Texture = Texture.White;
+		sr.Additive = additive;
+		sr.Lighting = false;
+		sr.Scale = 1f;
+		sr.ParticleEffect = pe;
 
 		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}

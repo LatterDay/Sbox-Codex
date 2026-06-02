@@ -239,7 +239,9 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
     "spawn_particle",
     "Spawn an additive particle effect (no texture asset needed): kind = fire (rising flame), embers (slow drifting glow), or sparks (a one-shot burst). Renders as tinted glowing dots — great for campfires, torches, and impacts. (smoke needs a soft sprite; not in v1.)",
     {
-      kind: z.enum(["fire", "embers", "sparks"]).describe("Particle preset"),
+      kind: z
+        .enum(["fire", "embers", "sparks", "magic", "dust", "blood", "snow"])
+        .describe("Particle preset"),
       position: Vector3Schema.optional().describe("World position"),
       color: ColorSchema.optional().describe("Override the particle tint"),
       name: z.string().optional().describe("GameObject name"),
@@ -291,6 +293,36 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
     },
     async (params) => {
       const res = await bridge.send("add_beam", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── create_particle_effect (generic / raw params) ────────────────────
+  server.tool(
+    "create_particle_effect",
+    "Build a custom additive particle effect from raw params (ParticleEffect + cone emitter + sprite renderer). Use this when the spawn_particle presets aren't what you want. Texture-free (additive Texture.White glow).",
+    {
+      position: Vector3Schema.optional().describe("World position"),
+      color: ColorSchema.optional().describe("Particle tint (default white)"),
+      rate: z.number().optional().describe("Particles per second when looping (default 30)"),
+      burst: z.number().optional().describe("Particle count for a one-shot burst when loop=false (default 30)"),
+      loop: z.boolean().optional().describe("Continuous emission (default true) vs a single burst"),
+      lifetime: z.number().optional().describe("Particle lifetime in seconds (default 2)"),
+      size: z.number().optional().describe("Particle size (default 4)"),
+      speed: z.number().optional().describe("Emission speed along the cone (default 100)"),
+      coneAngle: z.number().optional().describe("Cone half-angle in degrees; ~85 ≈ hemisphere (default 40)"),
+      gravity: z.number().optional().describe("Downward force (default 0 = none)"),
+      additive: z.boolean().optional().describe("Additive (glow) blending (default true)"),
+      maxParticles: z.number().optional().describe("Max live particles (default 500)"),
+      name: z.string().optional().describe("GameObject name"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_particle_effect", params);
       if (!res.success) {
         return { content: [{ type: "text", text: `Error: ${res.error}` }] };
       }
