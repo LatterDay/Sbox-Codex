@@ -279,6 +279,7 @@ public static class ClaudeBridge
 
 		// ── Batch 17: Visual & atmosphere ───────────────────────────────
 		Register( "add_light",                () => new AddLightHandler() );
+		Register( "set_fog",                  () => new SetFogHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -288,7 +289,7 @@ public static class ClaudeBridge
 	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
-		"add_light",
+		"add_light", "set_fog",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4525,5 +4526,39 @@ public class AddLightHandler : IBridgeHandler
 		float b = col.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
 		float a = col.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
 		return new Color( r, g, b, a );
+	}
+}
+
+// ───────── set_fog ───────────────────────────────────────────────────────
+public class SetFogHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var type = (p.TryGetProperty( "type", out var t ) ? t.GetString() : "gradient")?.ToLowerInvariant();
+		if ( type != "gradient" )
+			return Task.FromResult<object>( new { error = $"Fog type '{type}' is not supported yet (v1 supports 'gradient')." } );
+
+		// Re-use an existing GameObject if targetId is given, else create a dedicated Fog object.
+		GameObject go = null;
+		if ( p.TryGetProperty( "targetId", out var tid ) && Guid.TryParse( tid.GetString(), out var tg ) )
+			go = scene.Directory.FindByGuid( tg );
+		if ( go == null )
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Gradient Fog";
+		}
+
+		var fog = go.GetOrAddComponent<GradientFog>();
+		fog.Color = AddLightHandler.ParseColor( p, "color", fog.Color );
+		if ( p.TryGetProperty( "startDistance", out var sd ) ) fog.StartDistance = sd.GetSingle();
+		if ( p.TryGetProperty( "endDistance",   out var ed ) ) fog.EndDistance   = ed.GetSingle();
+		if ( p.TryGetProperty( "height",        out var h  ) ) fog.Height        = h.GetSingle();
+		if ( p.TryGetProperty( "falloff",       out var f  ) ) fog.FalloffExponent = f.GetSingle();
+
+		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}
 }

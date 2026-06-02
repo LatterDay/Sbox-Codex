@@ -76,4 +76,44 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── set_fog ────────────────────────────────────────────────────────
+  server.tool(
+    "set_fog",
+    "Add or update distance fog in the active scene. v1 supports gradient fog (atmospheric distance haze — great for mood/horror). Re-running on the same target updates it rather than duplicating.",
+    {
+      type: z
+        .enum(["gradient"])
+        .optional()
+        .describe("Fog type (default gradient; cubemap/volumetric coming later)"),
+      name: z.string().optional().describe("GameObject name when creating a new fog object"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to host the fog (else a new 'Gradient Fog' object is created)"),
+      color: ColorSchema.optional().describe("Fog colour"),
+      startDistance: z
+        .number()
+        .optional()
+        .describe("Distance (units) where fog begins"),
+      endDistance: z
+        .number()
+        .optional()
+        .describe("Distance (units) where fog reaches full density"),
+      height: z.number().optional().describe("World height the fog settles around"),
+      falloff: z
+        .number()
+        .optional()
+        .describe("Distance falloff exponent (higher = sharper onset)"),
+    },
+    async (params) => {
+      const res = await bridge.send("set_fog", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }
