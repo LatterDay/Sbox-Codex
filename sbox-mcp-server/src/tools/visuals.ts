@@ -116,4 +116,96 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── add_post_process ─────────────────────────────────────────────────
+  server.tool(
+    "add_post_process",
+    "Add (or update) a post-processing effect on the scene's main camera (auto-enables post-processing). Generic: pass the effect component name + any of its properties. Examples — Bloom {Strength, Threshold, Tint}, Tonemapping, ColorAdjustments {Saturation, Brightness, Contrast}, Vignette {Intensity, Color}, FilmGrain, DepthOfField, ChromaticAberration, MotionBlur, Sharpen, AmbientOcclusion. Call describe_type <Effect> to discover a given effect's properties.",
+    {
+      effect: z
+        .string()
+        .describe("Post-process component type name, e.g. 'Bloom', 'Vignette', 'ColorAdjustments'"),
+      properties: z
+        .record(z.any())
+        .optional()
+        .describe("Property name -> value. Floats/ints/bools as numbers/bools, colours as {r,g,b,a}, enums as their string name."),
+      cameraId: z
+        .string()
+        .optional()
+        .describe("GUID of a specific camera GameObject (default: the scene's main camera)"),
+    },
+    async (params) => {
+      const res = await bridge.send("add_post_process", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── set_skybox ───────────────────────────────────────────────────────
+  server.tool(
+    "set_skybox",
+    "Set the scene's 2D skybox tint / indirect lighting (re-uses an existing SkyBox2D or creates one). Darken the tint for night/dusk. Optionally point it at a .vmat sky material.",
+    {
+      tint: ColorSchema.optional().describe("Sky tint colour"),
+      indirectLighting: z
+        .boolean()
+        .optional()
+        .describe("Whether the sky contributes indirect/ambient light"),
+      material: z.string().optional().describe("Path to a .vmat sky material (optional)"),
+      name: z.string().optional().describe("Name for the sky GameObject if one is created"),
+    },
+    async (params) => {
+      const res = await bridge.send("set_skybox", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── apply_atmosphere (preset) ─────────────────────────────────────────
+  server.tool(
+    "apply_atmosphere",
+    "One-call scene mood: composes ambient + directional light, gradient fog, and a camera post-fx stack (tonemap + colour grade + vignette) tuned for the chosen mood. Idempotent — re-runs update the same 'Atmosphere *' objects.",
+    {
+      mood: z
+        .enum(["horror-night", "foggy-dawn", "overcast", "warm-interior"])
+        .describe("Atmosphere preset"),
+    },
+    async (params) => {
+      const res = await bridge.send("apply_atmosphere", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── apply_post_fx_look (preset) ───────────────────────────────────────
+  server.tool(
+    "apply_post_fx_look",
+    "Apply just a camera post-processing look (no lights/fog): cinematic (tonemap + bloom + soft vignette), filmic-horror (desaturated, high-contrast, heavy vignette, film grain), or clean (tonemap only).",
+    {
+      look: z
+        .enum(["cinematic", "filmic-horror", "clean"])
+        .describe("Post-fx look preset"),
+    },
+    async (params) => {
+      const res = await bridge.send("apply_post_fx_look", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

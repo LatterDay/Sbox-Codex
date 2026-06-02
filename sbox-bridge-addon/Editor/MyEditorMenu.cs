@@ -280,6 +280,10 @@ public static class ClaudeBridge
 		// ── Batch 17: Visual & atmosphere ───────────────────────────────
 		Register( "add_light",                () => new AddLightHandler() );
 		Register( "set_fog",                  () => new SetFogHandler() );
+		Register( "add_post_process",         () => new AddPostProcessHandler() );
+		Register( "set_skybox",               () => new SetSkyboxHandler() );
+		Register( "apply_atmosphere",         () => new ApplyAtmosphereHandler() );
+		Register( "apply_post_fx_look",       () => new ApplyPostFxLookHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -289,7 +293,7 @@ public static class ClaudeBridge
 	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
-		"add_light", "set_fog",
+		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4560,5 +4564,263 @@ public class SetFogHandler : IBridgeHandler
 		if ( p.TryGetProperty( "falloff",       out var f  ) ) fog.FalloffExponent = f.GetSingle();
 
 		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── Batch 17 shared helpers ────────────────────────────────────────
+public static class VisualHelpers
+{
+	/// <summary>Parse a {r,g,b,a?} colour object (0-1 floats) or return the fallback.</summary>
+	public static Color ParseColorElement( JsonElement c, Color fallback )
+	{
+		if ( c.ValueKind != JsonValueKind.Object ) return fallback;
+		float r = c.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
+		float g = c.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
+		float b = c.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
+		float a = c.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
+		return new Color( r, g, b, a );
+	}
+
+	/// <summary>Find the scene's main camera (prefers IsMainCamera), else the first camera, else null.</summary>
+	public static CameraComponent FindMainCamera( Scene scene )
+	{
+		CameraComponent first = null;
+		foreach ( var go in scene.GetAllObjects( true ) )
+		{
+			var cam = go.GetComponent<CameraComponent>();
+			if ( cam == null ) continue;
+			if ( cam.IsMainCamera ) return cam;
+			first ??= cam;
+		}
+		return first;
+	}
+
+	/// <summary>Get an existing GameObject by exact name, or create one.</summary>
+	public static GameObject GetOrCreateNamed( Scene scene, string name )
+	{
+		foreach ( var g in scene.GetAllObjects( true ) )
+			if ( g.Name == name ) return g;
+		var go = scene.CreateObject( true );
+		go.Name = name;
+		return go;
+	}
+
+	/// <summary>Set a property on any object via reflection, coercing the JSON value to the property's type.</summary>
+	public static void SetProp( object comp, string name, JsonElement val )
+	{
+		var pi = comp.GetType().GetProperty( name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase );
+		if ( pi == null || !pi.CanWrite ) return;
+		var t = pi.PropertyType;
+		try
+		{
+			object v;
+			if ( t == typeof( float ) ) v = val.GetSingle();
+			else if ( t == typeof( double ) ) v = val.GetDouble();
+			else if ( t == typeof( int ) ) v = val.GetInt32();
+			else if ( t == typeof( bool ) ) v = val.GetBoolean();
+			else if ( t == typeof( string ) ) v = val.GetString();
+			else if ( t == typeof( Color ) ) v = ParseColorElement( val, Color.White );
+			else if ( t == typeof( Vector3 ) ) v = ClaudeBridge.ParseVector3( val );
+			else if ( t == typeof( Vector2 ) ) v = new Vector2( val.TryGetProperty( "x", out var vx ) ? vx.GetSingle() : 0f, val.TryGetProperty( "y", out var vy ) ? vy.GetSingle() : 0f );
+			else if ( t.IsEnum ) v = Enum.Parse( t, val.GetString(), true );
+			else return;
+			pi.SetValue( comp, v );
+		}
+		catch { /* best-effort */ }
+	}
+}
+
+// ───────── add_post_process ───────────────────────────────────────────────
+public class AddPostProcessHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var effect = p.TryGetProperty( "effect", out var e ) ? e.GetString() : null;
+		if ( string.IsNullOrEmpty( effect ) )
+			return Task.FromResult<object>( new { error = "effect is required (e.g. Bloom, Tonemapping, ColorAdjustments, Vignette, FilmGrain, DepthOfField, ChromaticAberration, MotionBlur, Sharpen, AmbientOcclusion)" } );
+
+		CameraComponent cam = null;
+		if ( p.TryGetProperty( "cameraId", out var cid ) && Guid.TryParse( cid.GetString(), out var cg ) )
+			cam = scene.Directory.FindByGuid( cg )?.GetComponent<CameraComponent>();
+		cam ??= VisualHelpers.FindMainCamera( scene );
+		if ( cam == null )
+			return Task.FromResult<object>( new { error = "No CameraComponent found in the scene to attach post-processing to. Add a camera first." } );
+
+		cam.EnablePostProcessing = true;
+
+		var td = Game.TypeLibrary.GetType( effect );
+		if ( td == null )
+			return Task.FromResult<object>( new { error = $"Post-process effect type not found: {effect}" } );
+
+		var camGo = cam.GameObject;
+		Component comp = camGo.Components.GetAll().FirstOrDefault( c => c.GetType() == td.TargetType );
+		comp ??= camGo.Components.Create( td );
+		if ( comp == null )
+			return Task.FromResult<object>( new { error = $"Failed to create post-process effect: {effect}" } );
+
+		if ( p.TryGetProperty( "properties", out var props ) && props.ValueKind == JsonValueKind.Object )
+			foreach ( var prop in props.EnumerateObject() )
+				VisualHelpers.SetProp( comp, prop.Name, prop.Value );
+
+		return Task.FromResult<object>( new { added = true, effect, camera = camGo.Name, gameObject = ClaudeBridge.SerializeGo( camGo ) } );
+	}
+}
+
+// ───────── set_skybox ─────────────────────────────────────────────────────
+public class SetSkyboxHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		SkyBox2D sky = null;
+		foreach ( var g in scene.GetAllObjects( true ) ) { sky = g.GetComponent<SkyBox2D>(); if ( sky != null ) break; }
+
+		GameObject go;
+		if ( sky != null ) { go = sky.GameObject; }
+		else
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Sky";
+			sky = go.AddComponent<SkyBox2D>();
+		}
+
+		if ( p.TryGetProperty( "tint", out var tn ) ) sky.Tint = VisualHelpers.ParseColorElement( tn, sky.Tint );
+		if ( p.TryGetProperty( "indirectLighting", out var il ) ) sky.SkyIndirectLighting = il.GetBoolean();
+		if ( p.TryGetProperty( "material", out var mp ) )
+		{
+			try { var mat = Material.Load( mp.GetString() ); if ( mat != null ) sky.SkyMaterial = mat; } catch { }
+		}
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── apply_atmosphere (preset: lighting + fog + post-fx in one call) ─
+public class ApplyAtmosphereHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var mood = (p.TryGetProperty( "mood", out var m ) ? m.GetString() : "horror-night")?.ToLowerInvariant();
+
+		Color ambient, dirCol, fogCol;
+		float ambientB, dirB, fogStart, fogEnd, fogHeight, saturation, brightness, contrast, vignette;
+		switch ( mood )
+		{
+			case "horror-night":
+				ambient = new Color( 0.24f, 0.28f, 0.42f ); ambientB = 2.0f;   // visible blue base
+				dirCol  = new Color( 0.50f, 0.58f, 0.80f ); dirB = 1.6f;        // brighter moonlight
+				fogCol  = new Color( 0.10f, 0.12f, 0.18f ); fogStart = 500f; fogEnd = 6000f; fogHeight = 400f; // distance-only haze
+				saturation = 0.65f; brightness = 0.95f; contrast = 1.10f; vignette = 0.7f;
+				break;
+			case "foggy-dawn":
+				ambient = new Color( 0.50f, 0.52f, 0.55f ); ambientB = 1.2f;
+				dirCol  = new Color( 1.00f, 0.85f, 0.70f ); dirB = 1.2f;
+				fogCol  = new Color( 0.70f, 0.72f, 0.75f ); fogStart = 50f;  fogEnd = 900f;  fogHeight = 250f;
+				saturation = 0.85f; brightness = 1.00f; contrast = 1.00f; vignette = 0.4f;
+				break;
+			case "overcast":
+				ambient = new Color( 0.55f, 0.57f, 0.60f ); ambientB = 1.3f;
+				dirCol  = new Color( 0.80f, 0.82f, 0.85f ); dirB = 1.0f;
+				fogCol  = new Color( 0.60f, 0.62f, 0.66f ); fogStart = 200f; fogEnd = 3000f; fogHeight = 400f;
+				saturation = 0.80f; brightness = 0.95f; contrast = 1.00f; vignette = 0.3f;
+				break;
+			case "warm-interior":
+				ambient = new Color( 0.35f, 0.28f, 0.20f ); ambientB = 1.2f;
+				dirCol  = new Color( 1.00f, 0.75f, 0.45f ); dirB = 1.5f;
+				fogCol  = new Color( 0.20f, 0.16f, 0.12f ); fogStart = 150f; fogEnd = 2500f; fogHeight = 300f;
+				saturation = 1.00f; brightness = 1.00f; contrast = 1.05f; vignette = 0.5f;
+				break;
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown mood '{mood}'. Use horror-night | foggy-dawn | overcast | warm-interior." } );
+		}
+
+		var created = new List<string>();
+
+		var ambGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Ambient" );
+		ambGo.GetOrAddComponent<AmbientLight>().Color = new Color( ambient.r * ambientB, ambient.g * ambientB, ambient.b * ambientB, 1f );
+		created.Add( "AmbientLight" );
+
+		var sunGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Sun" );
+		var dl = sunGo.GetOrAddComponent<DirectionalLight>();
+		dl.LightColor = new Color( dirCol.r * dirB, dirCol.g * dirB, dirCol.b * dirB, 1f );
+		dl.Shadows = true;
+		sunGo.WorldRotation = Rotation.From( 55f, 35f, 0f );
+		created.Add( "DirectionalLight" );
+
+		var fogGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Fog" );
+		var fog = fogGo.GetOrAddComponent<GradientFog>();
+		fog.Color = fogCol; fog.StartDistance = fogStart; fog.EndDistance = fogEnd; fog.Height = fogHeight; fog.FalloffExponent = 1.4f;
+		created.Add( "GradientFog" );
+
+		var cam = VisualHelpers.FindMainCamera( scene );
+		if ( cam != null )
+		{
+			cam.EnablePostProcessing = true;
+			var go = cam.GameObject;
+			go.GetOrAddComponent<Tonemapping>();
+			var ca = go.GetOrAddComponent<ColorAdjustments>();
+			ca.Saturation = saturation; ca.Brightness = brightness; ca.Contrast = contrast;
+			var vg = go.GetOrAddComponent<Vignette>();
+			vg.Intensity = vignette; vg.Color = new Color( 0f, 0f, 0f, 1f );
+			created.Add( "Tonemapping" ); created.Add( "ColorAdjustments" ); created.Add( "Vignette" );
+		}
+
+		return Task.FromResult<object>( new { applied = true, mood, components = created, postFxCamera = cam?.GameObject.Name } );
+	}
+}
+
+// ───────── apply_post_fx_look (preset: just the camera post-fx stack) ──────
+public class ApplyPostFxLookHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var look = (p.TryGetProperty( "look", out var l ) ? l.GetString() : "cinematic")?.ToLowerInvariant();
+		var cam = VisualHelpers.FindMainCamera( scene );
+		if ( cam == null )
+			return Task.FromResult<object>( new { error = "No CameraComponent found in the scene." } );
+
+		cam.EnablePostProcessing = true;
+		var go = cam.GameObject;
+		var applied = new List<string>();
+
+		switch ( look )
+		{
+			case "cinematic":
+				go.GetOrAddComponent<Tonemapping>();
+				go.GetOrAddComponent<Bloom>().Strength = 0.5f;
+				var cv = go.GetOrAddComponent<Vignette>(); cv.Intensity = 0.5f; cv.Color = new Color( 0f, 0f, 0f, 1f );
+				applied.Add( "Tonemapping" ); applied.Add( "Bloom" ); applied.Add( "Vignette" );
+				break;
+			case "filmic-horror":
+				go.GetOrAddComponent<Tonemapping>();
+				var ca = go.GetOrAddComponent<ColorAdjustments>(); ca.Saturation = 0.5f; ca.Brightness = 0.75f; ca.Contrast = 1.25f;
+				var vg = go.GetOrAddComponent<Vignette>(); vg.Intensity = 1.2f; vg.Color = new Color( 0f, 0f, 0f, 1f );
+				go.GetOrAddComponent<FilmGrain>();
+				applied.Add( "Tonemapping" ); applied.Add( "ColorAdjustments" ); applied.Add( "Vignette" ); applied.Add( "FilmGrain" );
+				break;
+			case "clean":
+				go.GetOrAddComponent<Tonemapping>();
+				applied.Add( "Tonemapping" );
+				break;
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown look '{look}'. Use cinematic | filmic-horror | clean." } );
+		}
+
+		return Task.FromResult<object>( new { applied = true, look, components = applied, camera = go.Name } );
 	}
 }
