@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.3.2";
+	private const string BridgeVersion = "1.4.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -277,6 +277,52 @@ public static class ClaudeBridge
 		Register( "get_method_signature",     () => new GetMethodSignatureHandler() );
 		Register( "find_in_project",          () => new FindInProjectHandler() );
 
+		// ── Batch 17: Visual & atmosphere ───────────────────────────────
+		Register( "add_light",                () => new AddLightHandler() );
+		Register( "set_fog",                  () => new SetFogHandler() );
+		Register( "add_post_process",         () => new AddPostProcessHandler() );
+		Register( "set_skybox",               () => new SetSkyboxHandler() );
+		Register( "apply_atmosphere",         () => new ApplyAtmosphereHandler() );
+		Register( "apply_post_fx_look",       () => new ApplyPostFxLookHandler() );
+		Register( "add_envmap_probe",         () => new AddEnvmapProbeHandler() );
+
+		// ── Batch 18: VFX / particles ───────────────────────────────────
+		Register( "spawn_particle",           () => new SpawnParticleHandler() );
+		Register( "add_trail",                () => new AddTrailHandler() );
+		Register( "add_beam",                 () => new AddBeamHandler() );
+		Register( "create_particle_effect",   () => new CreateParticleEffectHandler() );
+
+		// ── Batch 19: Characters & models ───────────────────────────────
+		Register( "spawn_model",              () => new SpawnModelHandler() );
+		Register( "spawn_citizen",            () => new SpawnCitizenHandler() );
+		Register( "dress_citizen",            () => new DressCitizenHandler() );
+		Register( "set_bodygroup",            () => new SetBodygroupHandler() );
+		Register( "pose_citizen",             () => new PoseCitizenHandler() );
+
+		// ── Batch 20: Character polish ──────────────────────────────────
+		Register( "equip_model",              () => new EquipModelHandler() );
+		Register( "set_look_at",              () => new SetLookAtHandler() );
+		Register( "add_ragdoll",              () => new AddRagdollHandler() );
+		Register( "set_expression",           () => new SetExpressionHandler() );
+
+		// ── Batch 21: Scene & level building ────────────────────────────
+		Register( "snap_to_ground",           () => new SnapToGroundHandler() );
+		Register( "align_objects",            () => new AlignObjectsHandler() );
+		Register( "distribute_objects",       () => new DistributeObjectsHandler() );
+		Register( "grid_duplicate",           () => new GridDuplicateHandler() );
+		Register( "measure_distance",         () => new MeasureDistanceHandler() );
+
+		// ── Batch 22: Environment & props ───────────────────────────────
+		Register( "scatter_props",            () => new ScatterPropsHandler() );
+		Register( "randomize_transforms",     () => new RandomizeTransformsHandler() );
+		Register( "group_objects",            () => new GroupObjectsHandler() );
+
+		// ── Batch 23: Object utilities & queries ────────────────────────
+		Register( "find_objects",             () => new FindObjectsHandler() );
+		Register( "set_tint",                 () => new SetTintHandler() );
+		Register( "replace_model",            () => new ReplaceModelHandler() );
+		Register( "set_tags",                 () => new SetTagsHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -285,6 +331,13 @@ public static class ClaudeBridge
 	// Commands that mutate the scene/disk — refused while in play mode to avoid save corruption
 	private static readonly HashSet<string> _sceneMutatingCommands = new()
 	{
+		"add_light", "set_fog", "add_post_process", "set_skybox", "apply_atmosphere", "apply_post_fx_look", "add_envmap_probe",
+		"spawn_particle", "add_trail", "add_beam", "create_particle_effect",
+		"spawn_model", "spawn_citizen", "dress_citizen", "set_bodygroup", "pose_citizen",
+		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
+		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
+		"scatter_props", "randomize_transforms", "group_objects",
+		"set_tint", "replace_model", "set_tags",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -4430,5 +4483,1449 @@ public class FindInProjectHandler : IBridgeHandler
 		}
 
 		return Task.FromResult<object>( new { symbol, count = hits.Count, results = hits } );
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH 17 — Visual & Atmosphere (lighting, post-fx, fog, sky, presets)
+// ═══════════════════════════════════════════════════════════════════
+
+// ───────── add_light ─────────────────────────────────────────────────────
+public class AddLightHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var type = (p.TryGetProperty( "type", out var t ) ? t.GetString() : "point")?.ToLowerInvariant();
+		var name = p.TryGetProperty( "name", out var n ) ? n.GetString() : null;
+		var brightness = p.TryGetProperty( "brightness", out var br ) ? br.GetSingle() : 1f;
+		var shadows = !p.TryGetProperty( "shadows", out var sh ) || sh.GetBoolean();
+
+		// s&box lights have NO Brightness field — intensity is the LightColor magnitude (HDR),
+		// so we scale the colour's RGB by `brightness` (alpha left intact).
+		var c = ParseColor( p, "color", Color.White );
+		var lit = new Color( c.r * brightness, c.g * brightness, c.b * brightness, c.a );
+
+		var go = scene.CreateObject( true );
+
+		switch ( type )
+		{
+			case "directional":
+				go.Name = name ?? "Directional Light";
+				var dl = go.AddComponent<DirectionalLight>();
+				dl.LightColor = lit;
+				dl.Shadows = shadows;
+				if ( p.TryGetProperty( "skyColor", out _ ) )
+					dl.SkyColor = ParseColor( p, "skyColor", dl.SkyColor );
+				break;
+
+			case "point":
+				go.Name = name ?? "Point Light";
+				var pl = go.AddComponent<PointLight>();
+				pl.LightColor = lit;
+				pl.Shadows = shadows;
+				if ( p.TryGetProperty( "range", out var pr ) ) pl.Radius = pr.GetSingle();
+				break;
+
+			case "spot":
+				go.Name = name ?? "Spot Light";
+				var sl = go.AddComponent<SpotLight>();
+				sl.LightColor = lit;
+				sl.Shadows = shadows;
+				if ( p.TryGetProperty( "range", out var sr ) ) sl.Radius = sr.GetSingle();
+				if ( p.TryGetProperty( "coneInner", out var ci ) ) sl.ConeInner = ci.GetSingle();
+				if ( p.TryGetProperty( "coneOuter", out var co ) ) sl.ConeOuter = co.GetSingle();
+				break;
+
+			case "ambient":
+				go.Name = name ?? "Ambient Light";
+				var al = go.AddComponent<AmbientLight>();
+				al.Color = lit;
+				break;
+
+			default:
+				go.Destroy();
+				return Task.FromResult<object>( new { error = $"Unknown light type '{type}'. Use directional|point|spot|ambient." } );
+		}
+
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "rotation", out var rot ) )
+			go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+		if ( p.TryGetProperty( "parentId", out var pid ) && Guid.TryParse( pid.GetString(), out var parentGuid ) )
+		{
+			var parent = scene.Directory.FindByGuid( parentGuid );
+			if ( parent != null ) go.SetParent( parent, keepWorldPosition: true );
+		}
+
+		return Task.FromResult<object>( new { created = true, type, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+
+	/// <summary>Parse a {r,g,b,a?} colour (0-1 floats) from a named property, or return the fallback.</summary>
+	internal static Color ParseColor( JsonElement p, string key, Color fallback )
+	{
+		if ( !p.TryGetProperty( key, out var col ) || col.ValueKind != JsonValueKind.Object )
+			return fallback;
+		float r = col.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
+		float g = col.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
+		float b = col.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
+		float a = col.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
+		return new Color( r, g, b, a );
+	}
+}
+
+// ───────── set_fog ───────────────────────────────────────────────────────
+public class SetFogHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var type = (p.TryGetProperty( "type", out var t ) ? t.GetString() : "gradient")?.ToLowerInvariant();
+		if ( type != "gradient" )
+			return Task.FromResult<object>( new { error = $"Fog type '{type}' is not supported yet (v1 supports 'gradient')." } );
+
+		// Re-use an existing GameObject if targetId is given, else create a dedicated Fog object.
+		GameObject go = null;
+		if ( p.TryGetProperty( "targetId", out var tid ) && Guid.TryParse( tid.GetString(), out var tg ) )
+			go = scene.Directory.FindByGuid( tg );
+		if ( go == null )
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Gradient Fog";
+		}
+
+		var fog = go.GetOrAddComponent<GradientFog>();
+		fog.Color = AddLightHandler.ParseColor( p, "color", fog.Color );
+		if ( p.TryGetProperty( "startDistance", out var sd ) ) fog.StartDistance = sd.GetSingle();
+		if ( p.TryGetProperty( "endDistance",   out var ed ) ) fog.EndDistance   = ed.GetSingle();
+		if ( p.TryGetProperty( "height",        out var h  ) ) fog.Height        = h.GetSingle();
+		if ( p.TryGetProperty( "falloff",       out var f  ) ) fog.FalloffExponent = f.GetSingle();
+
+		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── Batch 17 shared helpers ────────────────────────────────────────
+public static class VisualHelpers
+{
+	/// <summary>Parse a {r,g,b,a?} colour object (0-1 floats) or return the fallback.</summary>
+	public static Color ParseColorElement( JsonElement c, Color fallback )
+	{
+		if ( c.ValueKind != JsonValueKind.Object ) return fallback;
+		float r = c.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
+		float g = c.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
+		float b = c.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
+		float a = c.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
+		return new Color( r, g, b, a );
+	}
+
+	/// <summary>Wrap a plain float as a constant ParticleFloat (the s&box particle curve type).</summary>
+	public static ParticleFloat PF( float v ) => new ParticleFloat { ConstantValue = v };
+
+	/// <summary>Wrap a Color as a constant ParticleGradient.</summary>
+	public static ParticleGradient PG( Color c ) => new ParticleGradient { ConstantValue = c };
+
+	/// <summary>Find the scene's main camera (prefers IsMainCamera), else the first camera, else null.</summary>
+	public static CameraComponent FindMainCamera( Scene scene )
+	{
+		CameraComponent first = null;
+		foreach ( var go in scene.GetAllObjects( true ) )
+		{
+			var cam = go.GetComponent<CameraComponent>();
+			if ( cam == null ) continue;
+			if ( cam.IsMainCamera ) return cam;
+			first ??= cam;
+		}
+		return first;
+	}
+
+	/// <summary>Get an existing GameObject by exact name, or create one.</summary>
+	public static GameObject GetOrCreateNamed( Scene scene, string name )
+	{
+		foreach ( var g in scene.GetAllObjects( true ) )
+			if ( g.Name == name ) return g;
+		var go = scene.CreateObject( true );
+		go.Name = name;
+		return go;
+	}
+
+	/// <summary>Set a property on any object via reflection, coercing the JSON value to the property's type.</summary>
+	public static void SetProp( object comp, string name, JsonElement val )
+	{
+		var pi = comp.GetType().GetProperty( name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase );
+		if ( pi == null || !pi.CanWrite ) return;
+		var t = pi.PropertyType;
+		try
+		{
+			object v;
+			if ( t == typeof( float ) ) v = val.GetSingle();
+			else if ( t == typeof( double ) ) v = val.GetDouble();
+			else if ( t == typeof( int ) ) v = val.GetInt32();
+			else if ( t == typeof( bool ) ) v = val.GetBoolean();
+			else if ( t == typeof( string ) ) v = val.GetString();
+			else if ( t == typeof( Color ) ) v = ParseColorElement( val, Color.White );
+			else if ( t == typeof( Vector3 ) ) v = ClaudeBridge.ParseVector3( val );
+			else if ( t == typeof( Vector2 ) ) v = new Vector2( val.TryGetProperty( "x", out var vx ) ? vx.GetSingle() : 0f, val.TryGetProperty( "y", out var vy ) ? vy.GetSingle() : 0f );
+			else if ( t.IsEnum ) v = Enum.Parse( t, val.GetString(), true );
+			else return;
+			pi.SetValue( comp, v );
+		}
+		catch { /* best-effort */ }
+	}
+}
+
+// ───────── add_post_process ───────────────────────────────────────────────
+public class AddPostProcessHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var effect = p.TryGetProperty( "effect", out var e ) ? e.GetString() : null;
+		if ( string.IsNullOrEmpty( effect ) )
+			return Task.FromResult<object>( new { error = "effect is required (e.g. Bloom, Tonemapping, ColorAdjustments, Vignette, FilmGrain, DepthOfField, ChromaticAberration, MotionBlur, Sharpen, AmbientOcclusion)" } );
+
+		CameraComponent cam = null;
+		if ( p.TryGetProperty( "cameraId", out var cid ) && Guid.TryParse( cid.GetString(), out var cg ) )
+			cam = scene.Directory.FindByGuid( cg )?.GetComponent<CameraComponent>();
+		cam ??= VisualHelpers.FindMainCamera( scene );
+		if ( cam == null )
+			return Task.FromResult<object>( new { error = "No CameraComponent found in the scene to attach post-processing to. Add a camera first." } );
+
+		cam.EnablePostProcessing = true;
+
+		var td = Game.TypeLibrary.GetType( effect );
+		if ( td == null )
+			return Task.FromResult<object>( new { error = $"Post-process effect type not found: {effect}" } );
+
+		var camGo = cam.GameObject;
+		Component comp = camGo.Components.GetAll().FirstOrDefault( c => c.GetType() == td.TargetType );
+		comp ??= camGo.Components.Create( td );
+		if ( comp == null )
+			return Task.FromResult<object>( new { error = $"Failed to create post-process effect: {effect}" } );
+
+		if ( p.TryGetProperty( "properties", out var props ) && props.ValueKind == JsonValueKind.Object )
+			foreach ( var prop in props.EnumerateObject() )
+				VisualHelpers.SetProp( comp, prop.Name, prop.Value );
+
+		return Task.FromResult<object>( new { added = true, effect, camera = camGo.Name, gameObject = ClaudeBridge.SerializeGo( camGo ) } );
+	}
+}
+
+// ───────── set_skybox ─────────────────────────────────────────────────────
+public class SetSkyboxHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		SkyBox2D sky = null;
+		foreach ( var g in scene.GetAllObjects( true ) ) { sky = g.GetComponent<SkyBox2D>(); if ( sky != null ) break; }
+
+		GameObject go;
+		if ( sky != null ) { go = sky.GameObject; }
+		else
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Sky";
+			sky = go.AddComponent<SkyBox2D>();
+		}
+
+		if ( p.TryGetProperty( "tint", out var tn ) ) sky.Tint = VisualHelpers.ParseColorElement( tn, sky.Tint );
+		if ( p.TryGetProperty( "indirectLighting", out var il ) ) sky.SkyIndirectLighting = il.GetBoolean();
+		if ( p.TryGetProperty( "material", out var mp ) )
+		{
+			try { var mat = Material.Load( mp.GetString() ); if ( mat != null ) sky.SkyMaterial = mat; } catch { }
+		}
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── apply_atmosphere (preset: lighting + fog + post-fx in one call) ─
+public class ApplyAtmosphereHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var mood = (p.TryGetProperty( "mood", out var m ) ? m.GetString() : "horror-night")?.ToLowerInvariant();
+
+		Color ambient, dirCol, fogCol;
+		float ambientB, dirB, fogStart, fogEnd, fogHeight, saturation, brightness, contrast, vignette;
+		switch ( mood )
+		{
+			case "horror-night":
+				ambient = new Color( 0.24f, 0.28f, 0.42f ); ambientB = 2.0f;   // visible blue base
+				dirCol  = new Color( 0.50f, 0.58f, 0.80f ); dirB = 1.6f;        // brighter moonlight
+				fogCol  = new Color( 0.10f, 0.12f, 0.18f ); fogStart = 500f; fogEnd = 6000f; fogHeight = 400f; // distance-only haze
+				saturation = 0.65f; brightness = 0.95f; contrast = 1.10f; vignette = 0.7f;
+				break;
+			case "foggy-dawn":
+				ambient = new Color( 0.50f, 0.52f, 0.55f ); ambientB = 1.2f;
+				dirCol  = new Color( 1.00f, 0.85f, 0.70f ); dirB = 1.2f;
+				fogCol  = new Color( 0.70f, 0.72f, 0.75f ); fogStart = 50f;  fogEnd = 900f;  fogHeight = 250f;
+				saturation = 0.85f; brightness = 1.00f; contrast = 1.00f; vignette = 0.4f;
+				break;
+			case "overcast":
+				ambient = new Color( 0.55f, 0.57f, 0.60f ); ambientB = 1.3f;
+				dirCol  = new Color( 0.80f, 0.82f, 0.85f ); dirB = 1.0f;
+				fogCol  = new Color( 0.60f, 0.62f, 0.66f ); fogStart = 200f; fogEnd = 3000f; fogHeight = 400f;
+				saturation = 0.80f; brightness = 0.95f; contrast = 1.00f; vignette = 0.3f;
+				break;
+			case "warm-interior":
+				ambient = new Color( 0.35f, 0.28f, 0.20f ); ambientB = 1.2f;
+				dirCol  = new Color( 1.00f, 0.75f, 0.45f ); dirB = 1.5f;
+				fogCol  = new Color( 0.20f, 0.16f, 0.12f ); fogStart = 150f; fogEnd = 2500f; fogHeight = 300f;
+				saturation = 1.00f; brightness = 1.00f; contrast = 1.05f; vignette = 0.5f;
+				break;
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown mood '{mood}'. Use horror-night | foggy-dawn | overcast | warm-interior." } );
+		}
+
+		var created = new List<string>();
+
+		var ambGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Ambient" );
+		ambGo.GetOrAddComponent<AmbientLight>().Color = new Color( ambient.r * ambientB, ambient.g * ambientB, ambient.b * ambientB, 1f );
+		created.Add( "AmbientLight" );
+
+		var sunGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Sun" );
+		var dl = sunGo.GetOrAddComponent<DirectionalLight>();
+		dl.LightColor = new Color( dirCol.r * dirB, dirCol.g * dirB, dirCol.b * dirB, 1f );
+		dl.Shadows = true;
+		sunGo.WorldRotation = Rotation.From( 55f, 35f, 0f );
+		created.Add( "DirectionalLight" );
+
+		var fogGo = VisualHelpers.GetOrCreateNamed( scene, "Atmosphere Fog" );
+		var fog = fogGo.GetOrAddComponent<GradientFog>();
+		fog.Color = fogCol; fog.StartDistance = fogStart; fog.EndDistance = fogEnd; fog.Height = fogHeight; fog.FalloffExponent = 1.4f;
+		created.Add( "GradientFog" );
+
+		var cam = VisualHelpers.FindMainCamera( scene );
+		if ( cam != null )
+		{
+			cam.EnablePostProcessing = true;
+			var go = cam.GameObject;
+			go.GetOrAddComponent<Tonemapping>();
+			var ca = go.GetOrAddComponent<ColorAdjustments>();
+			ca.Saturation = saturation; ca.Brightness = brightness; ca.Contrast = contrast;
+			var vg = go.GetOrAddComponent<Vignette>();
+			vg.Intensity = vignette; vg.Color = new Color( 0f, 0f, 0f, 1f );
+			created.Add( "Tonemapping" ); created.Add( "ColorAdjustments" ); created.Add( "Vignette" );
+		}
+
+		return Task.FromResult<object>( new { applied = true, mood, components = created, postFxCamera = cam?.GameObject.Name } );
+	}
+}
+
+// ───────── apply_post_fx_look (preset: just the camera post-fx stack) ──────
+public class ApplyPostFxLookHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var look = (p.TryGetProperty( "look", out var l ) ? l.GetString() : "cinematic")?.ToLowerInvariant();
+		var cam = VisualHelpers.FindMainCamera( scene );
+		if ( cam == null )
+			return Task.FromResult<object>( new { error = "No CameraComponent found in the scene." } );
+
+		cam.EnablePostProcessing = true;
+		var go = cam.GameObject;
+		var applied = new List<string>();
+
+		switch ( look )
+		{
+			case "cinematic":
+				go.GetOrAddComponent<Tonemapping>();
+				go.GetOrAddComponent<Bloom>().Strength = 0.5f;
+				var cv = go.GetOrAddComponent<Vignette>(); cv.Intensity = 0.5f; cv.Color = new Color( 0f, 0f, 0f, 1f );
+				applied.Add( "Tonemapping" ); applied.Add( "Bloom" ); applied.Add( "Vignette" );
+				break;
+			case "filmic-horror":
+				go.GetOrAddComponent<Tonemapping>();
+				var ca = go.GetOrAddComponent<ColorAdjustments>(); ca.Saturation = 0.5f; ca.Brightness = 0.75f; ca.Contrast = 1.25f;
+				var vg = go.GetOrAddComponent<Vignette>(); vg.Intensity = 1.2f; vg.Color = new Color( 0f, 0f, 0f, 1f );
+				go.GetOrAddComponent<FilmGrain>();
+				applied.Add( "Tonemapping" ); applied.Add( "ColorAdjustments" ); applied.Add( "Vignette" ); applied.Add( "FilmGrain" );
+				break;
+			case "clean":
+				go.GetOrAddComponent<Tonemapping>();
+				applied.Add( "Tonemapping" );
+				break;
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown look '{look}'. Use cinematic | filmic-horror | clean." } );
+		}
+
+		return Task.FromResult<object>( new { applied = true, look, components = applied, camera = go.Name } );
+	}
+}
+
+// ───────── add_envmap_probe ───────────────────────────────────────────────
+public class AddEnvmapProbeHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Envmap Probe";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+
+		var probe = go.AddComponent<EnvmapProbe>();
+		float h = (p.TryGetProperty( "size", out var sz ) ? sz.GetSingle() : 1024f) * 0.5f;
+		probe.Bounds = new BBox( new Vector3( -h, -h, -h ), new Vector3( h, h, h ) );
+		if ( p.TryGetProperty( "tint", out var tn ) )
+			probe.TintColor = VisualHelpers.ParseColorElement( tn, probe.TintColor );
+		if ( p.TryGetProperty( "feathering", out var ft ) )
+			probe.Feathering = ft.GetSingle();
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH 18 — VFX / particles
+// ═══════════════════════════════════════════════════════════════════
+
+// ───────── spawn_particle (additive, texture-free fire/embers/sparks) ──────
+public class SpawnParticleHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var kind = (p.TryGetProperty( "kind", out var k ) ? k.GetString() : "fire")?.ToLowerInvariant();
+
+		Color tint; float rate, life, size, coneAngle, speed, gravity; bool loop;
+		switch ( kind )
+		{
+			case "fire":
+				tint = new Color( 1f, 0.55f, 0.15f ); rate = 70f; life = 1.1f; size = 7f;  coneAngle = 16f; speed = 130f; gravity = 0f;   loop = true;  break;
+			case "embers":
+				tint = new Color( 1f, 0.5f, 0.18f );  rate = 14f; life = 2.6f; size = 2.5f; coneAngle = 32f; speed = 90f;  gravity = 35f;  loop = true;  break;
+			case "sparks":
+				tint = new Color( 1f, 0.85f, 0.45f ); rate = 0f;  life = 0.7f; size = 2f;   coneAngle = 70f; speed = 320f; gravity = 500f; loop = false; break;
+			case "magic":
+				tint = new Color( 0.6f, 0.3f, 1f );    rate = 30f; life = 1.8f; size = 3f;   coneAngle = 55f; speed = 45f;  gravity = 0f;   loop = true;  break;
+			case "dust":
+				tint = new Color( 0.6f, 0.55f, 0.45f ); rate = 8f;  life = 3.5f; size = 4f;   coneAngle = 80f; speed = 30f;  gravity = 8f;   loop = true;  break;
+			case "blood":
+				tint = new Color( 0.5f, 0.02f, 0.02f ); rate = 0f;  life = 0.9f; size = 3f;   coneAngle = 65f; speed = 220f; gravity = 700f; loop = false; break;
+			case "snow":
+				tint = new Color( 0.95f, 0.97f, 1f );   rate = 25f; life = 6f;   size = 2.5f; coneAngle = 85f; speed = 25f;  gravity = 30f;  loop = true;  break;
+			case "smoke":
+				return Task.FromResult<object>( new { error = "smoke needs a soft smoke sprite (additive squares look bad) — not in v1; use fire | embers | sparks." } );
+			default:
+				return Task.FromResult<object>( new { error = $"Unknown kind '{kind}'. Use fire | embers | sparks." } );
+		}
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : $"Particles ({kind})";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "color", out var cc ) )
+			tint = VisualHelpers.ParseColorElement( cc, tint );
+		// Point the emission cone up (+Z) so fire/embers rise.
+		go.WorldRotation = Rotation.From( -90f, 0f, 0f );
+
+		var pe = go.AddComponent<ParticleEffect>();
+		pe.MaxParticles = 500;
+		pe.Lifetime = VisualHelpers.PF( life );
+		pe.ApplyColor = true;
+		pe.Tint = tint;
+		pe.ApplyShape = true;
+		pe.Scale = VisualHelpers.PF( size );
+		if ( gravity > 0f )
+		{
+			pe.Force = true;
+			pe.ForceDirection = new Vector3( 0f, 0f, -1f );
+			pe.ForceScale = VisualHelpers.PF( gravity );
+		}
+
+		var em = go.AddComponent<ParticleConeEmitter>();
+		em.ConeAngle = VisualHelpers.PF( coneAngle );
+		em.VelocityMultiplier = VisualHelpers.PF( speed );
+		em.Loop = loop;
+		if ( loop )
+			em.Rate = VisualHelpers.PF( rate );
+		else
+			em.Burst = VisualHelpers.PF( 60f );
+
+		var sr = go.AddComponent<ParticleSpriteRenderer>();
+		sr.Sprite = Sprite.FromTexture( Texture.White ); // CRITICAL: the renderer draws its Sprite, not Texture — a null Sprite renders NOTHING
+		sr.Texture = Texture.White;   // additive white × tint = a glowing dot (no sprite asset needed)
+		sr.Additive = true;
+		sr.Lighting = false;
+		sr.Scale = 1f;
+		sr.ParticleEffect = pe;
+
+		return Task.FromResult<object>( new { created = true, kind, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── add_trail (TrailRenderer — trails a moving object) ──────────────
+public class AddTrailHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		// Attach to an existing object (so it trails as that object moves), else a new GO.
+		GameObject go = null;
+		if ( p.TryGetProperty( "targetId", out var tid ) && Guid.TryParse( tid.GetString(), out var tg ) )
+			go = scene.Directory.FindByGuid( tg );
+		if ( go == null )
+		{
+			go = scene.CreateObject( true );
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Trail";
+			if ( p.TryGetProperty( "position", out var pos ) )
+				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		}
+
+		var tr = go.GetOrAddComponent<TrailRenderer>();
+		tr.Emitting = true;
+		if ( p.TryGetProperty( "lifetime", out var lt ) ) tr.LifeTime = lt.GetSingle();
+		if ( p.TryGetProperty( "maxPoints", out var mp ) ) tr.MaxPoints = mp.GetInt32();
+		if ( p.TryGetProperty( "pointDistance", out var pd ) ) tr.PointDistance = pd.GetSingle();
+		// Color (Gradient) + Width (Curve) left at defaults — those are separate curve structs.
+
+		return Task.FromResult<object>( new { created = true, note = "Trail is only visible while its GameObject moves.", gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── add_beam (BeamEffect — a beam from this object to a target) ─────
+public class AddBeamHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Beam";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+
+		var be = go.AddComponent<BeamEffect>();
+		be.TargetPosition = p.TryGetProperty( "target", out var tgt )
+			? ClaudeBridge.ParseVector3( tgt )
+			: go.WorldPosition + Vector3.Up * 128f;
+		be.Scale = VisualHelpers.PF( p.TryGetProperty( "width", out var w ) ? w.GetSingle() : 4f );
+		be.Brightness = VisualHelpers.PF( 1f );
+		be.Alpha = VisualHelpers.PF( 1f );
+		be.BeamColor = VisualHelpers.PG( p.TryGetProperty( "color", out var cc ) ? VisualHelpers.ParseColorElement( cc, Color.White ) : Color.White );
+		be.Additive = true;
+		be.Lighting = false;
+		be.Texture = Texture.White;
+		be.Looped = true;
+		be.MaxBeams = 4;
+		be.InitialBurst = 1;
+		be.BeamsPerSecond = 2f;
+		be.BeamLifetime = VisualHelpers.PF( 2f );
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── create_particle_effect (generic, raw params) ───────────────────
+public class CreateParticleEffectHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Particle Effect";
+		if ( p.TryGetProperty( "position", out var pos ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		go.WorldRotation = Rotation.From( -90f, 0f, 0f ); // cone emits +Z (up) by default
+
+		float rate      = p.TryGetProperty( "rate", out var r )        ? r.GetSingle()  : 30f;
+		float life      = p.TryGetProperty( "lifetime", out var l )    ? l.GetSingle()  : 2f;
+		float size      = p.TryGetProperty( "size", out var sz )       ? sz.GetSingle() : 4f;
+		float speed     = p.TryGetProperty( "speed", out var sp )      ? sp.GetSingle() : 100f;
+		float coneAngle = p.TryGetProperty( "coneAngle", out var ca )  ? ca.GetSingle() : 40f;
+		float gravity   = p.TryGetProperty( "gravity", out var gr )    ? gr.GetSingle() : 0f;
+		int   maxP      = p.TryGetProperty( "maxParticles", out var m )? m.GetInt32()   : 500;
+		bool  additive  = !p.TryGetProperty( "additive", out var ad )  || ad.GetBoolean();
+		bool  loop      = !p.TryGetProperty( "loop", out var lp )      || lp.GetBoolean();
+		float burst     = p.TryGetProperty( "burst", out var bu )      ? bu.GetSingle() : 30f;
+		var   tint      = p.TryGetProperty( "color", out var cc )      ? VisualHelpers.ParseColorElement( cc, Color.White ) : Color.White;
+
+		var pe = go.AddComponent<ParticleEffect>();
+		pe.MaxParticles = maxP;
+		pe.Lifetime = VisualHelpers.PF( life );
+		pe.ApplyColor = true;
+		pe.Tint = tint;
+		pe.ApplyShape = true;
+		pe.Scale = VisualHelpers.PF( size );
+		if ( gravity > 0f )
+		{
+			pe.Force = true;
+			pe.ForceDirection = new Vector3( 0f, 0f, -1f );
+			pe.ForceScale = VisualHelpers.PF( gravity );
+		}
+
+		var em = go.AddComponent<ParticleConeEmitter>();
+		em.ConeAngle = VisualHelpers.PF( coneAngle );
+		em.VelocityMultiplier = VisualHelpers.PF( speed );
+		em.Loop = loop;
+		if ( loop ) em.Rate = VisualHelpers.PF( rate );
+		else        em.Burst = VisualHelpers.PF( burst );
+
+		var sr = go.AddComponent<ParticleSpriteRenderer>();
+		sr.Sprite = Sprite.FromTexture( Texture.White ); // CRITICAL: renderer draws Sprite, not Texture — null Sprite renders NOTHING
+		sr.Texture = Texture.White;
+		sr.Additive = additive;
+		sr.Lighting = false;
+		sr.Scale = 1f;
+		sr.ParticleEffect = pe;
+
+		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 19 — Characters & Models
+//  Static + screenshot-verifiable: spawn models/citizens, dress, pose,
+//  bodygroups. (Animation *playback* is runtime; the SETUP/pose renders
+//  in the editor view, which is what we verify.)
+// ═════════════════════════════════════════════════════════════════════
+
+public static class CharacterHelpers
+{
+	/// <summary>Parse {pitch,yaw,roll} → Rotation (identity if absent).</summary>
+	public static Rotation ParseRotation( JsonElement e )
+	{
+		float pitch = e.TryGetProperty( "pitch", out var p ) ? p.GetSingle() : 0f;
+		float yaw   = e.TryGetProperty( "yaw",   out var y ) ? y.GetSingle() : 0f;
+		float roll  = e.TryGetProperty( "roll",  out var r ) ? r.GetSingle() : 0f;
+		return Rotation.From( pitch, yaw, roll );
+	}
+
+	/// <summary>Apply position/rotation/scale params to a GameObject.</summary>
+	public static void ApplyTransform( GameObject go, JsonElement p )
+	{
+		if ( p.TryGetProperty( "position", out var pos ) ) go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "rotation", out var rot ) ) go.WorldRotation = ParseRotation( rot );
+		if ( p.TryGetProperty( "scale",    out var sc  ) ) go.WorldScale    = ClaudeBridge.ParseVector3( sc );
+	}
+
+	/// <summary>Parent the GO to parentId (keep world pos) when provided + found.</summary>
+	public static void ApplyParent( GameObject go, Scene scene, JsonElement p )
+	{
+		if ( p.TryGetProperty( "parentId", out var pid ) && Guid.TryParse( pid.GetString(), out var pg ) )
+		{
+			var parent = scene.Directory.FindByGuid( pg );
+			if ( parent != null ) go.SetParent( parent, true );
+		}
+	}
+}
+
+// ───────── spawn_model (a model object in the world) ───────────────────
+public class SpawnModelHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var modelPath = p.TryGetProperty( "model", out var mp ) ? mp.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( modelPath ) )
+			return Task.FromResult<object>( new { error = "model is required (e.g. 'models/citizen/citizen.vmdl' or an installed model path)" } );
+
+		Model model = null;
+		try { model = Model.Load( modelPath ); } catch { }
+		if ( model == null )
+			return Task.FromResult<object>( new { error = $"Model not found: {modelPath}. Cloud assets must be installed first (install_asset)." } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Model";
+		CharacterHelpers.ApplyTransform( go, p );
+
+		var r = go.AddComponent<ModelRenderer>();
+		r.Model = model;
+		if ( p.TryGetProperty( "tint", out var t ) )
+			r.Tint = VisualHelpers.ParseColorElement( t, Color.White );
+
+		CharacterHelpers.ApplyParent( go, scene, p );
+		return Task.FromResult<object>( new { created = true, model = modelPath, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── spawn_citizen (animated Citizen character) ──────────────────
+public class SpawnCitizenHandler : IBridgeHandler
+{
+	const string DefaultCitizen = "models/citizen/citizen.vmdl";
+
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var modelPath = p.TryGetProperty( "model", out var mp ) ? mp.GetString() : DefaultCitizen;
+		Model model = null;
+		try { model = Model.Load( modelPath ); } catch { }
+		if ( model == null )
+			return Task.FromResult<object>( new { error = $"Model not found: {modelPath}" } );
+
+		var go = scene.CreateObject( true );
+		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Citizen";
+		CharacterHelpers.ApplyTransform( go, p );
+
+		var body = go.AddComponent<SkinnedModelRenderer>();
+		body.Model = model;
+		if ( p.TryGetProperty( "tint", out var t ) )
+			body.Tint = VisualHelpers.ParseColorElement( t, Color.White );
+
+		bool animator = !p.TryGetProperty( "animator", out var an ) || an.GetBoolean();
+		if ( animator )
+		{
+			var helper = go.AddComponent<Sandbox.Citizen.CitizenAnimationHelper>();
+			helper.Target = body;
+			body.PlayAnimationsInEditorScene = true; // idle pose previews in the editor view
+			if ( p.TryGetProperty( "holdType",  out var ht ) ) VisualHelpers.SetProp( helper, "HoldType",  ht );
+			if ( p.TryGetProperty( "moveStyle", out var ms ) ) VisualHelpers.SetProp( helper, "MoveStyle", ms );
+		}
+
+		CharacterHelpers.ApplyParent( go, scene, p );
+		return Task.FromResult<object>( new { created = true, hasAnimator = animator, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── dress_citizen (apply clothing to a SkinnedModelRenderer) ────
+public class DressCitizenHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null )
+			return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null )
+			return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (use spawn_citizen first)" } );
+
+		var container = new ClothingContainer();
+		var applied = new List<string>();
+		var missing = new List<string>();
+		if ( p.TryGetProperty( "clothing", out var arr ) && arr.ValueKind == JsonValueKind.Array )
+		{
+			foreach ( var item in arr.EnumerateArray() )
+			{
+				var path = item.GetString();
+				if ( string.IsNullOrWhiteSpace( path ) ) continue;
+				Clothing c = null;
+				try { c = ResourceLibrary.Get<Clothing>( path ); } catch { }
+				if ( c != null ) { container.Add( c ); applied.Add( path ); }
+				else missing.Add( path );
+			}
+		}
+
+		if ( p.TryGetProperty( "tint", out var tn ) && tn.ValueKind == JsonValueKind.Number )
+			container.Tint = tn.GetSingle();
+
+		container.Apply( body );
+		return Task.FromResult<object>( new { dressed = true, applied, missing, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── set_bodygroup (show/hide parts of a skinned model) ──────────
+public class SetBodygroupHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null )
+			return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null )
+			return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer" } );
+
+		var name = p.TryGetProperty( "name", out var nm ) ? nm.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( name ) )
+			return Task.FromResult<object>( new { error = "name (bodygroup) is required" } );
+
+		if ( p.TryGetProperty( "value", out var v ) && v.ValueKind == JsonValueKind.Number )
+			body.SetBodyGroup( name, v.GetInt32() );
+		else if ( p.TryGetProperty( "choice", out var ch ) && ch.ValueKind == JsonValueKind.String )
+			body.SetBodyGroup( name, ch.GetString() );
+		else
+			return Task.FromResult<object>( new { error = "provide value (int) or choice (string)" } );
+
+		return Task.FromResult<object>( new { set = true, bodygroup = name } );
+	}
+}
+
+// ───────── pose_citizen (set CitizenAnimationHelper params) ────────────
+public class PoseCitizenHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null )
+			return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body != null ) body.PlayAnimationsInEditorScene = true; // so the pose shows in-editor
+
+		var helper = go.GetComponent<Sandbox.Citizen.CitizenAnimationHelper>();
+		if ( helper == null )
+			return Task.FromResult<object>( new { error = "Target has no CitizenAnimationHelper (spawn_citizen with animator=true)" } );
+
+		var changed = new List<string>();
+		if ( p.TryGetProperty( "holdType",    out var ht ) ) { VisualHelpers.SetProp( helper, "HoldType",    ht ); changed.Add( "HoldType" ); }
+		if ( p.TryGetProperty( "moveStyle",   out var ms ) ) { VisualHelpers.SetProp( helper, "MoveStyle",   ms ); changed.Add( "MoveStyle" ); }
+		if ( p.TryGetProperty( "specialMove", out var sm ) ) { VisualHelpers.SetProp( helper, "SpecialMove", sm ); changed.Add( "SpecialMove" ); }
+		if ( p.TryGetProperty( "sitting",     out var si ) ) { helper.IsSitting = si.GetBoolean(); changed.Add( "IsSitting" ); }
+		if ( p.TryGetProperty( "duckLevel",   out var dl ) ) { helper.DuckLevel = dl.GetSingle(); changed.Add( "DuckLevel" ); }
+
+		return Task.FromResult<object>( new { posed = true, changed, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 20 — Character polish: equip / look-at / ragdoll / expression
+// ═════════════════════════════════════════════════════════════════════
+
+// ───────── equip_model (attach a prop model to a bone/attachment) ──────
+public class EquipModelHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (target GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (use spawn_citizen first)" } );
+
+		var modelPath = p.TryGetProperty( "model", out var mp ) ? mp.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( modelPath ) )
+			return Task.FromResult<object>( new { error = "model (prop model path) is required" } );
+		Model model = null;
+		try { model = Model.Load( modelPath ); } catch { }
+		if ( model == null ) return Task.FromResult<object>( new { error = $"Model not found: {modelPath}" } );
+
+		var point = p.TryGetProperty( "point", out var pt ) ? pt.GetString() : "hand_R";
+
+		body.CreateBoneObjects = true;
+		body.CreateAttachments = true;
+		GameObject anchor = null;
+		try { anchor = body.GetAttachmentObject( point ); } catch { }
+		if ( anchor == null ) { try { anchor = body.GetBoneObject( point ); } catch { } }
+
+		var prop = scene.CreateObject( true );
+		prop.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Equipped";
+		var pr = prop.AddComponent<ModelRenderer>();
+		pr.Model = model;
+		if ( p.TryGetProperty( "tint", out var t ) ) pr.Tint = VisualHelpers.ParseColorElement( t, Color.White );
+
+		string how;
+		if ( anchor != null )
+		{
+			prop.SetParent( anchor, false );
+			prop.LocalPosition = p.TryGetProperty( "offset", out var off ) ? ClaudeBridge.ParseVector3( off ) : Vector3.Zero;
+			if ( p.TryGetProperty( "rotation", out var rot ) ) prop.LocalRotation = CharacterHelpers.ParseRotation( rot );
+			how = $"parented to '{point}'";
+		}
+		else if ( body.TryGetBoneTransform( point, out var tx ) )
+		{
+			prop.WorldPosition = tx.Position;
+			prop.WorldRotation = tx.Rotation;
+			prop.SetParent( go, true );
+			how = $"placed at bone transform '{point}'";
+		}
+		else
+		{
+			prop.Destroy();
+			return Task.FromResult<object>( new { error = $"Point '{point}' not found — try an attachment (hand_R, hand_L, eyes, hat) or a bone name." } );
+		}
+
+		return Task.FromResult<object>( new { equipped = true, point, how, gameObject = ClaudeBridge.SerializeGo( prop ) } );
+	}
+}
+
+// ───────── set_look_at (aim the citizen's gaze) ────────────────────────
+public class SetLookAtHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (Citizen GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var helper = go.GetComponent<Sandbox.Citizen.CitizenAnimationHelper>();
+		if ( helper == null ) return Task.FromResult<object>( new { error = "Target has no CitizenAnimationHelper (spawn_citizen with animator=true)" } );
+
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body != null ) body.PlayAnimationsInEditorScene = true;
+
+		if ( p.TryGetProperty( "enabled", out var en ) && !en.GetBoolean() )
+		{
+			helper.LookAtEnabled = false;
+			return Task.FromResult<object>( new { lookAt = false } );
+		}
+		helper.LookAtEnabled = true;
+
+		GameObject target = null;
+		if ( p.TryGetProperty( "targetId", out var tid ) && Guid.TryParse( tid.GetString(), out var tg ) )
+			target = scene.Directory.FindByGuid( tg );
+		if ( target == null && p.TryGetProperty( "target", out var tgt ) )
+		{
+			target = scene.CreateObject( true );
+			target.Name = "LookTarget";
+			target.WorldPosition = ClaudeBridge.ParseVector3( tgt );
+		}
+		if ( target != null ) helper.LookAt = target;
+
+		if ( p.TryGetProperty( "eyesWeight", out var ew ) ) helper.EyesWeight = ew.GetSingle();
+		if ( p.TryGetProperty( "headWeight", out var hw ) ) helper.HeadWeight = hw.GetSingle();
+		if ( p.TryGetProperty( "bodyWeight", out var bw ) ) helper.BodyWeight = bw.GetSingle();
+
+		return Task.FromResult<object>( new { lookAt = true, target = target?.Name, gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── add_ragdoll (ModelPhysics — simulates in PLAY mode) ─────────
+public class AddRagdollHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer" } );
+
+		var phys = go.GetOrAddComponent<ModelPhysics>();
+		phys.Renderer = body;
+		phys.Model = body.Model;
+		if ( p.TryGetProperty( "motionEnabled", out var me ) ) phys.MotionEnabled = me.GetBoolean();
+
+		return Task.FromResult<object>( new { ragdoll = true, note = "ModelPhysics added — the ragdoll flops via physics in PLAY mode (runtime; not visible in the static editor pose).", gameObject = ClaudeBridge.SerializeGo( go ) } );
+	}
+}
+
+// ───────── set_expression (facial morphs) ──────────────────────────────
+public class SetExpressionHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer" } );
+		body.PlayAnimationsInEditorScene = true;
+
+		var morph = p.TryGetProperty( "morph", out var m ) ? m.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( morph ) )
+			return Task.FromResult<object>( new { error = "morph (name) is required", availableMorphs = body.Morphs.Names } );
+
+		float weight = p.TryGetProperty( "weight", out var w ) ? w.GetSingle() : 1f;
+		body.Morphs.Set( morph, weight );
+
+		return Task.FromResult<object>( new { set = true, morph, weight, availableMorphs = body.Morphs.Names } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 21 — Scene & level building: snap / align / distribute / grid / measure
+// ═════════════════════════════════════════════════════════════════════
+
+public static class SceneToolHelpers
+{
+	/// <summary>Resolve the "ids" string-array param into a list of live GameObjects.</summary>
+	public static List<GameObject> ResolveIds( Scene scene, JsonElement p )
+	{
+		var list = new List<GameObject>();
+		if ( p.TryGetProperty( "ids", out var arr ) && arr.ValueKind == JsonValueKind.Array )
+			foreach ( var e in arr.EnumerateArray() )
+				if ( Guid.TryParse( e.GetString(), out var g ) )
+				{
+					var go = scene.Directory.FindByGuid( g );
+					if ( go != null ) list.Add( go );
+				}
+		return list;
+	}
+
+	public static float AxisVal( Vector3 v, string axis ) => axis == "y" ? v.y : ( axis == "z" ? v.z : v.x );
+	public static Vector3 SetAxis( Vector3 v, string axis, float val ) =>
+		axis == "y" ? new Vector3( v.x, val, v.z ) : ( axis == "z" ? new Vector3( v.x, v.y, val ) : new Vector3( val, v.y, v.z ) );
+
+	/// <summary>Resolve targets from a single "id" and/or an "ids" array (deduped).</summary>
+	public static List<GameObject> ResolveTargets( Scene scene, JsonElement p )
+	{
+		var list = ResolveIds( scene, p );
+		if ( p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out var g ) )
+		{
+			var go = scene.Directory.FindByGuid( g );
+			if ( go != null && !list.Contains( go ) ) list.Add( go );
+		}
+		return list;
+	}
+}
+
+// ───────── snap_to_ground (drop an object onto the surface below) ──────
+public class SnapToGroundHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		float up      = p.TryGetProperty( "startHeight", out var sh ) ? sh.GetSingle() : 2000f;
+		float maxDrop = p.TryGetProperty( "maxDistance", out var md ) ? md.GetSingle() : 20000f;
+		float offset  = p.TryGetProperty( "offset", out var of ) ? of.GetSingle() : 0f;
+
+		var pos = go.WorldPosition;
+		try
+		{
+			var tr = scene.Trace.Ray( pos + Vector3.Up * up, pos + Vector3.Down * maxDrop ).Run();
+			if ( !tr.Hit )
+				return Task.FromResult<object>( new { snapped = false, reason = "No ground hit below the object (works best on collider-less props; objects with colliders may self-hit)." } );
+			go.WorldPosition = new Vector3( pos.x, pos.y, tr.HitPosition.z + offset );
+			return Task.FromResult<object>( new { snapped = true, groundZ = tr.HitPosition.z, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		}
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"Trace failed: {ex.Message}" } ); }
+	}
+}
+
+// ───────── align_objects (line up on an axis) ──────────────────────────
+public class AlignObjectsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveIds( scene, p );
+		if ( gos.Count < 2 ) return Task.FromResult<object>( new { error = "ids: provide at least 2 GameObject GUIDs" } );
+
+		string axis = p.TryGetProperty( "axis", out var ax ) ? ax.GetString().ToLowerInvariant() : "x";
+		string mode = p.TryGetProperty( "mode", out var mo ) ? mo.GetString().ToLowerInvariant() : "first";
+
+		float target;
+		if ( mode == "min" || mode == "max" || mode == "average" )
+		{
+			float mn = float.MaxValue, mx = float.MinValue, sum = 0f;
+			foreach ( var g in gos ) { float v = SceneToolHelpers.AxisVal( g.WorldPosition, axis ); if ( v < mn ) mn = v; if ( v > mx ) mx = v; sum += v; }
+			target = mode == "min" ? mn : ( mode == "max" ? mx : sum / gos.Count );
+		}
+		else target = SceneToolHelpers.AxisVal( gos[0].WorldPosition, axis ); // "first"
+
+		foreach ( var g in gos ) g.WorldPosition = SceneToolHelpers.SetAxis( g.WorldPosition, axis, target );
+		return Task.FromResult<object>( new { aligned = gos.Count, axis, mode, target } );
+	}
+}
+
+// ───────── distribute_objects (even spacing on an axis) ────────────────
+public class DistributeObjectsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveIds( scene, p );
+		if ( gos.Count < 3 ) return Task.FromResult<object>( new { error = "ids: provide at least 3 GameObjects to distribute" } );
+
+		string axis = p.TryGetProperty( "axis", out var ax ) ? ax.GetString().ToLowerInvariant() : "x";
+		gos.Sort( ( a, b ) => SceneToolHelpers.AxisVal( a.WorldPosition, axis ).CompareTo( SceneToolHelpers.AxisVal( b.WorldPosition, axis ) ) );
+
+		float lo = SceneToolHelpers.AxisVal( gos[0].WorldPosition, axis );
+		float hi = SceneToolHelpers.AxisVal( gos[gos.Count - 1].WorldPosition, axis );
+		int n = gos.Count;
+		for ( int i = 1; i < n - 1; i++ )
+		{
+			float val = lo + ( hi - lo ) * ( (float)i / ( n - 1 ) );
+			gos[i].WorldPosition = SceneToolHelpers.SetAxis( gos[i].WorldPosition, axis, val );
+		}
+		return Task.FromResult<object>( new { distributed = n, axis, from = lo, to = hi } );
+	}
+}
+
+// ───────── grid_duplicate (array copies in an X/Y/Z grid) ──────────────
+public class GridDuplicateHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		int countX = p.TryGetProperty( "countX", out var cx ) ? cx.GetInt32() : 1;
+		int countY = p.TryGetProperty( "countY", out var cy ) ? cy.GetInt32() : 1;
+		int countZ = p.TryGetProperty( "countZ", out var cz ) ? cz.GetInt32() : 1;
+		if ( countX < 1 ) countX = 1; if ( countX > 50 ) countX = 50;
+		if ( countY < 1 ) countY = 1; if ( countY > 50 ) countY = 50;
+		if ( countZ < 1 ) countZ = 1; if ( countZ > 50 ) countZ = 50;
+		var spacing = p.TryGetProperty( "spacing", out var sp ) ? ClaudeBridge.ParseVector3( sp ) : new Vector3( 100f, 100f, 100f );
+
+		var basePos = go.WorldPosition;
+		var created = new List<string>();
+		for ( int ix = 0; ix < countX; ix++ )
+			for ( int iy = 0; iy < countY; iy++ )
+				for ( int iz = 0; iz < countZ; iz++ )
+				{
+					if ( ix == 0 && iy == 0 && iz == 0 ) continue; // keep the original in place
+					if ( created.Count >= 500 ) break;             // safety cap
+					var clone = go.Clone();
+					clone.WorldPosition = basePos + new Vector3( ix * spacing.x, iy * spacing.y, iz * spacing.z );
+					created.Add( clone.Id.ToString() );
+				}
+		return Task.FromResult<object>( new { duplicated = created.Count, grid = new { countX, countY, countZ }, ids = created } );
+	}
+}
+
+// ───────── measure_distance (between two points or objects) ────────────
+public class MeasureDistanceHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !TryResolvePoint( scene, p, "idA", "a", out var a ) )
+			return Task.FromResult<object>( new { error = "provide a {x,y,z} or idA (GameObject GUID)" } );
+		if ( !TryResolvePoint( scene, p, "idB", "b", out var b ) )
+			return Task.FromResult<object>( new { error = "provide b {x,y,z} or idB (GameObject GUID)" } );
+
+		var delta = b - a;
+		float horiz = new Vector3( delta.x, delta.y, 0f ).Length;
+		return Task.FromResult<object>( new
+		{
+			distance = delta.Length,
+			horizontal = horiz,
+			delta = new { delta.x, delta.y, delta.z }
+		} );
+	}
+
+	static bool TryResolvePoint( Scene scene, JsonElement p, string idKey, string ptKey, out Vector3 pos )
+	{
+		pos = Vector3.Zero;
+		if ( p.TryGetProperty( idKey, out var idEl ) && Guid.TryParse( idEl.GetString(), out var g ) )
+		{
+			var go = scene.Directory.FindByGuid( g );
+			if ( go == null ) return false;
+			pos = go.WorldPosition; return true;
+		}
+		if ( p.TryGetProperty( ptKey, out var ptEl ) ) { pos = ClaudeBridge.ParseVector3( ptEl ); return true; }
+		return false;
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 22 — Environment & props: scatter / randomize / group
+// ═════════════════════════════════════════════════════════════════════
+
+/// <summary>Tiny deterministic PRNG — avoids sandbox randomness-API uncertainty; same seed → same layout.</summary>
+public class Lcg
+{
+	private uint _s;
+	public Lcg( uint seed ) { _s = seed == 0u ? 1u : seed; }
+	public float Float01() { _s = _s * 1664525u + 1013904223u; return ( _s >> 8 ) * ( 1.0f / 16777216.0f ); }
+	public float Range( float a, float b ) => a + ( b - a ) * Float01();
+}
+
+// ───────── scatter_props (scatter N model copies in a radius) ──────────
+public class ScatterPropsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var modelPath = p.TryGetProperty( "model", out var mp ) ? mp.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( modelPath ) )
+			return Task.FromResult<object>( new { error = "model (path) is required" } );
+		Model model = null;
+		try { model = Model.Load( modelPath ); } catch { }
+		if ( model == null ) return Task.FromResult<object>( new { error = $"Model not found: {modelPath}" } );
+
+		var center   = p.TryGetProperty( "center", out var c ) ? ClaudeBridge.ParseVector3( c ) : Vector3.Zero;
+		float radius = p.TryGetProperty( "radius", out var r ) ? r.GetSingle() : 256f;
+		int count    = p.TryGetProperty( "count", out var cn ) ? cn.GetInt32() : 10;
+		if ( count < 1 ) count = 1; if ( count > 300 ) count = 300;
+		bool randomYaw = !p.TryGetProperty( "randomYaw", out var ry ) || ry.GetBoolean();
+		bool snap      = !p.TryGetProperty( "snapToGround", out var sg ) || sg.GetBoolean();
+		float scaleMin = p.TryGetProperty( "scaleMin", out var smn ) ? smn.GetSingle() : 1f;
+		float scaleMax = p.TryGetProperty( "scaleMax", out var smx ) ? smx.GetSingle() : 1f;
+		uint seed      = p.TryGetProperty( "seed", out var sd ) ? (uint)sd.GetInt32() : 1u;
+		var rng = new Lcg( seed );
+		string name = p.TryGetProperty( "name", out var nm ) ? nm.GetString() : "Prop";
+		bool tinted = p.TryGetProperty( "tint", out var tEl );
+
+		GameObject group = null;
+		if ( !p.TryGetProperty( "group", out var gp ) || gp.GetBoolean() )
+		{
+			group = scene.CreateObject( true );
+			group.Name = $"{name} Scatter";
+			group.WorldPosition = center;
+		}
+
+		var created = new List<string>();
+		for ( int i = 0; i < count; i++ )
+		{
+			var dir = Rotation.FromYaw( rng.Range( 0f, 360f ) ).Forward; // unit direction, no trig
+			var pos = center + dir * ( radius * rng.Float01() );
+			if ( snap )
+			{
+				try
+				{
+					var tr = scene.Trace.Ray( pos + Vector3.Up * 2000f, pos + Vector3.Down * 20000f ).Run();
+					if ( tr.Hit ) pos = new Vector3( pos.x, pos.y, tr.HitPosition.z );
+				}
+				catch { }
+			}
+
+			var prop = scene.CreateObject( true );
+			prop.Name = $"{name} {i + 1}";
+			prop.WorldPosition = pos;
+			if ( randomYaw ) prop.WorldRotation = Rotation.FromYaw( rng.Range( 0f, 360f ) );
+			if ( scaleMax > scaleMin ) { float s = rng.Range( scaleMin, scaleMax ); prop.WorldScale = new Vector3( s, s, s ); }
+			var mr = prop.AddComponent<ModelRenderer>();
+			mr.Model = model;
+			if ( tinted ) mr.Tint = VisualHelpers.ParseColorElement( tEl, Color.White );
+			if ( group != null ) prop.SetParent( group, true );
+			created.Add( prop.Id.ToString() );
+		}
+
+		return Task.FromResult<object>( new { scattered = created.Count, groupId = group?.Id.ToString(), seed } );
+	}
+}
+
+// ───────── randomize_transforms (vary yaw/scale for a natural look) ────
+public class RandomizeTransformsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveIds( scene, p );
+		if ( gos.Count < 1 ) return Task.FromResult<object>( new { error = "ids: provide at least 1 GameObject GUID" } );
+
+		bool doYaw     = !p.TryGetProperty( "randomYaw", out var ry ) || ry.GetBoolean();
+		float scaleMin = p.TryGetProperty( "scaleMin", out var smn ) ? smn.GetSingle() : 1f;
+		float scaleMax = p.TryGetProperty( "scaleMax", out var smx ) ? smx.GetSingle() : 1f;
+		uint seed      = p.TryGetProperty( "seed", out var sd ) ? (uint)sd.GetInt32() : 1u;
+		var rng = new Lcg( seed );
+
+		foreach ( var g in gos )
+		{
+			if ( doYaw ) g.WorldRotation = Rotation.FromYaw( rng.Range( 0f, 360f ) );
+			if ( scaleMax > scaleMin ) { float s = rng.Range( scaleMin, scaleMax ); g.WorldScale = new Vector3( s, s, s ); }
+		}
+		return Task.FromResult<object>( new { randomized = gos.Count, seed } );
+	}
+}
+
+// ───────── group_objects (reparent a set under a new empty) ────────────
+public class GroupObjectsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveIds( scene, p );
+		if ( gos.Count < 1 ) return Task.FromResult<object>( new { error = "ids: provide at least 1 GameObject GUID" } );
+
+		var group = scene.CreateObject( true );
+		group.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Group";
+
+		var sum = Vector3.Zero;
+		foreach ( var g in gos ) sum += g.WorldPosition;
+		group.WorldPosition = sum / gos.Count; // centroid
+
+		foreach ( var g in gos ) g.SetParent( group, true );
+		return Task.FromResult<object>( new { grouped = gos.Count, groupId = group.Id.ToString(), name = group.Name } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 23 — Object utilities & queries: find / tint / replace / tags
+// ═════════════════════════════════════════════════════════════════════
+
+// ───────── find_objects (query the scene by name/component/tag) ────────
+public class FindObjectsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		string nameQ = p.TryGetProperty( "name", out var n ) ? n.GetString()?.ToLowerInvariant() : null;
+		string compQ = p.TryGetProperty( "component", out var c ) ? c.GetString() : null;
+		string tagQ  = p.TryGetProperty( "tag", out var t ) ? t.GetString() : null;
+		int limit = p.TryGetProperty( "limit", out var l ) ? l.GetInt32() : 50;
+		if ( limit < 1 ) limit = 1; if ( limit > 500 ) limit = 500;
+
+		var results = new List<object>();
+		foreach ( var go in scene.GetAllObjects( true ) )
+		{
+			if ( go == null ) continue;
+			if ( nameQ != null && ( go.Name == null || !go.Name.ToLowerInvariant().Contains( nameQ ) ) ) continue;
+			if ( tagQ != null && !go.Tags.Has( tagQ ) ) continue;
+			if ( compQ != null )
+			{
+				bool has = false;
+				foreach ( var comp in go.Components.GetAll() )
+					if ( string.Equals( comp.GetType().Name, compQ, StringComparison.OrdinalIgnoreCase ) ) { has = true; break; }
+				if ( !has ) continue;
+			}
+			results.Add( new { id = go.Id.ToString(), name = go.Name } );
+			if ( results.Count >= limit ) break;
+		}
+		return Task.FromResult<object>( new { count = results.Count, objects = results } );
+	}
+}
+
+// ───────── set_tint (recolour one or many renderers) ───────────────────
+public class SetTintHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveTargets( scene, p );
+		if ( gos.Count == 0 ) return Task.FromResult<object>( new { error = "provide id or ids" } );
+		if ( !p.TryGetProperty( "tint", out var tEl ) ) return Task.FromResult<object>( new { error = "tint {r,g,b,a?} is required" } );
+		var color = VisualHelpers.ParseColorElement( tEl, Color.White );
+
+		int n = 0;
+		foreach ( var go in gos )
+		{
+			var mr = go.GetComponent<ModelRenderer>();
+			if ( mr != null ) { mr.Tint = color; n++; }
+		}
+		return Task.FromResult<object>( new { tinted = n } );
+	}
+}
+
+// ───────── replace_model (swap the model on one or many renderers) ─────
+public class ReplaceModelHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveTargets( scene, p );
+		if ( gos.Count == 0 ) return Task.FromResult<object>( new { error = "provide id or ids" } );
+		var modelPath = p.TryGetProperty( "model", out var mp ) ? mp.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( modelPath ) ) return Task.FromResult<object>( new { error = "model (path) is required" } );
+		Model model = null;
+		try { model = Model.Load( modelPath ); } catch { }
+		if ( model == null ) return Task.FromResult<object>( new { error = $"Model not found: {modelPath}" } );
+
+		int n = 0;
+		foreach ( var go in gos )
+		{
+			var mr = go.GetComponent<ModelRenderer>();
+			if ( mr != null ) { mr.Model = model; n++; }
+		}
+		return Task.FromResult<object>( new { replaced = n, model = modelPath } );
+	}
+}
+
+// ───────── set_tags (add/remove/clear gameplay tags) ───────────────────
+public class SetTagsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		var gos = SceneToolHelpers.ResolveTargets( scene, p );
+		if ( gos.Count == 0 ) return Task.FromResult<object>( new { error = "provide id or ids" } );
+
+		var add = ReadStringArray( p, "add" );
+		var remove = ReadStringArray( p, "remove" );
+		bool clear = p.TryGetProperty( "clear", out var cl ) && cl.GetBoolean();
+		if ( add.Count == 0 && remove.Count == 0 && !clear )
+			return Task.FromResult<object>( new { error = "provide add[], remove[], or clear:true" } );
+
+		foreach ( var go in gos )
+		{
+			if ( clear ) go.Tags.RemoveAll();
+			foreach ( var tg in add ) go.Tags.Add( tg );
+			foreach ( var tg in remove ) go.Tags.Remove( tg );
+		}
+		return Task.FromResult<object>( new { updated = gos.Count, added = add, removed = remove, cleared = clear } );
+	}
+
+	static List<string> ReadStringArray( JsonElement p, string key )
+	{
+		var list = new List<string>();
+		if ( p.TryGetProperty( key, out var arr ) && arr.ValueKind == JsonValueKind.Array )
+			foreach ( var e in arr.EnumerateArray() ) { var s = e.GetString(); if ( !string.IsNullOrWhiteSpace( s ) ) list.Add( s ); }
+		return list;
 	}
 }

@@ -6,7 +6,7 @@ This plugin bundles:
 
 | Component | What it does |
 |---|---|
-| **MCP server registration** (`sbox` from npm) | 99 tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, type discovery |
+| **MCP server registration** (`sbox` from npm) | 131 tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, scatter & object utilities, type discovery |
 | **Skill: `sbox-build-feature`** | Codifies the screenshot-driven iteration workflow — bridge check, brainstorm gate, API research, hotload verify, screenshot read. Prevents the "guess and check" loop |
 | **Agent: `sbox-game-dev`** | Optional specialist for handing off self-contained game-dev tasks |
 

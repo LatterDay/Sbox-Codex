@@ -4,7 +4,7 @@
   "Org": "sboxskinsgg",
   "Ident": "claudebridge",
   "Schema": 1,
-  "Description": "Build s&box games by talking to Claude. 99 tools to drive the s&box editor through conversation — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, type discovery. v1.3.x is stable on current s&box builds (fixed bootstrap crash, dock-independent RPCs, smarter hierarchy query). If you use Claude Code, install the companion plugin: `/plugin marketplace add LouSputthole/Sbox-Claude` then `/plugin install sbox-claude` — it bundles the MCP server registration plus an `sbox-build-feature` skill that codifies the screenshot-driven iteration workflow. See TROUBLESHOOTING.md if anything misbehaves.",
+  "Description": "Build s&box games by talking to Claude. 131 tools to drive the s&box editor through conversation — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, scatter & object utilities, type discovery. v1.4.0 adds 32 authoring tools (lights/fog/post-fx, citizens with equip/pose/expression, snap-to-ground/align/distribute/grid-duplicate, scatter_props, find_objects) on a stable base. If you use Claude Code, install the companion plugin: `/plugin marketplace add LouSputthole/Sbox-Claude` then `/plugin install sbox-claude` — it bundles the MCP server registration plus an `sbox-build-feature` skill that codifies the screenshot-driven iteration workflow. See TROUBLESHOOTING.md if anything misbehaves.",
   "IncludeSourceFiles": true,
   "Resources": null,
   "PackageReferences": [],
@@ -12,7 +12,7 @@
   "Mounts": null,
   "IsStandaloneOnly": false,
   "Metadata": {
-    "Summary": "Claude builds s&box game systems for you — 99 tools, stable across SDK updates, fixed bootstrap crash in v1.3.0",
+    "Summary": "Claude builds s&box game systems for you — 131 tools (v1.4.0 adds lighting, characters, scene layout, scatter + object utilities), stable across SDK updates",
     "Public": true,
     "Tags": "ai,claude,mcp,tool,editor,bridge,automation,code-generation,terrain,worldgen,stable",
     "Compiler": {
