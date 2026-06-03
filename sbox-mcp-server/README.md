@@ -1,6 +1,6 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — 131 working tools for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, and type discovery.
+MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **150 tools / 142 editor handlers** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
 
 ## Fastest install — the Claude Code plugin
 
@@ -44,7 +44,7 @@ Open your project. The bridge starts automatically. Verify with:
 Check the bridge status.
 ```
 
-You should see `connected: true, handlerCount: 99`.
+You should see `connected: true, handlerCount: 142`. (That's the editor-side handler count; the server exposes 150 tools total — a handful run MCP-server-side and need no editor handler.)
 
 ## How it works
 
@@ -54,7 +54,9 @@ Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → 
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
 
-## Tools (131 — v1.4.0)
+## Tools (150 / 142 editor handlers — v1.5.0)
+
+`get_bridge_status` reports `handlerCount: 142` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
 
 | Category | Tools |
 |----------|-------|
@@ -87,14 +89,24 @@ Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP ser
 | **Scene & level** *(v1.4.0)* | snap_to_ground, align_objects, distribute_objects, grid_duplicate, measure_distance |
 | **Environment** *(v1.4.0)* | scatter_props, randomize_transforms, group_objects |
 | **Object utilities** *(v1.4.0)* | find_objects, set_tint, replace_model, set_tags |
-| **VFX** *(v1.4.0, experimental)* | spawn_particle, create_particle_effect, add_trail, add_beam — compile but runtime rendering unverified through the bridge; use a legacy `.vpcf` for visible particles |
+| **VFX** *(v1.4.0, experimental)* | spawn_particle, create_particle_effect, add_trail, add_beam — compile but do **not** render through the bridge; use `spawn_vpcf` (below) for visible particles |
+| **Diagnostics** *(v1.5.0, MCP-server-side)* | read_log, get_compile_errors — read `sbox-dev.log` directly; work even when the editor has crashed |
+| **Camera** *(v1.5.0)* | screenshot_from (**aim a shot at any object/point** — `take_screenshot` is fixed to the Main Camera), frame_camera (move the editor viewport) |
+| **Navigation** *(v1.5.0)* | bake_navmesh, get_navmesh_path |
+| **Spatial** *(v1.5.0)* | physics_overlap (volume counterpart to raycast) |
+| **Reflections** *(v1.5.0)* | bake_reflections (a placed EnvmapProbe captures nothing until baked) |
+| **Particles** *(v1.5.0)* | spawn_vpcf — compiled `.vpcf` via LegacyParticleSystem, the **supported** particle path |
+| **Console / Exec** *(v1.5.0)* | console_run, execute_csharp *(experimental)* |
+| **Object utilities** *(v1.5.0)* | remove_component, get_tags |
+| **Docs search** *(v1.5.0, MCP-server-side)* | search_docs, get_doc_page, list_doc_categories — official `Facepunch/sbox-docs` |
 
 ## Working with Claude effectively
 
-Two disciplines prevent the iteration-loop trap:
+Three disciplines prevent the iteration-loop trap:
 
-1. **After visual changes, call `take_screenshot` and read the PNG.** Claude is a multimodal model — it can see the result. Guessing about visual outcomes from code alone produces long iteration loops.
+1. **After visual changes, see the result — and aim the camera.** `take_screenshot` renders from the scene's Main Camera (one fixed angle), so it often won't show the thing you just changed. Use **`screenshot_from`** to point the camera at the target object/point, then read the PNG. Claude is a multimodal model — guessing about visual outcomes from code alone produces long iteration loops.
 2. **Before writing code that touches an unfamiliar s&box type, call `describe_type` or `search_types`.** Reflection is the source of truth; training data goes stale across SDK versions.
+3. **When something breaks, read the log instead of guessing.** `get_compile_errors` surfaces the latest C# compile failures and `read_log` tails `sbox-dev.log` — both MCP-server-side, so they work even if the editor crashed.
 
 The companion plugin's `sbox-build-feature` skill encodes this workflow plus the common gotchas. If you're not using the plugin, the same rules apply manually.
 
@@ -108,7 +120,7 @@ The companion plugin's `sbox-build-feature` skill encodes this workflow plus the
 
 - [Main README](https://github.com/LouSputthole/Sbox-Claude/blob/main/README.md) — full project overview
 - [INSTALL.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/INSTALL.md) — install + manual fallback
-- [TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md) — 10 most common failures
+- [TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md) — common failures and fixes
 - [CHANGELOG.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/CHANGELOG.md) — release history
 - [Plugin README](https://github.com/LouSputthole/Sbox-Claude/blob/main/plugins/sbox-claude/README.md) — Claude Code plugin docs
 

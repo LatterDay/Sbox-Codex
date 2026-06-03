@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.4.0";
+	private const string BridgeVersion = "1.5.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -323,6 +323,28 @@ public static class ClaudeBridge
 		Register( "replace_model",            () => new ReplaceModelHandler() );
 		Register( "set_tags",                 () => new SetTagsHandler() );
 
+		// ── Batch 24: Bridge superpowers (editor) ───────────────────────
+		Register( "frame_camera",             () => new FrameCameraHandler() );
+
+		// ── Batch 25: screenshot aiming + component/tag gaps ────────────
+		Register( "screenshot_from",          () => new ScreenshotFromHandler() );
+		Register( "remove_component",         () => new RemoveComponentHandler() );
+		Register( "get_tags",                 () => new GetTagsHandler() );
+
+		// ── Batch 26: console ───────────────────────────────────────────
+		Register( "console_run",              () => new ConsoleRunHandler() );
+
+		// ── Batch 27: navigation ────────────────────────────────────────
+		Register( "bake_navmesh",             () => new BakeNavMeshHandler() );
+		Register( "get_navmesh_path",         () => new GetNavMeshPathHandler() );
+
+		// ── Batch 28: spatial query + reflection bake ───────────────────
+		Register( "physics_overlap",          () => new PhysicsOverlapHandler() );
+		Register( "bake_reflections",         () => new BakeReflectionsHandler() );
+
+		// ── Batch 29: real particles (.vpcf) ────────────────────────────
+		Register( "spawn_vpcf",               () => new SpawnVpcfHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -338,6 +360,7 @@ public static class ClaudeBridge
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
 		"set_tint", "replace_model", "set_tags",
+		"remove_component",
 		"create_gameobject", "delete_gameobject", "duplicate_gameobject", "rename_gameobject",
 		"set_parent", "set_transform", "set_enabled",
 		"add_component_with_properties", "set_property", "set_prefab_ref",
@@ -607,6 +630,8 @@ public static class ClaudeBridge
 			{
 				var paramsElement = root.TryGetProperty( "params", out var p ) ? p : default;
 				var result = await handler.Execute( paramsElement );
+				if ( TryGetHandlerError( result, out var handlerErr ) )
+					return JsonSerializer.Serialize( new { id, success = false, error = handlerErr } );
 				return JsonSerializer.Serialize( new { id, success = true, data = result } );
 			}
 			catch ( Exception ex )
@@ -616,6 +641,23 @@ public static class ClaudeBridge
 		}
 
 		return MakeError( id, $"Unknown command: {command}" );
+	}
+
+	// Many handlers signal failure by returning an object with a non-empty
+	// `error` string property instead of throwing. Detect that via reflection
+	// so the dispatch envelope reports success=false (audit P1).
+	static bool TryGetHandlerError( object result, out string err )
+	{
+		err = null;
+		if ( result == null )
+			return false;
+
+		var errStr = result.GetType().GetProperty( "error" )?.GetValue( result ) as string;
+		if ( string.IsNullOrEmpty( errStr ) )
+			return false;
+
+		err = errStr;
+		return true;
 	}
 
 	static string MakeError( string id, string message )
@@ -630,6 +672,55 @@ public static class ClaudeBridge
 		float y = e.TryGetProperty( "y", out var ey ) ? ey.GetSingle() : 0f;
 		float z = e.TryGetProperty( "z", out var ez ) ? ez.GetSingle() : 0f;
 		return new Vector3( x, y, z );
+	}
+
+	/// <summary>
+	/// Resolve a user-supplied relative path against the project root and verify
+	/// it stays inside the root (separator-safe containment). Returns false with a
+	/// generic error on escape attempts (audit P2 — path traversal).
+	/// </summary>
+	internal static bool TryResolveProjectPath( string userPath, out string fullPath, out string error )
+	{
+		var root = Project.Current.GetRootPath();
+		fullPath = Path.GetFullPath( Path.Combine( root, userPath ?? "" ) );
+
+		var rootBoundary = root.TrimEnd( '/', '\\' ) + Path.DirectorySeparatorChar;
+		if ( string.Equals( fullPath, root, StringComparison.OrdinalIgnoreCase )
+			|| fullPath.StartsWith( rootBoundary, StringComparison.OrdinalIgnoreCase ) )
+		{
+			error = null;
+			return true;
+		}
+
+		error = "Path outside project root denied";
+		return false;
+	}
+
+	/// <summary>
+	/// Sanitize an arbitrary string into a valid C# identifier for use as a class
+	/// name in generated code (audit P2 — code injection via the `name` param).
+	/// Keeps only [A-Za-z0-9_], prefixes '_' if the first kept char is a digit, and
+	/// falls back to <paramref name="fallback"/> if nothing valid remains.
+	/// </summary>
+	internal static string SanitizeIdentifier( string raw, string fallback = "GeneratedComponent" )
+	{
+		if ( string.IsNullOrEmpty( raw ) )
+			return fallback;
+
+		var sb = new System.Text.StringBuilder( raw.Length );
+		foreach ( var c in raw )
+		{
+			if ( ( c >= 'A' && c <= 'Z' ) || ( c >= 'a' && c <= 'z' ) || ( c >= '0' && c <= '9' ) || c == '_' )
+				sb.Append( c );
+		}
+
+		if ( sb.Length == 0 )
+			return fallback;
+
+		if ( sb[0] >= '0' && sb[0] <= '9' )
+			sb.Insert( 0, '_' );
+
+		return sb.ToString();
 	}
 
 	internal static Rotation ParseRotation( JsonElement e )
@@ -713,9 +804,8 @@ public class ListProjectFilesHandler : IBridgeHandler
 		var extension = p.TryGetProperty( "extension",  out var e ) ? e.GetString() : null;
 		var recursive = !p.TryGetProperty( "recursive", out var rec ) || rec.GetBoolean();
 
-		var searchDir = string.IsNullOrEmpty( dir )
-			? rootPath
-			: Path.Combine( rootPath, dir );
+		if ( !ClaudeBridge.TryResolveProjectPath( dir, out var searchDir, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr, files = Array.Empty<string>() } );
 
 		if ( !Directory.Exists( searchDir ) )
 			return Task.FromResult<object>( new { error = $"Directory not found: {dir}", files = Array.Empty<string>() } );
@@ -734,12 +824,9 @@ public class ReadFileHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath = Project.Current.GetRootPath();
 		var filePath = p.GetProperty( "path" ).GetString();
-		var fullPath = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
 
@@ -752,13 +839,10 @@ public class WriteFileHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath = Project.Current.GetRootPath();
 		var filePath = p.GetProperty( "path" ).GetString();
 		var content  = p.GetProperty( "content" ).GetString();
-		var fullPath = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 		File.WriteAllText( fullPath, content );
@@ -770,20 +854,20 @@ public class CreateScriptHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.GetProperty( "name" ).GetString();
 		var template  = p.TryGetProperty( "template",  out var t ) ? t.GetString() : "component";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName  = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath  = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 		var code = template switch
 		{
 			"component" => $"using Sandbox;\n\npublic sealed class {className} : Component\n{{\n\tprotected override void OnUpdate()\n\t{{\n\t}}\n}}\n",
@@ -800,12 +884,9 @@ public class EditScriptHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath = Project.Current.GetRootPath();
 		var filePath = p.GetProperty( "path" ).GetString();
-		var fullPath = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
 
@@ -837,12 +918,9 @@ public class DeleteScriptHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath = Project.Current.GetRootPath();
 		var filePath = p.GetProperty( "path" ).GetString();
-		var fullPath = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
 
@@ -926,7 +1004,8 @@ public class CreateSceneHandler : IBridgeHandler
 		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Scenes";
 
 		var fileName = name.EndsWith( ".scene" ) ? name : $"{name}.scene";
-		var fullPath = Path.Combine( rootPath, subdir, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Scene already exists: {subdir}/{fileName}" } );
@@ -1729,9 +1808,9 @@ public class GetAssetInfoHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath = Project.Current.GetRootPath();
 		var filePath = p.GetProperty( "path" ).GetString();
-		var fullPath = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Asset not found: {filePath}" } );
@@ -1784,7 +1863,8 @@ public class CreateMaterialHandler : IBridgeHandler
 		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Materials";
 
 		var fileName = name.EndsWith( ".vmat" ) ? name : $"{name}.vmat";
-		var fullPath = Path.Combine( rootPath, subdir, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Material already exists: {subdir}/{fileName}" } );
@@ -1856,7 +1936,8 @@ public class CreateSoundEventHandler : IBridgeHandler
 		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Sounds";
 
 		var fileName = name.EndsWith( ".sound" ) ? name : $"{name}.sound";
-		var fullPath = Path.Combine( rootPath, subdir, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Sound already exists: {subdir}/{fileName}" } );
@@ -1902,19 +1983,22 @@ public class CreatePrefabHandler : IBridgeHandler
 		var rootPath = Project.Current.GetRootPath();
 
 		// If "path" is given use it directly, otherwise fall back to name+directory
-		string fullPath;
+		string relPath;
 		if ( p.TryGetProperty( "path", out var pathProp ) )
 		{
-			var prefabRelPath = pathProp.GetString();
-			fullPath = Path.GetFullPath( Path.Combine( rootPath, prefabRelPath ) );
+			relPath = pathProp.GetString();
 		}
 		else
 		{
 			var name   = p.TryGetProperty( "name", out var n ) ? n.GetString() : go.Name;
 			var subdir = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Prefabs";
 			var fileName = name.EndsWith( ".prefab" ) ? name : $"{name}.prefab";
-			fullPath = Path.Combine( rootPath, subdir, fileName );
+			relPath = Path.Combine( subdir, fileName );
 		}
+
+		if ( !ClaudeBridge.TryResolveProjectPath( relPath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
+
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
 		// Serialize a minimal prefab descriptor referencing the GameObject
@@ -1945,8 +2029,8 @@ public class InstantiatePrefabHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var prefabPath = p.GetProperty( "path" ).GetString();
-		var rootPath   = Project.Current.GetRootPath();
-		var fullPath   = Path.GetFullPath( Path.Combine( rootPath, prefabPath ) );
+		if ( !ClaudeBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Prefab not found: {prefabPath}" } );
@@ -2004,9 +2088,9 @@ public class GetPrefabInfoHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath   = Project.Current.GetRootPath();
 		var prefabPath = p.GetProperty( "path" ).GetString();
-		var fullPath   = Path.GetFullPath( Path.Combine( rootPath, prefabPath ) );
+		if ( !ClaudeBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Prefab not found: {prefabPath}" } );
@@ -2164,18 +2248,18 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "PlayerController";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2219,18 +2303,18 @@ public class CreateNpcControllerHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "NpcController";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2266,18 +2350,18 @@ public class CreateGameManagerHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "GameManager";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2314,18 +2398,18 @@ public class CreateTriggerZoneHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "TriggerZone";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2380,14 +2464,15 @@ public class CreateRazorUIHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "UI";
 
 		var fileName = name.EndsWith( ".razor" ) ? name : $"{name}.razor";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		var componentName = Path.GetFileNameWithoutExtension( fileName );
+		var componentName = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 		var razor = $@"@using Sandbox;
 @using Sandbox.UI;
 
@@ -2445,15 +2530,12 @@ public class AddSyncPropertyHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath     = Project.Current.GetRootPath();
 		var filePath     = p.GetProperty( "path" ).GetString();
 		var propertyName = p.GetProperty( "propertyName" ).GetString();
 		var propertyType = p.TryGetProperty( "propertyType", out var ptProp ) ? ptProp.GetString() ?? "float" : "float";
 		var defaultValue = p.TryGetProperty( "defaultValue", out var dvProp ) ? dvProp.GetString() : null;
-		var fullPath     = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
 
@@ -2496,14 +2578,11 @@ public class AddRpcMethodHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath   = Project.Current.GetRootPath();
 		var filePath   = p.GetProperty( "path" ).GetString();
 		var methodName = p.TryGetProperty( "methodName", out var m ) ? m.GetString() : "MyRpc";
 		var rpcType    = p.TryGetProperty( "rpcType", out var rt ) ? rt.GetString() : "Broadcast";
-		var fullPath   = Path.GetFullPath( Path.Combine( rootPath, filePath ) );
-
-		if ( !fullPath.StartsWith( rootPath, StringComparison.OrdinalIgnoreCase ) )
-			return Task.FromResult<object>( new { error = "Path traversal denied" } );
+		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
 
@@ -2533,18 +2612,18 @@ public class CreateNetworkedPlayerHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "NetworkedPlayer";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2600,18 +2679,18 @@ public class CreateLobbyManagerHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "LobbyManager";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 using System.Collections.Generic;
@@ -2669,18 +2748,18 @@ public class CreateNetworkEventsHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var rootPath  = Project.Current.GetRootPath();
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "NetworkEvents";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		var fullPath = Path.Combine( rootPath, directory, fileName );
+		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = Path.GetFileNameWithoutExtension( fileName );
+		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -2840,7 +2919,8 @@ public class SetProjectThumbnailHandler : IBridgeHandler
 	{
 		var rootPath   = Project.Current.GetRootPath();
 		var sourcePath = p.GetProperty( "sourcePath" ).GetString();
-		var fullSource = Path.GetFullPath( Path.Combine( rootPath, sourcePath ) );
+		if ( !ClaudeBridge.TryResolveProjectPath( sourcePath, out var fullSource, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullSource ) )
 			return Task.FromResult<object>( new { error = $"Source image not found: {sourcePath}" } );
@@ -5927,5 +6007,476 @@ public class SetTagsHandler : IBridgeHandler
 		if ( p.TryGetProperty( key, out var arr ) && arr.ValueKind == JsonValueKind.Array )
 			foreach ( var e in arr.EnumerateArray() ) { var s = e.GetString(); if ( !string.IsNullOrWhiteSpace( s ) ) list.Add( s ); }
 		return list;
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 24 — Bridge superpowers (editor side): frame_camera
+//  Lets Claude AIM ITS OWN SCREENSHOTS at any object/point — fixes the
+//  "can't see the result" blindness. (read_log / get_compile_errors live in
+//  the MCP server; they read the log file so they work even when s&box has
+//  crashed.)
+// ═════════════════════════════════════════════════════════════════════
+
+public class FrameCameraHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var session = SceneEditorSession.Active;
+		var scene = session?.Scene;
+		if ( session == null || scene == null )
+			return Task.FromResult<object>( new { error = "No active scene/session" } );
+
+		BBox box;
+		string target;
+		if ( p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out var guid ) )
+		{
+			var go = scene.Directory.FindByGuid( guid );
+			if ( go == null )
+				return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+			box = go.GetBounds();
+			if ( box.Size.Length < 1f ) // no renderer / zero bounds → pad around the point
+				box = new BBox( go.WorldPosition - new Vector3( 64f, 64f, 64f ), go.WorldPosition + new Vector3( 64f, 64f, 64f ) );
+			target = go.Name;
+		}
+		else if ( p.TryGetProperty( "position", out var posEl ) )
+		{
+			var c = ClaudeBridge.ParseVector3( posEl );
+			float r = p.TryGetProperty( "radius", out var rEl ) ? rEl.GetSingle() : 128f;
+			box = new BBox( c - new Vector3( r, r, r ), c + new Vector3( r, r, r ) );
+			target = $"({c.x:0.#},{c.y:0.#},{c.z:0.#}) r{r:0.#}";
+		}
+		else
+		{
+			return Task.FromResult<object>( new { error = "provide id (GameObject GUID) or position {x,y,z} (+ optional radius)" } );
+		}
+
+		session.FrameTo( box );
+		return Task.FromResult<object>( new
+		{
+			framed = true,
+			target,
+			center = new { box.Center.x, box.Center.y, box.Center.z },
+			note = "Editor camera moved — take_screenshot now captures this view."
+		} );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 25 — screenshot aiming + component/tag gaps
+// ═════════════════════════════════════════════════════════════════════
+
+// ───────── screenshot_from (THE fix: aim Claude's screenshots) ─────────
+//  take_screenshot renders from the scene's MAIN CAMERA (not the viewport).
+//  This saves the main camera's transform, moves it to frame a target,
+//  captures, and restores it — so screenshots can finally be aimed.
+public class ScreenshotFromHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var cam = VisualHelpers.FindMainCamera( scene );
+		if ( cam == null ) return Task.FromResult<object>( new { error = "No main camera found (take_screenshot renders from the scene's main camera)." } );
+		var go = cam.GameObject;
+		var savedPos = go.WorldPosition;
+		var savedRot = go.WorldRotation;
+
+		Vector3 camPos; Rotation camRot; string framed;
+		if ( p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out var guid ) )
+		{
+			var t = scene.Directory.FindByGuid( guid );
+			if ( t == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+			var box = t.GetBounds();
+			var c = box.Center;
+			float sz = box.Size.Length; if ( sz < 1f ) sz = 128f;
+			float dist = sz * 1.4f; if ( dist < 150f ) dist = 150f;
+			camPos = c + new Vector3( -1f, -0.6f, 0.7f ).Normal * dist; // 3/4 elevated view
+			camRot = Rotation.LookAt( ( c - camPos ).Normal, Vector3.Up );
+			framed = t.Name;
+		}
+		else if ( p.TryGetProperty( "position", out var posEl ) )
+		{
+			camPos = ClaudeBridge.ParseVector3( posEl );
+			if ( p.TryGetProperty( "lookAt", out var laEl ) )
+				camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
+			else if ( p.TryGetProperty( "rotation", out var rotEl ) )
+				camRot = CharacterHelpers.ParseRotation( rotEl );
+			else camRot = savedRot;
+			framed = $"({camPos.x:0.#},{camPos.y:0.#},{camPos.z:0.#})";
+		}
+		else return Task.FromResult<object>( new { error = "provide id (object to frame) or position {x,y,z} (+ optional lookAt or rotation)" } );
+
+		int w = p.TryGetProperty( "width", out var wEl ) ? wEl.GetInt32() : 1920;
+		int h = p.TryGetProperty( "height", out var hEl ) ? hEl.GetInt32() : 1080;
+
+		go.WorldPosition = camPos;
+		go.WorldRotation = camRot;
+		EditorScene.TakeHighResScreenshot( w, h );
+		go.WorldPosition = savedPos; // restore (assumes synchronous capture; verify on first use)
+		go.WorldRotation = savedRot;
+
+		return Task.FromResult<object>( new { captured = true, framed, note = "Main camera framed, captured, and restored — read the newest screenshot." } );
+	}
+}
+
+// ───────── remove_component (remove a component by type from a GO) ──────
+public class RemoveComponentHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var typeName = p.TryGetProperty( "component", out var cEl ) ? cEl.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( typeName ) )
+			return Task.FromResult<object>( new { error = "component (type name) is required" } );
+
+		bool all = p.TryGetProperty( "all", out var aEl ) && aEl.GetBoolean();
+		var matches = new List<Component>();
+		foreach ( var comp in go.Components.GetAll() )
+			if ( string.Equals( comp.GetType().Name, typeName, StringComparison.OrdinalIgnoreCase ) )
+			{
+				matches.Add( comp );
+				if ( !all ) break;
+			}
+		if ( matches.Count == 0 )
+			return Task.FromResult<object>( new { error = $"No '{typeName}' component on the object" } );
+		foreach ( var m in matches ) m.Destroy();
+		return Task.FromResult<object>( new { removed = matches.Count, component = typeName } );
+	}
+}
+
+// ───────── get_tags (read a GameObject's tags) ─────────────────────────
+public class GetTagsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var tags = new List<string>();
+		try { foreach ( var t in go.Tags.TryGetAll() ) tags.Add( t ); } catch { }
+		return Task.FromResult<object>( new { id = idEl.GetString(), tags } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 26 — console_run (run an s&box console command / ConCmd)
+//  Also the invocation backbone for execute_csharp (TS orchestrates:
+//  write a temp [ConCmd] .cs in the editor-unsandboxed Editor/ folder →
+//  hotload → console_run it → read the result from the log → clean up).
+// ═════════════════════════════════════════════════════════════════════
+public class ConsoleRunHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var command = p.TryGetProperty( "command", out var cEl ) ? cEl.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( command ) )
+			return Task.FromResult<object>( new { error = "command is required" } );
+		try { Sandbox.ConsoleSystem.Run( command ); }
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"Console command failed: {ex.Message}" } ); }
+		return Task.FromResult<object>( new { ran = true, command } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 27 — navigation (REAL editor ops, not component wrappers):
+//  bake the scene navmesh + query a path on it. NavMesh.BakeNavMesh() is
+//  the static editor bake (async void → poll IsGenerating); GetSimplePath
+//  returns List<Vector3>. Verified against Sandbox.Engine.dll IL.
+// ═════════════════════════════════════════════════════════════════════
+public class BakeNavMeshHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var nav = scene.NavMesh;
+		if ( nav == null )
+			return Task.FromResult<object>( new { error = "Active scene has no NavMesh" } );
+
+		try
+		{
+			// NavMesh must be enabled for a bake to do anything.
+			nav.IsEnabled = true;
+
+			// Optional agent configuration (read defensively; applied only if present).
+			if ( p.TryGetProperty( "agentRadius", out var ar ) )    nav.AgentRadius   = ar.GetSingle();
+			if ( p.TryGetProperty( "agentHeight", out var ah ) )    nav.AgentHeight   = ah.GetSingle();
+			if ( p.TryGetProperty( "agentStepSize", out var asz ) ) nav.AgentStepSize = asz.GetSingle();
+			if ( p.TryGetProperty( "agentMaxSlope", out var ams ) ) nav.AgentMaxSlope = ams.GetSingle();
+			if ( p.TryGetProperty( "includeStaticBodies", out var isb ) ) nav.IncludeStaticBodies = isb.GetBoolean();
+
+			// The static editor bake targets Application.Editor.Scene.NavMesh — the SAME
+			// instance as scene.NavMesh we just configured — and shows the native editor
+			// progress UI. It is async void (fire-and-forget): returns immediately and
+			// generation continues in the background, so we do NOT await it. Poll IsGenerating.
+			Sandbox.Navigation.NavMesh.BakeNavMesh();
+
+			return Task.FromResult<object>( new
+			{
+				baking       = true,
+				note         = "navmesh generating async; poll get_navmesh_path or re-bake when IsGenerating is false",
+				isEnabled    = nav.IsEnabled,
+				isGenerating = nav.IsGenerating,
+				settings = new
+				{
+					agentRadius         = nav.AgentRadius,
+					agentHeight         = nav.AgentHeight,
+					agentStepSize       = nav.AgentStepSize,
+					agentMaxSlope       = nav.AgentMaxSlope,
+					includeStaticBodies = nav.IncludeStaticBodies
+				}
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"Bake failed: {ex.Message}" } );
+		}
+	}
+}
+
+public class GetNavMeshPathHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var nav = scene.NavMesh;
+		if ( nav == null )
+			return Task.FromResult<object>( new { error = "Active scene has no NavMesh" } );
+
+		if ( !p.TryGetProperty( "from", out var fromEl ) || !p.TryGetProperty( "to", out var toEl ) )
+			return Task.FromResult<object>( new { error = "Requires 'from' and 'to' Vector3 params" } );
+
+		var from = ClaudeBridge.ParseVector3( fromEl );
+		var to   = ClaudeBridge.ParseVector3( toEl );
+
+		try
+		{
+			// GetSimplePath returns List<Vector3> (verified). Empty/null => unreachable.
+			var path = nav.GetSimplePath( from, to );
+
+			if ( path == null || path.Count == 0 )
+			{
+				return Task.FromResult<object>( new
+				{
+					reachable = false,
+					count     = 0,
+					points    = new object[0],
+					from      = new { from.x, from.y, from.z },
+					to        = new { to.x, to.y, to.z },
+					note      = "No path found — is the navmesh baked (bake_navmesh) and both points on it?"
+				} );
+			}
+
+			var points = new List<object>( path.Count );
+			foreach ( var pt in path )
+				points.Add( new { pt.x, pt.y, pt.z } );
+
+			return Task.FromResult<object>( new
+			{
+				reachable = true,
+				count     = points.Count,
+				points    = points,
+				from      = new { from.x, from.y, from.z },
+				to        = new { to.x, to.y, to.z }
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"Path query failed: {ex.Message}" } );
+		}
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 28 — spatial query + reflection bake (REAL ops, not wrappers):
+//  physics_overlap = a SPHERE/BOX volume query (complements raycast's ray)
+//  via scene.Trace…RunAll(); bake_reflections = EnvmapProbe.BakeAll() so
+//  placed reflection probes actually capture (placement alone does nothing).
+//  Both verified against the live editor + Sandbox.Engine.dll.
+// ═════════════════════════════════════════════════════════════════════
+public class PhysicsOverlapHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		if ( !p.TryGetProperty( "center", out var centerEl ) )
+			return Task.FromResult<object>( new { error = "requires center (Vector3)" } );
+
+		var center = ClaudeBridge.ParseVector3( centerEl );
+
+		try
+		{
+			// Zero-length sweep (from == to == center) = a static overlap query.
+			SceneTrace trace;
+
+			if ( p.TryGetProperty( "radius", out var radiusEl ) )
+			{
+				// SPHERE overlap.
+				trace = scene.Trace.Sphere( radiusEl.GetSingle(), center, center );
+			}
+			else if ( p.TryGetProperty( "size", out var sizeEl ) )
+			{
+				// BOX overlap. The Box(Vector3,…) overload is EXTENTS (half-size), so use
+				// the BBox overload with FromPositionAndSize( center, fullSize ) for clarity.
+				var size = ClaudeBridge.ParseVector3( sizeEl );
+				trace = scene.Trace.Box( BBox.FromPositionAndSize( center, size ), center, center );
+			}
+			else
+			{
+				return Task.FromResult<object>( new { error = "requires radius (sphere) or size (box)" } );
+			}
+
+			// A GameObject may have several colliders → several hits; dedupe by GUID.
+			var seen = new HashSet<Guid>();
+			var hits = new List<object>();
+			foreach ( var hit in trace.RunAll() )
+			{
+				var go = hit.GameObject;
+				if ( go == null ) continue;
+				if ( !seen.Add( go.Id ) ) continue;
+				var pos = go.WorldPosition;
+				hits.Add( new { id = go.Id.ToString(), name = go.Name, position = new { pos.x, pos.y, pos.z } } );
+			}
+
+			return Task.FromResult<object>( new { count = hits.Count, hits } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"Overlap query failed: {ex.Message}" } );
+		}
+	}
+}
+
+public class BakeReflectionsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		try
+		{
+			var probes = scene.GetAllComponents<EnvmapProbe>().ToList();
+			if ( probes.Count == 0 )
+				return Task.FromResult<object>( new
+				{
+					baked = false,
+					count = 0,
+					note  = "No EnvmapProbe components in the scene — add one with add_envmap_probe first."
+				} );
+
+			// Bake is async (returns Task). Mirror BakeNavMeshHandler: fire-and-forget so we
+			// don't block the single-request-per-frame bridge loop. BakeAll() = scene-wide.
+			_ = EnvmapProbe.BakeAll();
+
+			return Task.FromResult<object>( new
+			{
+				baking = true,
+				count  = probes.Count,
+				note   = "Reflection envmap bake started for all probes (async). Re-screenshot after a moment to see captured reflections.",
+				probes = probes.Select( pr => new
+				{
+					id       = pr.GameObject?.Id.ToString(),
+					name     = pr.GameObject?.Name,
+					mode     = pr.Mode.ToString(),
+					hasBaked = pr.BakedTexture != null
+				} )
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"Bake failed: {ex.Message}" } );
+		}
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 29 — spawn_vpcf: play a REAL .vpcf via LegacyParticleSystem.
+//  This is the RELIABLE particle path (resource-driven, textures baked in),
+//  unlike the runtime ParticleEffect graph (Batch 18) that renders nothing.
+//  ParticleSystem.Load(logicalPath) → LegacyParticleSystem.Particles; the
+//  component auto-plays on enable. Default asset = particles/impact.generic
+//  (the only reachable .vpcf — a sparks/impact burst; tint warm for fire).
+// ═════════════════════════════════════════════════════════════════════
+public class SpawnVpcfHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+
+		var vpcfPath = p.TryGetProperty( "vpcf", out var vEl ) ? vEl.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( vpcfPath ) )
+			vpcfPath = "particles/impact.generic.vpcf";
+
+		ParticleSystem particles;
+		try { particles = ParticleSystem.Load( vpcfPath ); }
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"Failed to load '{vpcfPath}': {ex.Message}" } ); }
+		if ( particles == null )
+			return Task.FromResult<object>( new { error = $"Particle system not found: {vpcfPath}" } );
+
+		try
+		{
+			var go = scene.CreateObject( true );
+			go.Name = ( p.TryGetProperty( "name", out var nEl ) && !string.IsNullOrWhiteSpace( nEl.GetString() ) )
+				? nEl.GetString()
+				: "Particle (vpcf)";
+			if ( p.TryGetProperty( "position", out var pos ) )
+				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+
+			var lps = go.AddComponent<LegacyParticleSystem>();
+			lps.Particles = particles;
+			lps.Looped = !p.TryGetProperty( "looped", out var lEl ) || lEl.GetBoolean(); // default true
+			if ( p.TryGetProperty( "playbackSpeed", out var psEl ) )
+				lps.PlaybackSpeed = psEl.GetSingle();
+
+			// Tint applies to the live SceneObject, which is created on enable — may be
+			// null on this same frame; report whether it took.
+			bool tinted = false;
+			if ( p.TryGetProperty( "tint", out var tintEl ) && lps.SceneObject != null )
+			{
+				lps.SceneObject.ColorTint = VisualHelpers.ParseColorElement( tintEl, Color.White );
+				tinted = true;
+			}
+
+			return Task.FromResult<object>( new
+			{
+				created          = true,
+				vpcf             = vpcfPath,
+				looped           = lps.Looped,
+				tinted,
+				sceneObjectReady = lps.SceneObject != null,
+				gameObject = new
+				{
+					id       = go.Id.ToString(),
+					name     = go.Name,
+					position = new { go.WorldPosition.x, go.WorldPosition.y, go.WorldPosition.z }
+				}
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"spawn_vpcf failed: {ex.Message}" } );
+		}
 	}
 }

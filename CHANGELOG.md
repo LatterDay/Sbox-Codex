@@ -2,6 +2,60 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.5.0] — 2026-06-03
+
+**16 new tools — self-diagnosis, aimed screenshots, navmesh + spatial queries, real `.vpcf` particles, console/C# execution, and live docs search — plus a security & correctness hardening pass from an external code audit. Total: 150 tools / 142 handlers.**
+
+### Added
+
+**Self-diagnosis (MCP-server-side — work even when the editor has crashed):**
+- `read_log` — tail/filter `sbox-dev.log` directly (auto-locates via Steam `libraryfolders.vdf`, or `SBOX_LOG_PATH`).
+- `get_compile_errors` — surface the latest C# compile failures from the log. Claude can finally see its own errors instead of guessing.
+
+**Verification & camera:**
+- `screenshot_from` — **aim a screenshot at any object or point.** `take_screenshot` always renders from the scene's Main Camera (one fixed angle), which made most visual changes impossible to verify; `screenshot_from` moves the Main Camera to frame a target, captures, and restores it. This is what makes the authoring layer screenshot-verifiable.
+- `frame_camera` — move the editor viewport to focus an object/point (the editor's own view; distinct from the screenshot camera).
+
+**Navigation (real editor ops, not component wrappers):**
+- `bake_navmesh` — enable + bake the scene navmesh (`NavMesh.BakeNavMesh`) so agents can path. Async.
+- `get_navmesh_path` — query a walkable route between two points (`GetSimplePath`); returns the path or `reachable:false`.
+
+**Spatial & reflections:**
+- `physics_overlap` — sphere/box volume query (the volume counterpart to `raycast`): which objects sit in a region.
+- `bake_reflections` — bake all `EnvmapProbe`s (`EnvmapProbe.BakeAll`); a placed probe captures nothing until baked.
+
+**Particles:**
+- `spawn_vpcf` — play a compiled `.vpcf` via `LegacyParticleSystem` — the reliable particle path (the Batch 18 runtime `ParticleEffect` graph does not render through the bridge). See Known Issues re: source assets.
+
+**Console & C#:**
+- `console_run` — run an s&box console command / ConCmd (`ConsoleSystem.Run`).
+- `execute_csharp` *(experimental)* — compile + run a C# snippet in the unsandboxed editor context (temp `[ConCmd]` → hotload → run → read result from the log → clean up).
+
+**Object utilities:**
+- `remove_component` (counterpart to `add_component_with_properties`), `get_tags` (counterpart to `set_tags`).
+
+**Documentation search (MCP-server-side):**
+- `search_docs`, `get_doc_page`, `list_doc_categories` — search the official `Facepunch/sbox-docs` guides (225 pages; git-tree cached + raw Markdown).
+
+### Security & Fixed
+
+External code-audit remediation:
+- **Handler errors were reported as success.** The dispatch hardcoded `success=true`, so a handler returning `{ error }` (e.g. "Path traversal denied") surfaced as a successful call — `write_file` even printed "File written successfully". The dispatch now detects a handler-level `error` and reports `success=false`; `write_file` no longer claims false success.
+- **Path-traversal hardening.** All file/asset handlers resolve user paths through one separator-safe `TryResolveProjectPath` helper (canonicalize + containment) — 25 call sites. Previously `list_project_files`/`create_script`/`create_scene` had no containment check (a rooted path escaped the project).
+- **Generated C# identifiers are sanitized** (`SanitizeIdentifier`) — a `name` with spaces/punctuation/keywords no longer emits an uncompilable `class` declaration.
+- **Atomic IPC.** The MCP server writes request files to a temp path then atomically renames, so the editor can't consume a half-written large payload.
+- **Honest networking schemas.** `add_sync_property` / `add_rpc_method` params + descriptions now reflect what the addon actually does (annotate an existing property with `[Sync]`; generate an empty RPC stub) instead of advertising unimplemented options.
+- **Version pinning + doc reconciliation.** The plugin pins the server version; stale tool counts (78/99/109/131) reconciled to the real totals.
+
+### Notes & Known Issues
+
+- **Particles:** the experimental Batch 18 runtime `ParticleEffect` tools (`spawn_particle` etc.) still do not render visibly through the bridge (confirmed: at most a single flat sprite, nothing in play mode). `spawn_vpcf` is the supported path, but no flame `.vpcf` ships in a bridge-loadable form (`ParticleSystem.Load` returns null for the cloud-cached `impact.generic`); a project-owned `.vpcf` is under investigation.
+- `execute_csharp` is experimental (hotload latency; briefly recompiles the project editor assembly).
+- The `is_playing` `sessionPlaying` field can read stale (true in edit mode after a restart) — trust `gameFlag`.
+- **No breaking changes** to existing tool contracts (networking schema descriptions clarified, not removed).
+
+---
+
 ## [1.4.0] — 2026-06-02
 
 **32 new authoring tools across 7 batches — lighting & atmosphere, characters, scene layout, environment scatter, and object utilities. The bridge goes from "manipulate one object at a time" to "compose a whole scene." Tool count 99 → 131 (handlers 100 → 132).**

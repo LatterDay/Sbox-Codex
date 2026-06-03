@@ -5,49 +5,56 @@ Thanks for your interest in contributing! This project lets non-coders build s&b
 ## Architecture Overview
 
 ```
-Claude Code  --stdio-->  MCP Server (TypeScript)  --WebSocket-->  Bridge Addon (C#, inside s&box)
+Claude Code  --stdio-->  MCP Server (TypeScript)  --file IPC-->  Bridge Addon (C#, inside s&box)
 ```
 
-Every tool has exactly **two parts**:
-1. **MCP tool** (TypeScript) — defines the tool name, description, parameters, and forwards the call
-2. **Bridge handler** (C#) — receives the command inside the s&box editor and calls engine APIs
+**Not WebSocket** — s&box's sandboxed C# blocks `System.Net`. The MCP server writes `req_<id>.json` into a shared temp dir; the addon polls, processes on the main editor thread, and writes `res_<id>.json` back. (Older docs mention WebSocket / port 29015 — that's obsolete; `SBOX_BRIDGE_HOST`/`PORT` are cosmetic.)
 
-The command name is the same on both sides. `create_gameobject` in TypeScript sends `"create_gameobject"` over WebSocket, which the C# `CreateGameObjectHandler` picks up.
+Most tools have **two parts**:
+1. **MCP tool** (TypeScript) — defines the tool name, description, parameters, and forwards the call over IPC.
+2. **Bridge handler** (C#) — receives the command inside the s&box editor and calls engine APIs.
+
+The command name is the same on both sides. `create_gameobject` in TypeScript sends `"create_gameobject"`, which the C# bridge dispatches to its `create_gameobject` handler.
+
+**Exception — MCP-server-side tools.** Six tools have *no* editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They run entirely in the Node server (reading `sbox-dev.log`, fetching docs, or hotload-evaluating), which is why they keep working when the editor has crashed. This is why the MCP server exposes **150 tools** but `get_bridge_status` reports **142 handlers**.
 
 ## Adding a New Tool
 
-### 1. Create the C# handler
+> Decide first whether the tool needs the editor at all. If it can be done entirely in the Node server (reading the log, fetching a URL), make it **MCP-server-side** — add only the TypeScript tool (step 3) and skip the C# handler. That's how `read_log`, `get_compile_errors`, and the docs-search tools work. Everything that touches the scene/engine needs a C# handler.
 
-`sbox-bridge-addon/Code/Commands/YourHandler.cs`:
+### 1. Add the C# handler (for tools that touch the editor)
+
+The bridge addon is a **single file**: `sbox-bridge-addon/Editor/MyEditorMenu.cs`. Each handler is a small class implementing `IBridgeHandler`:
 
 ```csharp
-using System.Text.Json;
-using System.Threading.Tasks;
-using Sandbox;
+public interface IBridgeHandler
+{
+    Task<object> Execute( JsonElement parameters );
+}
 
-namespace SboxBridge;
-
-public class YourHandler : ICommandHandler
+public class YourHandler : IBridgeHandler
 {
     public Task<object> Execute( JsonElement parameters )
     {
-        // Read params
         var name = parameters.GetProperty( "name" ).GetString()
             ?? throw new System.Exception( "Missing required parameter: name" );
 
-        // Call s&box APIs
-        // ...
+        // Call s&box APIs (runs on the main editor thread)…
 
-        // Return result (gets serialized to JSON)
+        // Return the result object (serialized to JSON). To signal failure,
+        // return an object with an `error` field — the dispatch reports
+        // success=false when a handler result carries `error`.
         return Task.FromResult<object>( new { result = "ok" } );
     }
 }
 ```
 
-### 2. Register it in `BridgeAddon.cs`
+### 2. Register it in `RegisterHandlers()` (same file)
+
+Registration uses a **factory** so a broken handler can't take the whole bridge offline (construction is try/caught and logged):
 
 ```csharp
-BridgeServer.RegisterHandler( "your_tool_name", new YourHandler() );
+Register( "your_tool_name", () => new YourHandler() );
 ```
 
 The string must match the MCP tool name exactly.
@@ -90,27 +97,26 @@ cd sbox-mcp-server && npm run build
 
 ## File Path Security
 
-All C# handlers that accept file paths **must** validate that the resolved path stays within the project directory:
+All C# handlers that accept file paths **must** resolve them through the shared `ClaudeBridge.TryResolveProjectPath` helper, which canonicalizes the path and enforces project containment (separator-safe — `/project-evil` can't match `/project`). As of v1.5.0 this is centralized in one helper across all 25 file/asset call sites — do **not** hand-roll a new containment check.
 
 ```csharp
-var projectRoot = Project.Current?.GetRootPath();
-// Ensure trailing separator to prevent /project-evil matching /project
-if ( !projectRoot.EndsWith( Path.DirectorySeparatorChar ) )
-    projectRoot += Path.DirectorySeparatorChar;
-
-var fullPath = Path.GetFullPath( Path.Combine( projectRoot, relativePath ) );
-if ( !fullPath.StartsWith( projectRoot ) )
-    throw new Exception( "Path must be within the project directory" );
+if ( !ClaudeBridge.TryResolveProjectPath( userPath, out var fullPath, out var error ) )
+    return Task.FromResult<object>( new { error } );   // reported as success=false
+// fullPath is now safe to use
 ```
+
+When you generate a C# type/member name from a user-supplied string, run it through `ClaudeBridge.SanitizeIdentifier` so spaces/punctuation/keywords don't emit uncompilable code.
 
 ## Coding Conventions
 
 ### C# (Bridge Addon)
-- One handler class per command in `Code/Commands/`
-- Class name = `{CommandPascalCase}Handler`
+- One handler class per command, all in the single `Editor/MyEditorMenu.cs`
+- Class name = `{CommandPascalCase}Handler`, implementing `IBridgeHandler`
+- Register via `Register( "command_name", () => new XHandler() )` in `RegisterHandlers()`
 - Tab indentation, Allman-ish braces with s&box spacing
-- Use `Log.Info()` / `Log.Warning()` for debug output
-- Use `ComponentHelper` for serializing/deserializing property values
+- Use `Log.Info()` / `Log.Warning()` for debug output (prefix bridge logs with `[SboxBridge]`)
+- Resolve file paths via `ClaudeBridge.TryResolveProjectPath`; sanitize generated identifiers via `ClaudeBridge.SanitizeIdentifier`
+- Return an object with an `error` field to signal failure (dispatch maps it to `success=false`)
 
 ### TypeScript (MCP Server)
 - Tools grouped by domain in `src/tools/`
@@ -119,12 +125,13 @@ if ( !fullPath.StartsWith( projectRoot ) )
 - Error format: `Error: ${res.error}`
 
 ### Protocol
-- Transport: file-based IPC in a shared temp dir (no socket). `SBOX_BRIDGE_IPC_DIR` overrides the dir on the MCP-server side and must match the addon's `Path.GetTempPath()/sbox-bridge-ipc`.
-- `status.json` is a heartbeat (refreshed from the editor frame loop); a stale heartbeat reads as disconnected.
+- Transport: file-based IPC in a shared temp dir (no socket). `SBOX_BRIDGE_IPC_DIR` overrides the dir on the MCP-server side and must match the addon's `Path.GetTempPath()/sbox-bridge-ipc`. `SBOX_BRIDGE_HOST`/`PORT` are cosmetic.
+- The server writes request files to a temp path then **atomically renames** (v1.5.0), so the editor never reads a half-written payload. Write IPC files BOM-less (`new UTF8Encoding(false)` on the C# side); the server strips any BOM on read.
+- `status.json` is a heartbeat (refreshed from the editor frame loop, and carrying `ipcDir` + `BridgeVersion`); a heartbeat older than 5s reads as disconnected.
 - Request: `{ id: string, command: string, params: object }`
-- Response: `{ id: string, success: boolean, data?: any, error?: string }`
+- Response: `{ id: string, success: boolean, data?: any, error?: string }` — `success` is `false` when the handler result carries an `error` field.
 - Batch: `{ id: string, commands: [{ command, params }, ...] }`
-- Timeout: 30 seconds per request
+- Timeout: 30 seconds per request (the timeout message names which side stalled)
 
 ## Development Setup
 
@@ -141,7 +148,7 @@ npm run dev
 claude mcp add sbox -- node $(pwd)/dist/index.js
 ```
 
-The Bridge Addon compiles automatically when s&box loads it from the addons directory.
+The Bridge Addon compiles automatically when s&box loads it from your **project's `Libraries/claudebridge/`** folder (NOT the global `addons/` folder — that's built-in only and won't compile custom code). C# changes require an s&box restart (or `trigger_hotload`) to recompile; MCP-server (TypeScript) changes require a Claude Code restart to reconnect.
 
 ## Known Limitations
 

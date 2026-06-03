@@ -331,4 +331,46 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
       };
     }
   );
+
+  // ── spawn_vpcf ──────────────────────────────────────────────────────
+  server.tool(
+    "spawn_vpcf",
+    "Spawn a REAL particle system by playing a compiled .vpcf asset through LegacyParticleSystem — the reliable path that actually renders, unlike spawn_particle/create_particle_effect (which build a runtime ParticleEffect graph that shows nothing). Defaults to 'particles/impact.generic.vpcf' (a sparks/impact burst — the only particle .vpcf reliably present; set looped + a warm tint for a fire-ish effect). Pass your own compiled .vpcf logical path if you have one. Screenshot-verifiable in edit mode.",
+    {
+      vpcf: z
+        .string()
+        .optional()
+        .describe("Logical .vpcf path (default 'particles/impact.generic.vpcf'). NOT the .vpcf_c or .sbox/cloud cache path."),
+      position: Vector3Schema.optional().describe("World position (default origin)"),
+      name: z.string().optional().describe("GameObject name"),
+      looped: z.boolean().optional().describe("Loop the effect (default true)"),
+      playbackSpeed: z.number().optional().describe("Playback speed multiplier"),
+      tint: ColorSchema.optional().describe("Color tint (e.g. orange for fire); applied to the live SceneObject if it's ready this frame"),
+    },
+    async (params) => {
+      const res = await bridge.send("spawn_vpcf", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── bake_reflections ────────────────────────────────────────────────
+  server.tool(
+    "bake_reflections",
+    "Bake all EnvmapProbe reflection probes in the scene (EnvmapProbe.BakeAll) so they actually capture their surroundings — placing a probe with add_envmap_probe does nothing visible until it's baked. This is a real editor compute step, not a component setter. Runs async; re-screenshot after a moment to see reflections appear on shiny surfaces.",
+    {},
+    async (params) => {
+      const res = await bridge.send("bake_reflections", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

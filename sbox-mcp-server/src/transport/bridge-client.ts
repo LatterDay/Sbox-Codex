@@ -7,7 +7,10 @@ import * as os from "os";
  *
  * There is NO socket. Despite the legacy `host`/`port` fields, communication is
  * entirely through a shared temp directory:
- * - MCP server writes request files (req_*.json)
+ * - MCP server writes request files (req_*.json) atomically — it writes
+ *   req_*.json.tmp first, then renames it into place so the addon can never
+ *   read a half-written request. The addon consumes only req_*.json and
+ *   ignores *.tmp.
  * - s&box addon polls for them, processes on the main editor thread, and writes
  *   response files (res_*.json)
  * - MCP server polls for response files
@@ -232,12 +235,21 @@ export class BridgeClient {
       fs.mkdirSync(this.ipcDir, { recursive: true });
     }
 
-    // Write request file
+    // Write request file atomically: write to a .tmp sibling, then rename into
+    // place. The C# poller only consumes `req_*.json` (it ignores `*.tmp`), so
+    // it can never observe a half-written request for a large payload — the
+    // rename is atomic on the same volume.
     const reqPath = path.join(this.ipcDir, `req_${id}.json`);
+    const tmpPath = `${reqPath}.tmp`;
     const resPath = path.join(this.ipcDir, `res_${id}.json`);
     try {
-      fs.writeFileSync(reqPath, JSON.stringify(request), "utf8");
+      fs.writeFileSync(tmpPath, JSON.stringify(request), "utf8");
+      fs.renameSync(tmpPath, reqPath);
     } catch (err) {
+      // Best-effort cleanup of a partial temp file so it doesn't linger.
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {}
       return {
         id,
         success: false,
@@ -316,10 +328,17 @@ export class BridgeClient {
       fs.mkdirSync(this.ipcDir, { recursive: true });
     }
 
+    // Write atomically (temp + rename) so the C# poller never reads a partial
+    // batch request file. See the note in send() above.
     const reqPath = path.join(this.ipcDir, `req_${id}.json`);
+    const tmpPath = `${reqPath}.tmp`;
     try {
-      fs.writeFileSync(reqPath, JSON.stringify(request), "utf8");
+      fs.writeFileSync(tmpPath, JSON.stringify(request), "utf8");
+      fs.renameSync(tmpPath, reqPath);
     } catch (err) {
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {}
       return {
         id,
         success: false,

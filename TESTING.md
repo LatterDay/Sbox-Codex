@@ -1,8 +1,10 @@
 # Testing Guide
 
-This document provides a comprehensive test plan for the s&box Claude Bridge. All 78 tools across 6 phases need to be verified against a running s&box editor.
+This document provides a test plan for the s&box Claude Bridge. The MCP server exposes **150 tools** (`get_bridge_status` reports **142** editor handlers; the rest run MCP-server-side). The phases below are a **representative smoke-test plan**, not an exhaustive pass over all 150 tools — the v1.4.0 authoring batches (visual/atmosphere, characters, scene layout, environment, object utilities) and the v1.5.0 additions (diagnostics, aimed camera, navmesh, spatial, reflections, particles, console/exec, docs search) are covered at a representative level in **Phase 8** below. Verify each tool against a running s&box editor.
 
 > **Note:** These tests require s&box running with the Bridge Addon loaded and Claude Code connected via the MCP server. Most tests modify the active project/scene — use a test project, not a production one.
+>
+> **Removed tools:** `get_console_output`, `clear_console`, `pause_play`, `resume_play`, `build_project`, `get_build_status`, `clean_build`, `export_project`, and `prepare_publish` were removed from the MCP surface in v1.3.0 (no s&box editor API). Steps that referenced them have been retargeted to the tools that replaced them (`read_log` / `get_compile_errors` for console + compile diagnostics).
 
 ## Prerequisites
 
@@ -39,14 +41,14 @@ This document provides a comprehensive test plan for the s&box Claude Bridge. Al
 | 13 | `delete_script` | Try to delete file outside project | Error (path traversal blocked) | [ ] |
 | 14 | `trigger_hotload` | Call after modifying a script | s&box recompiles (check console) | [ ] |
 
-### Console & Errors
+### Log & Compile Errors (MCP-server-side — v1.5.0)
 
 | # | Tool | Test Steps | Expected Result | Status |
 |---|------|-----------|-----------------|--------|
-| 15 | `get_console_output` | Call with no filter | Returns recent log entries | [ ] |
-| 16 | `get_console_output` | Call with `severity: "error"` | Returns only errors | [ ] |
-| 17 | `get_compile_errors` | Introduce a syntax error, call | Returns diagnostics with file/line/message | [ ] |
-| 18 | `clear_console` | Call after console has entries | Log buffer cleared, subsequent get returns empty | [ ] |
+| 15 | `read_log` | Call with no filter | Returns the tail of `sbox-dev.log` | [ ] |
+| 16 | `read_log` | Call with a `filter` substring | Returns only matching lines | [ ] |
+| 17 | `get_compile_errors` | Introduce a syntax error, hotload, call | Returns the latest compile failure(s) from the log | [ ] |
+| 18 | `get_compile_errors` | Call with a clean build | Returns no errors | [ ] |
 
 ### Scene Operations
 
@@ -120,13 +122,12 @@ This document provides a comprehensive test plan for the s&box Claude Bridge. Al
 | # | Tool | Test Steps | Expected Result | Status |
 |---|------|-----------|-----------------|--------|
 | 53 | `start_play` | Call when not playing | Play mode enters | [ ] |
-| 54 | `is_playing` | Call during play mode | Returns `{ state: "playing" }` | [ ] |
-| 55 | `pause_play` | Call during play mode | Game pauses | [ ] |
-| 56 | `resume_play` | Call while paused | Game resumes | [ ] |
+| 54 | `is_playing` | Call during play mode | Returns `gameFlag: true` (trust `gameFlag`, not `sessionPlaying` — it can read stale) | [ ] |
+| 55 | `take_screenshot` | Call in editor | Saves a PNG to `<sbox>/screenshots/`; renders the scene's **Main Camera** | [ ] |
+| 56 | `screenshot_from` | Aim at a known object/point, call | Main Camera moves to frame the target, captures, then restores | [ ] |
 | 57 | `stop_play` | Call during play mode | Returns to editor | [ ] |
 | 58 | `get_runtime_property` | Read property during play | Returns live value | [ ] |
 | 59 | `set_runtime_property` | Write property during play | Value changes in running game | [ ] |
-| 60 | `take_screenshot` | Call during play or editor | Returns base64 PNG (or placeholder) | [ ] |
 | 61 | `undo` | Make a change, call undo | Change reverted | [ ] |
 | 62 | `redo` | Undo then redo | Change re-applied | [ ] |
 
@@ -268,27 +269,35 @@ These test multi-tool workflows that simulate real user scenarios.
 5. take_screenshot → verify HUD visible
 ```
 
-### Scenario 5: Error Recovery
+### Scenario 5: Error Recovery (v1.5.0 self-diagnosis)
 
 ```
 1. create_script → write broken C# (missing semicolon)
 2. trigger_hotload → force compile
-3. get_compile_errors → see the error
+3. get_compile_errors → see the error (read straight from sbox-dev.log)
 4. edit_script → fix the syntax error
 5. trigger_hotload → recompile
 6. get_compile_errors → verify clean
 ```
 
-### Scenario 6: Publish Workflow
+### Scenario 6: Config & Validate Workflow
 
 ```
 1. get_project_config → read current config
 2. set_project_config → set title, description, version
 3. set_project_thumbnail → add thumb.png
-4. build_project → full build
-5. get_build_status → verify no errors
-6. validate_project → check all requirements
-7. prepare_publish → comprehensive readiness report
+4. validate_project → check all requirements pass
+```
+
+> Build/export/publish are done from the s&box editor UI, not the bridge (those tools were removed in v1.3.0).
+
+### Scenario 7: Visual Verification (v1.5.0)
+
+```
+1. create_gameobject → "Subject" at a known position
+2. assign_model → give it a visible model
+3. screenshot_from → aim the camera at "Subject", capture
+4. Read the PNG → confirm the model is framed and visible
 ```
 
 ---
@@ -307,31 +316,73 @@ These test multi-tool workflows that simulate real user scenarios.
 | 102 | `validate_project` | Call on project with title + scenes | Returns valid: true with all checks passed | [ ] |
 | 103 | `validate_project` | Call on project missing title | Returns valid: false, title check failed | [ ] |
 
-### Build
+### Thumbnail & Packages
 
 | # | Tool | Test Steps | Expected Result | Status |
 |---|------|-----------|-----------------|--------|
-| 104 | `build_project` | Call with default (Release) | Build triggers, returns success + error count | [ ] |
-| 105 | `build_project` | Call with `configuration: "Debug"` | Debug build triggers | [ ] |
-| 106 | `build_project` | Call after introducing syntax error | Returns success: false with error details | [ ] |
-| 107 | `get_build_status` | Call after successful build | Returns success: true, errorCount: 0 | [ ] |
-| 108 | `get_build_status` | Call after failed build | Returns diagnostics with file/line/message | [ ] |
-| 109 | `clean_build` | Call on project with bin/obj dirs | Directories cleaned, rebuild triggered | [ ] |
+| 104 | `set_project_thumbnail` | Set via `sourcePath` to existing PNG | thumb.png created from source | [ ] |
+| 105 | `set_project_thumbnail` | Set via `base64` data | Image written from base64 | [ ] |
+| 106 | `set_project_thumbnail` | Source path outside project | Error: path must be within project | [ ] |
+| 107 | `get_package_details` | Fetch known package (e.g. "facepunch.flatgrass") | Returns title, author, downloads, version | [ ] |
+| 108 | `get_package_details` | Fetch non-existent package | Error: Package not found | [ ] |
 
-### Export & Publish
+> `build_project`, `get_build_status`, `clean_build`, `export_project`, and `prepare_publish` were removed in v1.3.0 (no s&box editor API). Build/publish from the s&box editor UI directly.
+
+---
+
+## Phase 8 — Authoring, diagnosis & spatial (v1.4.0 + v1.5.0, representative)
+
+These cover the newer batches at a representative level — not every tool, but at least one per category. Most produce a static result you can verify with `screenshot_from`.
+
+### Visual & Atmosphere (v1.4.0)
 
 | # | Tool | Test Steps | Expected Result | Status |
 |---|------|-----------|-----------------|--------|
-| 110 | `export_project` | Call with default output path | Project exported to export/ directory | [ ] |
-| 111 | `export_project` | Call with custom `outputPath` | Files copied to specified directory | [ ] |
-| 112 | `export_project` | Call with path traversal attempt | Error: path must be within project | [ ] |
-| 113 | `set_project_thumbnail` | Set via `sourcePath` to existing PNG | thumb.png created from source | [ ] |
-| 114 | `set_project_thumbnail` | Set via `base64` data | Image written from base64 | [ ] |
-| 115 | `set_project_thumbnail` | Source path outside project | Error: path must be within project | [ ] |
-| 116 | `get_package_details` | Fetch known package (e.g. "facepunch.flatgrass") | Returns title, author, downloads, version | [ ] |
-| 117 | `get_package_details` | Fetch non-existent package | Error: Package not found | [ ] |
-| 118 | `prepare_publish` | Call on ready project | Returns ready: true, no issues | [ ] |
-| 119 | `prepare_publish` | Call on project missing metadata | Returns ready: false, lists missing fields | [ ] |
+| 120 | `add_light` | Add a `point` light with a color + `brightness: 2` | Light object created; scene visibly lit (no separate brightness field — brightness scales the color) | [ ] |
+| 121 | `set_fog` | Apply gradient distance fog | Fog visible in a `screenshot_from` | [ ] |
+| 122 | `apply_atmosphere` | Apply `horror-night` | Lighting/fog/skybox transform applied in one call | [ ] |
+| 123 | `add_post_process` | Add `Bloom` to the main camera | Bloom component present | [ ] |
+
+### Characters (v1.4.0)
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 124 | `spawn_citizen` | Spawn an animated Citizen | Citizen present + idles in editor (CitizenAnimationHelper) | [ ] |
+| 125 | `dress_citizen` | Apply a `.clothing` resource | Clothing visible on the citizen | [ ] |
+| 126 | `pose_citizen` | Set a sitting/crouch pose | Pose applied | [ ] |
+
+### Scene layout & object utilities (v1.4.0)
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 127 | `snap_to_ground` | Drop an object onto the surface below | Object lands on the surface | [ ] |
+| 128 | `grid_duplicate` | Array-copy an object 3×3 | 9 copies in a grid | [ ] |
+| 129 | `scatter_props` | Scatter N copies of a model in a radius | Seeded, ground-snapped, grouped copies | [ ] |
+| 130 | `find_objects` | Query by component type | Returns matching GUIDs (composable into align/distribute/group) | [ ] |
+| 131 | `set_tint` | Tint a found object | Tint applied | [ ] |
+
+### Diagnostics, camera, navmesh, spatial, reflections, particles (v1.5.0)
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 132 | `frame_camera` | Focus the editor viewport on an object | Viewport moves to the object (distinct from the screenshot camera) | [ ] |
+| 133 | `bake_navmesh` | Enable + bake the scene navmesh | Returns success (async); navmesh present | [ ] |
+| 134 | `get_navmesh_path` | Query a route between two reachable points | Returns the path, or `reachable: false` if blocked | [ ] |
+| 135 | `physics_overlap` | Sphere query a region containing objects | Returns the objects inside the volume | [ ] |
+| 136 | `bake_reflections` | Add an `EnvmapProbe`, then bake | Probe captures the scene after baking | [ ] |
+| 137 | `spawn_vpcf` | Play a compiled `.vpcf` via LegacyParticleSystem | Particle effect plays (the runtime `ParticleEffect` tools do **not** render through the bridge) | [ ] |
+| 138 | `remove_component` | Add then remove a component | Component gone | [ ] |
+| 139 | `get_tags` | Set tags, then read them back | Returns the tags set with `set_tags` | [ ] |
+| 140 | `console_run` | Run a benign ConCmd | Command executes | [ ] |
+| 141 | `execute_csharp` *(exp)* | Run a snippet that logs a value | Result read back from the log (brief recompile) | [ ] |
+
+### Docs search (v1.5.0, MCP-server-side)
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 142 | `list_doc_categories` | Call with no params | Returns the `Facepunch/sbox-docs` category list | [ ] |
+| 143 | `search_docs` | Search for "navmesh" | Returns matching guide pages | [ ] |
+| 144 | `get_doc_page` | Fetch a known page path | Returns the page Markdown | [ ] |
 
 ---
 
@@ -340,14 +391,15 @@ These test multi-tool workflows that simulate real user scenarios.
 | # | Test | Steps | Expected |
 |---|------|-------|----------|
 | S1 | Path traversal (read) | `read_file` with `../../etc/passwd` | Error: path must be within project |
-| S2 | Path traversal (write) | `write_file` with `../../../tmp/evil` | Error: path must be within project |
+| S2 | Path traversal (write) | `write_file` with `../../../tmp/evil` | Error returned **and** `success: false` (v1.5.0 — was previously masked as success) |
 | S3 | Path traversal (delete) | `delete_script` with `../../system.dll` | Error: path must be within project |
 | S4 | Path traversal (load scene) | `load_scene` with `../../etc/hosts` | Error: path must be within project |
-| S5 | Large input | `get_console_output` with `maxResults: 999999` | Clamped to 1000, no crash |
+| S5 | Path traversal (list) | `list_project_files` with a rooted path outside the project | Error: path must be within project (v1.5.0 added containment here) |
 | S6 | Invalid GUID | `delete_gameobject` with `not-a-guid` | Error: Invalid GUID |
 | S7 | Missing object | `get_property` with random valid GUID | Error: GameObject not found |
-| S8 | Path traversal (export) | `export_project` with `../../tmp` | Error: path must be within project |
+| S8 | Path traversal (create_script) | `create_script` with a rooted path outside the project | Error: path must be within project (v1.5.0 added containment here) |
 | S9 | Path traversal (thumbnail) | `set_project_thumbnail` with `../../etc/passwd` | Error: path must be within project |
+| S10 | Identifier sanitization | `create_script` with a `name` containing spaces/punctuation | Emits a compilable class (sanitized identifier), not broken C# (v1.5.0) |
 
 ---
 
@@ -366,10 +418,11 @@ These test multi-tool workflows that simulate real user scenarios.
 
 | # | Test | Steps | Expected |
 |---|------|-------|----------|
-| B1 | Status check | `get_bridge_status` | Returns connected, latency > 0 |
+| B1 | Status check | `get_bridge_status` | Returns connected, reports IPC dir + heartbeat age + a real round-trip result |
 | B2 | Reconnection | Restart s&box, retry tool | Reconnects automatically |
-| B3 | Timeout | Call tool while s&box is frozen | Returns timeout error after 30s |
-| B4 | Ping keepalive | Leave idle for 60s, then call tool | Still connected (ping keeps alive) |
+| B3 | Timeout | Call tool with the dock closed / editor frozen | Times out after 30s; the error names the failing side (never consumed vs. consumed-but-no-response) |
+| B4 | Heartbeat staleness | Close s&box, then call `get_bridge_status` | Reports **disconnected** once the heartbeat is >5s stale (no false-positive "connected") |
+| B5 | IPC dir mismatch | Set `SBOX_BRIDGE_IPC_DIR` to a dir the addon isn't using | Requests time out; fix by matching the addon's `status.json.ipcDir` |
 
 ---
 
@@ -377,7 +430,7 @@ These test multi-tool workflows that simulate real user scenarios.
 
 - Tests marked `[ ]` are pending. Mark `[x]` when passing.
 - Some s&box APIs have `API-NOTE` comments in handlers — these may need adjustment for your specific SDK version.
-- The `take_screenshot` tool uses a placeholder until camera render API is verified.
+- `take_screenshot` saves a PNG to `<sbox>/screenshots/` and renders the scene's **Main Camera**. Use `screenshot_from` to aim at a specific object/point — otherwise visual changes outside the camera's framing can't be verified.
 - Networking tests (Phase 6) require either a running lobby or may only verify setup/code generation.
-- Publishing tests (Phase 7) may need adjustment based on s&box SDK version — build/export APIs have `API-NOTE` comments.
+- The transport layer has automated regression tests: run `npm test` in `sbox-mcp-server/` (heartbeat staleness, timeout diagnostics, IPC-dir override).
 - Run security tests in an isolated environment to prevent accidental file modifications.

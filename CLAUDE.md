@@ -2,35 +2,46 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: 131 Tools / 132 Handlers (v1.4.0)
+## Status: 150 Tools / 142 Handlers (v1.5.0)
 
-**Last updated:** 2026-06-02 (v1.4.0)
+**Last updated:** 2026-06-03 (v1.5.0)
 **Bridge:** File-based IPC ✅ working on main thread
-**Handlers:** 132 compiled and registered
-**Not implementable:** 9 tools (no s&box API exists — see "Known Issues")
+**Tools:** 150 MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
+**Handlers:** 142 C# command handlers compiled and registered (verified via the live bridge)
+**Why the difference:** 6 tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
 
-### What's new in v1.4.0
+### What's new in v1.5.0
 
-**+32 authoring tools across 7 batches** (tool count 99 → 131, handlers 100 → 132). The bridge goes from one-object-at-a-time to scene composition:
+**+16 tools** — self-diagnosis, aimed screenshots, navmesh + spatial queries, real `.vpcf` particles, console/C# execution, and live docs search — plus a **security & correctness hardening pass** from an external code audit. Grouped:
+
+- **Diagnostics (MCP-server-side):** `read_log` (tail/filter `sbox-dev.log`, auto-located via Steam `libraryfolders.vdf` or `SBOX_LOG_PATH`), `get_compile_errors` (surface the latest C# compile failures from the log — Claude can finally see its own errors instead of guessing).
+- **Camera:** `screenshot_from` (**aim a screenshot at any object/point** — see the gotcha below), `frame_camera` (move the editor viewport to focus an object/point).
+- **Navigation:** `bake_navmesh` (enable + bake `NavMesh.BakeNavMesh`, async), `get_navmesh_path` (query a walkable route via `GetSimplePath`; returns the path or `reachable:false`).
+- **Spatial:** `physics_overlap` (sphere/box volume query — the volume counterpart to `raycast`).
+- **Reflections:** `bake_reflections` (`EnvmapProbe.BakeAll` — a placed probe captures nothing until baked).
+- **Particles:** `spawn_vpcf` (play a compiled `.vpcf` via `LegacyParticleSystem` — the supported particle path; the Batch 18 runtime `ParticleEffect` tools do not render through the bridge).
+- **Console/Exec:** `console_run` (`ConsoleSystem.Run`), `execute_csharp` *(experimental)* (compile + run a C# snippet in the unsandboxed editor context via a temp `[ConCmd]` → hotload → run → read result from the log → clean up).
+- **Object utilities:** `remove_component` (counterpart to `add_component_with_properties`), `get_tags` (counterpart to `set_tags`).
+- **Docs search (MCP-server-side):** `search_docs`, `get_doc_page`, `list_doc_categories` (search the official `Facepunch/sbox-docs` guides — git-tree cached + raw Markdown).
+
+**Security & correctness hardening (external audit):**
+- **Handler errors now report `success=false`.** The dispatch hardcoded `success=true`, so a handler returning `{ error }` (e.g. "Path traversal denied") surfaced as a *successful* call — `write_file` even printed "File written successfully". Fixed; `write_file` no longer claims false success.
+- **Path-traversal hardening** — all file/asset handlers resolve user paths through one separator-safe `TryResolveProjectPath` helper (canonicalize + containment), 25 call sites. Previously `list_project_files`/`create_script`/`create_scene` had no containment check.
+- **Generated C# identifiers are sanitized** (`SanitizeIdentifier`) — a `name` with spaces/punctuation/keywords no longer emits an uncompilable `class` declaration.
+- **Atomic IPC** — the MCP server writes request files to a temp path then atomically renames, so the editor can't consume a half-written large payload.
+- **Honest networking schemas** — `add_sync_property` / `add_rpc_method` params + descriptions now reflect what the addon actually does (annotate an existing property with `[Sync]`; generate an empty RPC stub).
+
+New TS modules this release: `tools/diagnostics.ts`, `tools/docs.ts`, `tools/navigation.ts`. Full notes in `CHANGELOG.md` [1.5.0]. **No breaking changes** to existing tool contracts.
+
+### What's new in v1.4.0 (previous)
+
+**+32 authoring tools across 7 batches** — the bridge goes from one-object-at-a-time to scene composition:
 - **Visual & Atmosphere (Batch 17):** `add_light`, `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe`, `apply_atmosphere`, `apply_post_fx_look`.
 - **Characters & Models (Batches 19–20):** `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression`.
 - **Scene & Level (Batch 21):** `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance`.
 - **Environment (Batch 22):** `scatter_props`, `randomize_transforms`, `group_objects`.
 - **Object Utilities (Batch 23):** `find_objects`, `set_tint`, `replace_model`, `set_tags`.
-- **Experimental — VFX/Particles (Batch 18):** `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` — compile + build the component graph, but runtime rendering is **unverified through the bridge** (component `ParticleEffect` needs sprite assets + a live-play view the bridge can't supply; use legacy `.vpcf` for guaranteed-visible particles).
-
-**Design principle: verifiable-first** — every non-experimental tool renders statically in the editor (screenshot-verifiable) or returns checkable data. New TS modules: `tools/{visuals,characters,leveltools,objecttools}.ts`. Full notes in `CHANGELOG.md` [1.4.0]. No breaking changes.
-
-### What's new in v1.3.1 (previous)
-
-- **Generic component-button driver** — `invoke_button` + `list_component_buttons` work on any component with a `[Button]` attribute. Plus `set_prefab_ref` for assigning prefab GameObjects to component properties.
-- **Map editing primitives** — `add_terrain_hill`, `add_terrain_clearing`, `add_terrain_trail`, `clear_terrain_features` drive a `MapBuilder` component by mutating its editable `Hills`/`Clearings`/`Trails`/`CavePath` lists and rebuilding.
-- **Sculpt brushes** — `sculpt_terrain` modifies the heightmap directly with raise/lower/flatten/smooth modes.
-- **Cave + forest editing** — `add_cave_waypoint`, `clear_cave_path`, `add_forest_poi`, `add_forest_trail`, `set_forest_seed`, `clear_forest_pois`, `paint_forest_density`.
-- **Path placement** — `place_along_path` drops asset instances along a curve.
-- **Heightmap raycast** — `raycast_terrain` returns surface height at a world XY.
-- **Type discovery** — `describe_type`, `search_types`, `get_method_signature`, `find_in_project` expose `Game.TypeLibrary` reflection so Claude can look up real APIs instead of guessing.
-- **Better play-mode tracking** — `start_play` uses `EditorScene.Play` with `SetPlaying` fallback; `is_playing` tracks state via `PlayState` static + Game flag + active-scene divergence (fixes the prior "start_play triggers but is_playing returns false" issue).
+- **Experimental — VFX/Particles (Batch 18):** `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` — compile + build the component graph, but runtime rendering is **unverified through the bridge** (use `spawn_vpcf` for visible particles). New TS modules: `tools/{visuals,characters,leveltools,objecttools}.ts`.
 
 ---
 
@@ -113,8 +124,14 @@ Two components:
 - Bridge processes **one request per editor frame** — sending many requests rapidly causes some to be consumed without response
 - If game code fails to compile, the editor code (bridge) also fails (`Broken Reference: package.local.X`)
 - Bridge Status menu item always works even when frame processing is broken (it's a sync call)
-- The `[Dock]` widget must be **visible** for `[EditorEvent.Frame]` to fire — if closed, no requests process
+- The `[Dock]` widget must be **visible** for `[EditorEvent.Frame]` to fire — if closed, no requests process. (This is still true in v1.5.0 — the frame loop drives the heartbeat and the request queue. Do not assume the dock is optional.)
 - `Org` in `.sbproj` must be `"local"` for local development — only set to your org name when publishing
+
+### Visual Verification & Other v1.5.0 Gotchas
+- **`take_screenshot` renders from the scene's Main Camera — ONE fixed angle.** This is the #1 reason visual changes "can't be verified": the Main Camera may not be pointed at the thing you changed. Use **`screenshot_from`** to move the Main Camera to frame a target object/point, capture, and restore it. `screenshot_from` is the tool that makes the authoring layer screenshot-verifiable. (`frame_camera` only moves the editor *viewport*, which the screenshot doesn't use.)
+- **Particles:** the runtime `ParticleEffect` tools (`spawn_particle` / `create_particle_effect` / `add_trail` / `add_beam`) are **experimental and do not render through the bridge**. Use **`spawn_vpcf`** (a compiled `.vpcf` via `LegacyParticleSystem`) for visible particles. See `CHANGELOG.md` [1.5.0] Known Issues re: source `.vpcf` assets.
+- **`is_playing.sessionPlaying` can read stale** (it reports `true` in edit mode after a restart). Trust the `gameFlag` field instead.
+- **Self-diagnosis works even when the editor is down:** `read_log` and `get_compile_errors` read `sbox-dev.log` directly (MCP-server-side), so Claude can diagnose a crashed/stalled editor without a live round-trip.
 
 ### API Schema
 - The full s&box type schema can be downloaded as JSON from `sbox.game/api`
@@ -138,26 +155,34 @@ sbox-claude/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # Entry point — registers all 88 tools
+│   │   ├── index.ts                   # Entry point — registers all 150 tools
 │   │   ├── transport/
 │   │   │   └── bridge-client.ts       # File-based IPC client
 │   │   └── tools/
 │   │       ├── project.ts             # get_project_info, list_project_files, read_file, write_file
 │   │       ├── scripts.ts             # create_script, edit_script, delete_script, trigger_hotload
-│   │       ├── console.ts             # get_console_output, get_compile_errors, clear_console
 │   │       ├── scenes.ts              # list_scenes, load_scene, save_scene, create_scene
 │   │       ├── gameobjects.ts         # CRUD, hierarchy, selection
-│   │       ├── components.ts          # get/set properties, list components, add components
+│   │       ├── components.ts          # get/set properties, list components, add/remove components
 │   │       ├── assets.ts              # search, list, install, info
-│   │       ├── materials.ts           # assign_model, create_material, assign_material
-│   │       ├── audio.ts               # list_sounds, create_sound_event, assign_sound
-│   │       ├── playmode.ts            # play/stop/pause, runtime properties, screenshot, undo
+│   │       ├── materials.ts           # assign_model, create_material, assign_material, set_material_property
+│   │       ├── audio.ts               # list_sounds, create_sound_event, assign_sound, play_sound_preview
+│   │       ├── playmode.ts            # play/stop, is_playing, runtime properties, screenshot, undo/redo
 │   │       ├── prefabs.ts             # create/instantiate/list/info
-│   │       ├── physics.ts             # add_physics, add_collider, add_joint, raycast
+│   │       ├── physics.ts             # add_physics, add_collider, add_joint, raycast, physics_overlap
 │   │       ├── ui.ts                  # create_razor_ui, screen/world panels
 │   │       ├── templates.ts           # player/npc/game_manager/trigger templates
 │   │       ├── networking.ts          # network helpers, spawn, sync, RPC, templates
-│   │       ├── publishing.ts          # project config, build, export, publish
+│   │       ├── publishing.ts          # project config, validate, thumbnail, package details
+│   │       ├── world.ts               # invoke_button, terrain/cave/forest editing, sculpt, place_along_path
+│   │       ├── discovery.ts           # describe_type, search_types, get_method_signature, find_in_project
+│   │       ├── visuals.ts             # lights, fog, post-fx, skybox, envmaps, spawn_vpcf, bake_reflections
+│   │       ├── characters.ts          # spawn/dress/pose citizens, equip, look_at, ragdoll, expression
+│   │       ├── leveltools.ts          # snap_to_ground, align/distribute, grid_duplicate, scatter, group
+│   │       ├── objecttools.ts         # find_objects, set_tint, replace_model, set/get_tags, remove_component
+│   │       ├── navigation.ts          # bake_navmesh, get_navmesh_path
+│   │       ├── diagnostics.ts         # read_log, get_compile_errors, screenshot_from, frame_camera, console_run, execute_csharp
+│   │       ├── docs.ts                # search_docs, get_doc_page, list_doc_categories (MCP-server-side)
 │   │       └── status.ts              # get_bridge_status
 │   └── dist/                          # Compiled JS
 │
@@ -295,16 +320,20 @@ Project.Current.Config.Title / .Org / .Ident / .Type
 
 ## Known Issues / TODO
 
-- [x] ~~Parameter name alignment~~ — Fixed, all 78 handlers use correct MCP param names
+- [x] ~~Parameter name alignment~~ — Fixed, handlers use correct MCP param names
 - [x] ~~get_scene_hierarchy empty~~ — Fixed, removed erroneous Parent==null filter
 - [x] ~~Old WebSocket code~~ — Removed, ws dependency dropped
 - [x] ~~`start_play` triggers but `is_playing` returns false~~ — Fixed via `EditorScene.Play` + manual `PlayState` tracking
-- [ ] `add_sync_property` can't add new properties, only annotate existing ones
+- [x] ~~Handler `{ error }` masked as `success=true`~~ — Fixed in v1.5.0; dispatch now reports `success=false` on handler-level errors
+- [x] ~~`get_compile_errors` not implementable~~ — Implemented in v1.5.0 **MCP-server-side** (reads `sbox-dev.log` directly, no editor API needed); same for `read_log`
+- [ ] `add_sync_property` only annotates an existing property with `[Sync]`; `add_rpc_method` generates an empty stub (schemas now reflect this honestly as of v1.5.0)
 - [ ] `set_material_property` requires MaterialOverride to be set first
-- [ ] Install process could be simplified (single-file copy)
-- [ ] Bridge addon is project-specific — needs packaging for distribution
-- [ ] 9 tools not implementable: pause_play, resume_play, get_console_output, get_compile_errors, clear_console, build_project, get_build_status, clean_build, prepare_publish (no s&box API)
-- [ ] Consider publishing addon to s&box Asset Library
+- [ ] `create_material` has a dictionary-key bug — workaround: write the `.vmat` via `write_file` (see TROUBLESHOOTING.md)
+- [ ] **Runtime `ParticleEffect` tools** (`spawn_particle` etc.) do not render through the bridge — use `spawn_vpcf`. No flame `.vpcf` ships in a bridge-loadable form yet (under investigation).
+- [ ] `is_playing.sessionPlaying` can read stale after a restart — trust `gameFlag`.
+- [ ] `take_screenshot` is fixed to the Main Camera — use `screenshot_from` to aim at a target.
+- [ ] Bridge addon is project-specific (lives in each project's `Libraries/`) — also published to the s&box Asset Library.
+- [ ] Tools with no s&box editor API and therefore not implemented: `pause_play`, `resume_play`, `get_console_output`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish` (removed from the MCP surface in v1.3.0).
 - [ ] Map-edit tools assume the project has `MapBuilder`/`CaveBuilder`/`ForestGenerator`-shaped components. `invoke_button` works on any project; the named convenience tools require those components or compatible ones.
 
 ---

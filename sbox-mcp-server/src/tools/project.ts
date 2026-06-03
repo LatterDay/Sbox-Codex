@@ -111,8 +111,19 @@ export function registerProjectTools(
     },
     async (params) => {
       const res = await bridge.send("write_file", params);
-      if (!res.success) {
-        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      // The handler can report a logical failure inside res.data even when the
+      // transport call "succeeded" (res.success === true). Only claim success
+      // when there is no error field anywhere; otherwise surface the real error
+      // instead of a misleading "written successfully".
+      const dataError =
+        res.data && typeof res.data === "object"
+          ? (res.data as { error?: unknown }).error
+          : undefined;
+      if (!res.success || dataError) {
+        const message = res.error ?? (dataError ? String(dataError) : undefined);
+        return {
+          content: [{ type: "text", text: `Error: ${message ?? "write_file failed"}` }],
+        };
       }
       return {
         content: [

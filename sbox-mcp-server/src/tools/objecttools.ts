@@ -107,4 +107,42 @@ export function registerObjectTools(
       };
     }
   );
+
+  // ── remove_component ───────────────────────────────────────────────
+  server.tool(
+    "remove_component",
+    "Remove a component from a GameObject by type name (e.g. 'PointLight', 'ModelRenderer'). Removes the first match; pass all:true to remove every matching one. The counterpart to add_component_with_properties.",
+    {
+      id: z.string().describe("GUID of the GameObject"),
+      component: z.string().describe("Component type name to remove"),
+      all: z.boolean().optional().describe("Remove all matching components, not just the first"),
+    },
+    async (params) => {
+      const res = await bridge.send("remove_component", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── get_tags ───────────────────────────────────────────────────────
+  server.tool(
+    "get_tags",
+    "Read the tags currently on a GameObject. (Pair with set_tags to add/remove/clear, and find_objects to query by tag.)",
+    {
+      id: z.string().describe("GUID of the GameObject"),
+    },
+    async (params) => {
+      const res = await bridge.send("get_tags", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

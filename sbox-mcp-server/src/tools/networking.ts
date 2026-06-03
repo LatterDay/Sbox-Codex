@@ -140,24 +140,32 @@ export function registerNetworkingTools(
   // ── add_sync_property ─────────────────────────────────────────────
   server.tool(
     "add_sync_property",
-    "Add a [Sync] networked property to a C# script. The property auto-replicates across the network",
+    "Annotate an EXISTING public property in a C# script with the [Sync] attribute so s&box replicates it across the network. This does NOT create a new property — the property named by `propertyName` must already be declared in the file; the tool only inserts the [Sync] attribute above it",
     {
       path: z
         .string()
         .describe("Relative path to the script file (e.g. 'code/Player.cs')"),
-      propertyName: z.string().describe("Name for the new property"),
+      propertyName: z
+        .string()
+        .describe("Name of the existing public property to annotate with [Sync]"),
       propertyType: z
         .string()
         .optional()
-        .describe("C# type (float, int, string, Vector3, bool, etc.). Defaults to 'float'"),
+        .describe(
+          "Currently ignored — not yet implemented. The addon only annotates an existing property; it does not declare a new one, so the type comes from the existing declaration"
+        ),
       syncFlags: z
         .string()
         .optional()
-        .describe("Sync flags: 'FromHost' (host→clients only). Omit for bidirectional"),
+        .describe(
+          "Currently ignored — not yet implemented. The addon emits a plain [Sync] with no SyncFlags"
+        ),
       defaultValue: z
         .string()
         .optional()
-        .describe("Default value expression (e.g. '100f', 'true', 'Vector3.Zero')"),
+        .describe(
+          "Currently ignored — not yet implemented. The addon does not create or initialize a property, so no default is written"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_sync_property", params);
@@ -173,7 +181,7 @@ export function registerNetworkingTools(
   // ── add_rpc_method ────────────────────────────────────────────────
   server.tool(
     "add_rpc_method",
-    "Add an RPC method to a C# script. Supports [Rpc.Broadcast] (all clients), [Rpc.Host] (host only), [Rpc.Owner] (owner only)",
+    "Generate an EMPTY, no-argument RPC method stub in a C# script for you to fill in. The addon inserts the chosen RPC attribute ([Rpc.Broadcast] all clients, [Rpc.Host] host only, [Rpc.Owner] owner only) above a parameterless method with an empty body — it does NOT add parameters or generate body code",
     {
       path: z
         .string()
@@ -186,11 +194,15 @@ export function registerNetworkingTools(
       methodParams: z
         .string()
         .optional()
-        .describe("Method parameters as C# signature (e.g. 'float damage, Vector3 hitPos')"),
+        .describe(
+          "Currently ignored — not yet implemented. The addon emits a no-argument method; add parameters yourself afterward"
+        ),
       body: z
         .string()
         .optional()
-        .describe("Method body code (without braces). Defaults to a log statement"),
+        .describe(
+          "Currently ignored — not yet implemented. The addon emits an empty method body; fill it in yourself afterward"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_rpc_method", params);

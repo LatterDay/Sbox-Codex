@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "sbox-claude",
-      "description": "Connects Claude Code to the s&box editor via the Claude Bridge MCP server. Includes 131 tools for driving GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, scatter & object utilities, and type discovery. Bundled skill enforces the screenshot-driven iteration workflow that prevents the guess-and-check loop. Optional sbox-game-dev specialist agent for self-contained game features. The s&box-side bridge addon must be installed separately into your project's Libraries folder (see plugin README).",
+      "description": "Connects Claude Code to the s&box editor via the Claude Bridge MCP server — 150 tools (142 editor handlers; the rest run MCP-server-side) for driving GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, console/C# execution, live docs search, and type discovery. Bundled skill enforces the screenshot-driven iteration workflow that prevents the guess-and-check loop. Optional sbox-game-dev specialist agent for self-contained game features. The s&box-side bridge addon must be installed separately into your project's Libraries folder (see plugin README).",
       "author": {
         "name": "sboxskins.gg",
         "url": "https://sboxskins.gg"

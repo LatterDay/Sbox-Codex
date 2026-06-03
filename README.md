@@ -101,7 +101,9 @@ Ask Claude:
 "Check the bridge status."
 ```
 
-If it reports `connected: true` and `handlerCount: 100`, you're set. If it times out, see `TROUBLESHOOTING.md`.
+If it reports `connected: true` and `handlerCount: 142`, you're set. If it times out, see `TROUBLESHOOTING.md`.
+
+> **Tip — verifying visual changes:** `take_screenshot` always renders from the scene's **Main Camera** (one fixed angle). To actually *see* the thing you just changed, use **`screenshot_from`** — it aims the camera at any object or point, captures, and restores. This is the single most useful habit for closing the build-and-check loop.
 
 ### 6. Start building
 
@@ -112,15 +114,21 @@ If it reports `connected: true` and `handlerCount: 100`, you're set. If it times
 "Create a new script called EnemyAI with patrol behavior"
 ```
 
-## Available Tools (109 defined)
+## Available Tools (150 tools / 142 handlers)
 
-> **2026-05-16 (v1.3.1):** Discoverability patch. MCP server now ships `instructions` that surface every Claude Code session — explains the screenshot-driven workflow and points at the companion plugin. Bundled README and `.sbproj` description updated to lead with `/plugin install sbox-claude`. No tool changes.
+The MCP server registers **150 tools**; `get_bridge_status` reports **142** C# handlers compiled inside the s&box editor. Six tools run **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories` — so they keep working even when the editor has crashed or stalled.
+
+> **2026-06-03 (v1.5.0):** +16 tools — self-diagnosis (`read_log`, `get_compile_errors`), aimed screenshots (`screenshot_from`), navmesh (`bake_navmesh`, `get_navmesh_path`), spatial queries (`physics_overlap`), reflections (`bake_reflections`), real `.vpcf` particles (`spawn_vpcf`), console/C# execution (`console_run`, `execute_csharp`), live docs search (`search_docs` etc.), and object utilities (`remove_component`, `get_tags`). Plus a security & correctness hardening pass: handler errors now report `success=false` (were masked as success), path-traversal safety on all file handlers, sanitized generated identifiers, atomic IPC, honest networking schemas. See the **New in v1.5.0** rows below and `CHANGELOG.md`.
 >
-> **2026-05-16 (v1.3.0):** Closes 5 community issues. Fixed editor bootstrap crash from `Log.Info` during static ctor (PR #6 by @FurkanZhlp). RPCs now process even when the Claude Bridge dock is closed (#2). `get_scene_hierarchy` honors `maxDepth` and accepts optional `rootId` (#4). Removed 10 phantom tools that never had addon handlers (#3). 99 working tools (was 109). See `CHANGELOG.md`.
+> **2026-06-02 (v1.4.0):** +32 authoring tools across 7 batches — lighting & atmosphere, characters, scene layout, environment scatter, and object utilities. The bridge goes from one-object-at-a-time to scene composition. See the **New in v1.4.0** rows below.
 >
-> **2026-05-15 (v1.2.0):** Stability release. Fixed install-to-wrong-folder bug, frame-error spam, and play-mode save corruption. Handler registration is now fault-tolerant (one broken handler no longer breaks the rest). See `CHANGELOG.md` and `TROUBLESHOOTING.md`.
+> **2026-05-16 (v1.3.1):** Discoverability patch. MCP server ships `instructions` that surface every Claude Code session and points at the companion plugin. No tool changes.
 >
-> **2026-04-26 (v1.1.0):** Added 21 tools — generic component-button invocation, map editing (terrain/cave/forest), heightmap sculpt brushes, and type-discovery helpers (Game.TypeLibrary reflection). See `World Gen`, `Map Edit`, `Caves`, `Forest`, `Placement`, and `Discovery` rows below.
+> **2026-05-16 (v1.3.0):** Closes 5 community issues. Fixed editor bootstrap crash (PR #6 by @FurkanZhlp). RPCs now process even when the Claude Bridge dock is closed (#2). `get_scene_hierarchy` honors `maxDepth` + optional `rootId` (#4). Removed 10 phantom tools that never had addon handlers (#3). See `CHANGELOG.md`.
+>
+> **2026-05-15 (v1.2.0):** Stability release. Fixed install-to-wrong-folder, frame-error spam, and play-mode save corruption; handler registration made fault-tolerant. See `CHANGELOG.md` and `TROUBLESHOOTING.md`.
+>
+> **2026-04-26 (v1.1.0):** +21 tools — generic component-button invocation, map editing, heightmap sculpt brushes, and type-discovery helpers.
 
 
 
@@ -151,7 +159,30 @@ If it reports `connected: true` and `handlerCount: 100`, you're set. If it times
 | **Forest** | `add_forest_poi`, `add_forest_trail`, `set_forest_seed`, `clear_forest_pois`, `paint_forest_density` |
 | **Placement** | `place_along_path` |
 | **Discovery** | `describe_type`, `search_types`, `get_method_signature`, `find_in_project` |
-| **Diagnostics** | `get_bridge_status` |
+| **Status** | `get_bridge_status` |
+
+### New in v1.4.0 — scene composition
+| Category | Tools |
+|----------|-------|
+| **Visual & Atmosphere** | `add_light`, `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe`, `apply_atmosphere`, `apply_post_fx_look` |
+| **Characters & Models** | `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression` |
+| **Scene & Level** | `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance` |
+| **Environment** | `scatter_props`, `randomize_transforms`, `group_objects` |
+| **Object Utilities** | `find_objects`, `set_tint`, `replace_model`, `set_tags` |
+| **VFX (experimental)** | `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` — compile but do **not** render through the bridge; use `spawn_vpcf` (below) for visible particles |
+
+### New in v1.5.0 — diagnosis, aimed screenshots, navmesh, particles, docs
+| Category | Tools |
+|----------|-------|
+| **Diagnostics** *(MCP-server-side)* | `read_log`, `get_compile_errors` — read `sbox-dev.log` directly; work even when the editor has crashed |
+| **Camera** | `screenshot_from` (**aim a screenshot at any object/point**), `frame_camera` (move the editor viewport) |
+| **Navigation** | `bake_navmesh`, `get_navmesh_path` |
+| **Spatial** | `physics_overlap` (volume counterpart to `raycast`) |
+| **Reflections** | `bake_reflections` (a placed `EnvmapProbe` captures nothing until baked) |
+| **Particles** | `spawn_vpcf` — play a compiled `.vpcf` via `LegacyParticleSystem` (the **supported** particle path) |
+| **Console / Exec** | `console_run`, `execute_csharp` *(experimental)* |
+| **Object Utilities** | `remove_component`, `get_tags` |
+| **Docs Search** *(MCP-server-side)* | `search_docs`, `get_doc_page`, `list_doc_categories` — official `Facepunch/sbox-docs` |
 
 ### How the World Gen / Map Edit tools work
 
@@ -161,8 +192,10 @@ This means **the tools work on any project** that follows the same component pat
 
 The `Discovery` tools surface `Game.TypeLibrary` reflection so Claude can look up real method signatures, properties, and events instead of guessing API names. Use `describe_type "MeshComponent"` before writing code that touches it.
 
-### Not Implementable (no s&box API exists)
-`pause_play`, `resume_play`, `get_console_output`, `get_compile_errors`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish`
+### Not implemented (no s&box editor API exists)
+`pause_play`, `resume_play`, `get_console_output`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish` — removed from the MCP surface in v1.3.0.
+
+> Note: `get_compile_errors` *used* to be on this list. As of v1.5.0 it's implemented **MCP-server-side** — it reads the compile failures straight out of `sbox-dev.log`, so it needs no editor API. Same for `read_log`.
 
 ## Technical Notes
 
@@ -170,8 +203,11 @@ The `Discovery` tools surface `Game.TypeLibrary` reflection so Claude can look u
 - **Main thread required**: Scene APIs must run on the editor's main thread. A `[Dock]` widget with `[EditorEvent.Frame]` processes queued requests.
 - **Addon location**: Must be in the project's `Libraries/` folder, NOT the global `addons/` folder.
 - **UTF-8 BOM**: C#'s `Encoding.UTF8` writes a BOM prefix (`EF BB BF`) that breaks Node.js `JSON.parse`. The bridge writes with `new UTF8Encoding(false)` to avoid this, and the MCP server strips any BOM as a safety net.
-- **Dock must be visible**: The `[EditorEvent.Frame]` handler only fires when the Claude Bridge dock widget is open in the editor. If it's closed, no requests will be processed.
-- **API reference**: Download the full type schema from `sbox.game/api` for the definitive API.
+- **Dock must be visible**: The `[EditorEvent.Frame]` handler only fires when the Claude Bridge dock widget is open in the editor. If it's closed, no requests will be processed (the frame loop also drives the heartbeat). Still true in v1.5.0 — keep the dock open.
+- **Screenshots are fixed to the Main Camera**: `take_screenshot` always renders the scene's Main Camera. Use `screenshot_from` to aim at a specific object/point — otherwise visual changes outside the camera's current framing can't be verified.
+- **Particles**: the runtime `ParticleEffect` tools are experimental and don't render through the bridge. Use `spawn_vpcf` (compiled `.vpcf` + `LegacyParticleSystem`) for visible particles.
+- **`is_playing.sessionPlaying` can read stale** after a restart — trust the `gameFlag` field.
+- **API reference**: Use `describe_type` / `search_types` (live reflection) as the source of truth, or download the full type schema from `sbox.game/api`.
 
 ## Development
 

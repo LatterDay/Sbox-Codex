@@ -39,6 +39,9 @@ import { registerVisualTools } from "./tools/visuals.js";
 import { registerCharacterTools } from "./tools/characters.js";
 import { registerLevelTools } from "./tools/leveltools.js";
 import { registerObjectTools } from "./tools/objecttools.js";
+import { registerDiagnosticTools } from "./tools/diagnostics.js";
+import { registerDocsTools } from "./tools/docs.js";
+import { registerNavigationTools } from "./tools/navigation.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -79,7 +82,7 @@ ENVIRONMENT VARIABLES
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
-TOOLS (131 — +32 in v1.4.0: visual, characters, scene, environment, utilities)
+TOOLS (150 total / 142 s&box-editor handlers — +16 in v1.5.0)
   Project:     get_project_info, list_project_files, read_file, write_file
   Scripts:     create_script, edit_script, delete_script, trigger_hotload
   Scenes:      list_scenes, load_scene, save_scene, create_scene
@@ -114,6 +117,17 @@ TOOLS (131 — +32 in v1.4.0: visual, characters, scene, environment, utilities)
   Environment: scatter_props, randomize_transforms, group_objects
   Utilities:   find_objects, set_tint, replace_model, set_tags
   VFX (exp):   spawn_particle, create_particle_effect, add_trail, add_beam
+
+  ── New in v1.5.0 ───────────────────────────────────
+  Diagnostics: read_log, get_compile_errors  (MCP-server-side — work even if the editor crashed)
+  Camera:      screenshot_from (AIM a shot at an object/point — take_screenshot is fixed to the Main Camera), frame_camera
+  Navigation:  bake_navmesh, get_navmesh_path
+  Spatial:     physics_overlap (volume counterpart to raycast)
+  Reflections: bake_reflections
+  Particles:   spawn_vpcf (compiled .vpcf via LegacyParticleSystem — the supported particle path)
+  Console/Exec: console_run, execute_csharp (experimental)
+  Object utils: remove_component, get_tags
+  Docs search: search_docs, get_doc_page, list_doc_categories  (MCP-server-side — official Facepunch/sbox-docs)
 `);
   process.exit(0);
 }
@@ -180,6 +194,9 @@ registerVisualTools(server, bridge);
 registerCharacterTools(server, bridge);
 registerLevelTools(server, bridge);
 registerObjectTools(server, bridge);
+registerDiagnosticTools(server, bridge);
+registerDocsTools(server, bridge);
+registerNavigationTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {

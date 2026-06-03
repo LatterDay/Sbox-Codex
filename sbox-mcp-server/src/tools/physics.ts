@@ -159,4 +159,32 @@ export function registerPhysicsTools(
       };
     }
   );
+
+  // ── physics_overlap ───────────────────────────────────────────────
+  server.tool(
+    "physics_overlap",
+    "Spatial volume query: return the GameObjects whose colliders intersect a SPHERE (center + radius) or a BOX (center + size) — the volume counterpart to raycast's ray. Use it for 'what's near this point' / 'what's inside this trigger volume' checks (proximity, blast radius, spawn-clearance). Read-only.",
+    {
+      center: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .describe("Center of the query volume (world space)"),
+      radius: z
+        .number()
+        .optional()
+        .describe("Sphere radius. Provide this OR size (box), not both"),
+      size: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe("Full box size (not half-extents). Provide this OR radius"),
+    },
+    async (params) => {
+      const res = await bridge.send("physics_overlap", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }
