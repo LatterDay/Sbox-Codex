@@ -2,6 +2,21 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.5.2] — 2026-06-03
+
+**`recompile_asset` — compile a project asset from the bridge (`Editor.AssetSystem.RegisterFile` + `Asset.Compile`), so an asset Claude writes or edits gets its compiled form regenerated without a manual editor step. 152 tools / 145 handlers.**
+
+### Added
+
+- **`recompile_asset`** — register + compile a project asset by path. Verified on materials (`.vmat` → `.vmat_c`). Pairs with `write_file` / `edit_script`: edit an asset, then recompile it so the change takes effect. Built on the editor's `AssetSystem` (`RegisterFile` → `Asset.Compile(true)`, with a `CompileResource` fallback).
+
+### Notes
+
+- **Particles still can't be authored through the bridge.** This release confirmed *why*: the engine reports "Failed to find compiler for `.vpcf`" — there's no particle compiler reachable from the addon's compile path (unlike materials, whose compiler is loaded). Author particles in s&box's particle editor, then `spawn_vpcf` plays the compiled result.
+- No breaking changes.
+
+---
+
 ## [1.5.1] — 2026-06-03
 
 **Closes the dev loop + adds library awareness. `restart_editor` lets Claude relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 151 tools / 144 handlers.**

@@ -135,4 +135,24 @@ export function registerProjectTools(
       };
     }
   );
+
+  // ── recompile_asset ──────────────────────────────────────────────
+  server.tool(
+    "recompile_asset",
+    "Compile a project asset by path — registers it with the editor's AssetSystem then compiles it (e.g. .vmat → .vmat_c). Use after writing/editing an asset with write_file so the change takes effect without a manual editor step. Verified on materials. NOTE: the engine exposes no reachable particle (.vpcf) compiler, so this can't compile particles — author those in s&box's particle editor, then spawn_vpcf plays them.",
+    {
+      path: z
+        .string()
+        .describe("Asset path — project-relative (e.g. 'materials/foo.vmat') or absolute"),
+    },
+    async (params) => {
+      const res = await bridge.send("recompile_asset", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

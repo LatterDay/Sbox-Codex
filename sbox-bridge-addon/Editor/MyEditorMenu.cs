@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.5.1";
+	private const string BridgeVersion = "1.5.2";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -350,6 +350,9 @@ public static class ClaudeBridge
 
 		// ── Batch 31: library discovery ─────────────────────────────────
 		Register( "list_libraries",           () => new ListLibrariesHandler() );
+
+		// ── Batch 32: asset compile ─────────────────────────────────────
+		Register( "recompile_asset",          () => new RecompileAssetHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -6589,5 +6592,81 @@ public class ListLibrariesHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = $"list_libraries failed: {ex.Message}" } );
 		}
 		return Task.FromResult<object>( new { count = libs.Count, libraries = libs } );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 32 — recompile_asset: compile a project asset from the bridge.
+//  Editor.AssetSystem.RegisterFile(abs) → Asset, then Asset.Compile(true)
+//  produces the compiled form (e.g. a .vpcf → .vpcf_c). This is what lets
+//  the bridge AUTHOR + COMPILE an asset (write_file a .vpcf → recompile_asset
+//  → spawn_vpcf) instead of needing the editor's asset pipeline by hand.
+// ═════════════════════════════════════════════════════════════════════
+public class RecompileAssetHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var path = p.TryGetProperty( "path", out var pe ) ? pe.GetString() : null;
+		if ( string.IsNullOrWhiteSpace( path ) )
+			return Task.FromResult<object>( new { error = "path is required (project-relative, e.g. 'particles/fire.vpcf', or absolute)" } );
+
+		string abs;
+		try
+		{
+			if ( Path.IsPathRooted( path ) )
+			{
+				abs = path;
+			}
+			else
+			{
+				var root = Project.Current.GetRootPath();
+				// Project assets usually live under Assets/; accept a bare path too.
+				var candidates = new[] { Path.Combine( root, "Assets", path ), Path.Combine( root, path ) };
+				abs = candidates.FirstOrDefault( File.Exists ) ?? candidates[0];
+			}
+		}
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"path resolve failed: {ex.Message}" } ); }
+
+		abs = Path.GetFullPath( abs ); // normalize mixed separators (Combine + a /-input mix)
+		if ( !File.Exists( abs ) )
+			return Task.FromResult<object>( new { error = $"source file not found: {abs}" } );
+
+		try
+		{
+			// RegisterFile wants an absolute path — try the Windows and forward-slash forms.
+			var asset = Editor.AssetSystem.RegisterFile( abs )
+				?? Editor.AssetSystem.RegisterFile( abs.Replace( '\\', '/' ) );
+
+			if ( asset != null )
+			{
+				bool compiled = asset.Compile( true );
+				return Task.FromResult<object>( new
+				{
+					method          = "RegisterFile",
+					registered      = true,
+					compiled,
+					relativePath    = asset.RelativePath,
+					isCompiled      = asset.IsCompiled,
+					hasCompiledFile = asset.HasCompiledFile,
+					compiledFile    = asset.HasCompiledFile ? asset.GetCompiledFile( false ) : null
+				} );
+			}
+
+			// Fallback: compile the resource straight from its source text.
+			var text = File.ReadAllText( abs );
+			var logical = path.Replace( '\\', '/' );
+			bool cr = Editor.AssetSystem.CompileResource( logical, text );
+			return Task.FromResult<object>( new
+			{
+				method      = "CompileResource",
+				compiled    = cr,
+				logicalPath = logical,
+				note        = "RegisterFile returned null; used CompileResource(path, text)"
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"recompile_asset failed: {ex.Message}" } );
+		}
 	}
 }

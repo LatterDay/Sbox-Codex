@@ -3,7 +3,7 @@
 > **Build s&box games by talking to Claude Code.** Describe what you want — Claude writes the C#, builds the scenes, wires up components, and iterates until it works.
 
 <p>
-<strong>v1.5.1</strong> · <strong>151 tools</strong> · <strong>144 C# handlers</strong> · GPL-3.0 · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+<strong>v1.5.2</strong> · <strong>152 tools</strong> · <strong>145 C# handlers</strong> · GPL-3.0 · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
 </p>
 
 ```
@@ -35,12 +35,12 @@ There are **two halves**. Both must be installed, and both must be on **matching
 
 | Half | What it is | Where it lives |
 |---|---|---|
-| **MCP server** | TypeScript/Node program that exposes 151 tools to Claude Code over stdio | npm package `sbox-mcp-server` (or run from source) |
+| **MCP server** | TypeScript/Node program that exposes 152 tools to Claude Code over stdio | npm package `sbox-mcp-server` (or run from source) |
 | **Editor addon** | C# editor library that runs *inside* s&box and actually executes the work | the s&box Asset Library (`sboxskinsgg.claudebridge`) — installed into your **project's `Libraries/` folder** |
 
 **Why file IPC and not a socket?** s&box's sandboxed C# blocks `System.Net` (no `HttpListener`, no WebSocket, no TCP). So the MCP server writes request JSON files into a shared temp dir, the addon's editor-frame loop picks them up, runs them on the main editor thread, and writes responses back. The MCP server polls for the reply. Simple, sandbox-safe, and the reason for two of the gotchas below.
 
-> Of the 151 tools, **6 run entirely MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, and `list_doc_categories`. They read the log file or fetch docs directly, so they **keep working even when the editor has crashed or stalled** — part of why the tool count is higher than the live handler count (144).
+> Of the 152 tools, **6 run entirely MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, and `list_doc_categories`. They read the log file or fetch docs directly, so they **keep working even when the editor has crashed or stalled** — part of why the tool count is higher than the live handler count (145).
 
 ---
 
@@ -50,7 +50,7 @@ Pick the path with the least resistance for you. **Every path needs both halves*
 
 ### A. Claude Code plugin — easiest
 
-The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.5.1`, fetched via `npx` on first use) and ships the workflow skill, the onboarding wizard, and the specialist agent.
+The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.5.2`, fetched via `npx` on first use) and ships the workflow skill, the onboarding wizard, and the specialist agent.
 
 1. **Add the marketplace + install the plugin** (in Claude Code):
    ```
@@ -59,7 +59,7 @@ The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.5.1`, 
    ```
 2. **Install the editor addon** from the s&box **Asset Library**: search for **`sboxskinsgg.claudebridge`** and install it *into your project*. It lands in `<your-project>/Libraries/`.
 3. **Open s&box**, open your project, and open the **View → Claude Bridge** dock. Leave it open (see the note below).
-4. **Verify** in a new Claude Code session: *"Check the bridge status."* You want `connected: true` and `handlerCount: 144`.
+4. **Verify** in a new Claude Code session: *"Check the bridge status."* You want `connected: true` and `handlerCount: 145`.
 
 ### B. npm + manual MCP registration
 
@@ -67,7 +67,7 @@ If you don't use the plugin, register the server yourself.
 
 1. **Register the MCP server** (one-time):
    ```bash
-   claude mcp add sbox -- npx -y sbox-mcp-server@1.5.1
+   claude mcp add sbox -- npx -y sbox-mcp-server@1.5.2
    ```
 2. **Install the editor addon** from the s&box Asset Library (`sboxskinsgg.claudebridge`) into your project — same as path A, step 2.
 3. **Open s&box**, open the **View → Claude Bridge** dock, keep it visible.
@@ -114,7 +114,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 ## Tools & features
 
-**151 tools** across the areas below (live handler count is **144** — a handful of log/docs/exec tools run server-side). Highlights per area; the server's `--help` lists every tool, and `describe_type` / live reflection is always the source of truth for s&box APIs.
+**152 tools** across the areas below (live handler count is **145** — a handful of log/docs/exec tools run server-side). Highlights per area; the server's `--help` lists every tool, and `describe_type` / live reflection is always the source of truth for s&box APIs.
 
 ### Project, files & scripts
 | Tool | Does |
@@ -122,6 +122,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 | `get_project_info`, `list_project_files`, `read_file`, `write_file` | Inspect and edit project files (path-traversal-guarded) |
 | `create_script`, `edit_script`, `delete_script` | Author C# components and classes |
 | `trigger_hotload` | Recompile + hot-reload after a code edit |
+| `recompile_asset` *(v1.5.2)* | Compile a project asset after you write/edit it (e.g. a material → `.vmat_c`) — pairs with `write_file` |
 
 ### Scenes, GameObjects & hierarchy
 | Tool | Does |
@@ -250,7 +251,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 | Piece | What it is |
 |---|---|
-| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.5.1` and fetches it via `npx -y` on first use — no manual registration, no version drift |
+| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.5.2` and fetches it via `npx -y` on first use — no manual registration, no version drift |
 | **Skill: `sbox-build-feature`** | The screenshot-driven build workflow: confirm the bridge is alive → brainstorm non-trivial features → research the API with `describe_type` → bite-sized edits → hotload + scan the log → **screenshot and read it yourself**. Plus a table of s&box gotchas (`MathF` doesn't exist in the sandbox; Cloud assets aren't persistent; Citizen bone names are case-sensitive; `CitizenAnimationHelper.IkRightHand` drives IK at runtime; `Color` properties want `"r, g, b, a"` strings; etc.) |
 | **Skill: `sbox-setup`** | A warm ~30-second onboarding wizard. It greets you on first connect, verifies the bridge, **detects your installed libraries** (`list_libraries`), recommends a concrete first move, and points you to help + feedback |
 | **Agent: `sbox-game-dev`** | A specialist sub-agent for self-contained game-dev tasks; it runs `sbox-build-feature` as its default workflow |
@@ -263,7 +264,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 Once both halves are installed and s&box is open with the **Claude Bridge** dock visible:
 
-1. **Confirm the connection.** Ask: *"Check the bridge status."* Claude calls `get_bridge_status` — you want `connected: true`, `handlerCount: 144`, and a fresh heartbeat. (Timeout? See the `SBOX_BRIDGE_IPC_DIR` note above and [TROUBLESHOOTING.md](TROUBLESHOOTING.md).)
+1. **Confirm the connection.** Ask: *"Check the bridge status."* Claude calls `get_bridge_status` — you want `connected: true`, `handlerCount: 145`, and a fresh heartbeat. (Timeout? See the `SBOX_BRIDGE_IPC_DIR` note above and [TROUBLESHOOTING.md](TROUBLESHOOTING.md).)
 2. **Get oriented.** Run **`/sbox-setup`** — it detects your libraries and suggests a first move.
 3. **Spawn something.** *"Add a cube at 0, 0, 100 and put a box model on it."* or *"Spawn a Citizen and have it idle."*
 4. **See it.** *"Screenshot it from the front."* Claude uses `screenshot_from` to aim the camera at what you just made, then reads the PNG and tells you what it sees. That loop — build → aim → screenshot → read → adjust — is the whole game.
