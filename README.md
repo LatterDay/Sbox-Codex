@@ -1,235 +1,298 @@
 # s&box Claude Bridge
 
-> Let non-coders build s&box games through conversation with Claude Code.
+> **Build s&box games by talking to Claude Code.** Describe what you want — Claude writes the C#, builds the scenes, wires up components, and iterates until it works.
 
-## What This Does
-
-Claude Code connects to the s&box editor in real-time. You describe what you want — Claude writes the C# scripts, builds the scenes, and iterates until it works.
-
-```
-You: "Make me a horror game where I explore an abandoned hospital with a flashlight"
-Claude: *creates scripts, builds scene, configures lighting, adds player controller*
-```
-
-## Architecture
+<p>
+<strong>v1.5.1</strong> · <strong>151 tools</strong> · <strong>144 C# handlers</strong> · GPL-3.0 · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+</p>
 
 ```
-┌──────────────┐     stdio      ┌───────────────┐   file IPC     ┌──────────────┐
-│  Claude Code │ ◄────────────► │  MCP Server   │ ◄────────────► │ Bridge Addon │
-│              │                │  (Node.js)    │   %TEMP%/      │  (in s&box)  │
-└──────────────┘                └───────────────┘                └──────┬───────┘
-                                                                       │
-                                                                       ▼
-                                                                ┌──────────────┐
-                                                                │ s&box Editor │
-                                                                │  (Source 2)  │
-                                                                └──────────────┘
+You:    "Make a horror game where I explore an abandoned hospital with a flashlight."
+Claude: *creates scripts, builds the scene, sets the lighting and fog, adds a player
+         controller, takes a screenshot, reads it, fixes the angle, and shows you.*
 ```
 
-Communication uses **file-based IPC** through `%TEMP%/sbox-bridge-ipc/` — the MCP server writes request JSON files, the bridge addon (running inside s&box) polls for them, processes on the main editor thread, and writes response files back.
+Claude Code connects to the **live s&box editor** through a file-based bridge. It can create GameObjects, write and hotload scripts, compose scenes, sculpt terrain, set up networking and UI, drive characters, bake navmesh, read its own compile errors, and — crucially — **screenshot what it built and look at it** so it can close the build-and-check loop instead of guessing.
 
-## Quick Start
+---
 
-> **Important:** the bridge addon MUST live inside an s&box **project's** `Libraries/` folder. Putting it in s&box's global `addons/` folder will silently fail to compile. The installer below handles this correctly.
+## How it works
 
-### Fastest path — install the Claude Code plugin
-
-If you use Claude Code, the easiest install is the bundled plugin (under `plugins/sbox-claude/` in this repo). It registers the MCP server automatically and ships the `sbox-build-feature` skill + `sbox-game-dev` agent.
+There are **two halves**. Both must be installed, and both must be on **matching versions**.
 
 ```
-/plugin marketplace add LouSputthole/Sbox-Claude
-/plugin install sbox-claude
+┌──────────────┐   stdio    ┌──────────────┐   file IPC    ┌───────────────┐
+│  Claude Code │ ◄────────► │  MCP Server  │ ◄───────────► │ Editor Addon  │
+│              │            │ (npm, TS/Node)│  %TEMP%/      │ (C#, in s&box)│
+└──────────────┘            └──────────────┘ sbox-bridge-  └───────┬───────┘
+                                              ipc/                  │
+                                                                    ▼
+                                                            ┌───────────────┐
+                                                            │  s&box Editor │
+                                                            │   (Source 2)  │
+                                                            └───────────────┘
 ```
 
-You still need to install the **bridge addon** into your s&box project (Steps 1-4 below) — the plugin only handles the Claude side. See `plugins/sbox-claude/README.md` for details.
+| Half | What it is | Where it lives |
+|---|---|---|
+| **MCP server** | TypeScript/Node program that exposes 151 tools to Claude Code over stdio | npm package `sbox-mcp-server` (or run from source) |
+| **Editor addon** | C# editor library that runs *inside* s&box and actually executes the work | the s&box Asset Library (`sboxskinsgg.claudebridge`) — installed into your **project's `Libraries/` folder** |
 
-### Manual install (no plugin)
+**Why file IPC and not a socket?** s&box's sandboxed C# blocks `System.Net` (no `HttpListener`, no WebSocket, no TCP). So the MCP server writes request JSON files into a shared temp dir, the addon's editor-frame loop picks them up, runs them on the main editor thread, and writes responses back. The MCP server polls for the reply. Simple, sandbox-safe, and the reason for two of the gotchas below.
 
-### 1. Clone and install the bridge into your project
+> Of the 151 tools, **6 run entirely MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, and `list_doc_categories`. They read the log file or fetch docs directly, so they **keep working even when the editor has crashed or stalled** — part of why the tool count is higher than the live handler count (144).
 
-```powershell
-# Windows
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
-.\install.ps1                                    # auto-detects your s&box project
-# or:
-.\install.ps1 -ProjectPath "C:\path\to\your\sbox\project"
-.\install.ps1 -ListProjects                      # show all projects, then exit
-.\install.ps1 -RemoveStaleAddons                 # also clean up old wrong-location installs
-```
+---
 
-```bash
-# Linux / WSL / macOS
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
-./install.sh                                     # auto-detects
-./install.sh /path/to/your/sbox/project          # explicit
-./install.sh --list                              # show projects
-./install.sh --remove-stale                      # also clean up old wrong-location installs
-```
+## Install
 
-This copies the bridge to `<your-project>/Libraries/claudebridge/`. If you previously ran an older installer that put files under `<sbox>/addons/`, pass `-RemoveStaleAddons` / `--remove-stale` to clean them up — those files never compiled and only cause confusion.
+Pick the path with the least resistance for you. **Every path needs both halves** — the MCP server *and* the s&box editor addon.
 
-### 2. Build the MCP server
+### A. Claude Code plugin — easiest
 
-```bash
-cd sbox-mcp-server
-npm install
-npm run build
-```
+The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.5.1`, fetched via `npx` on first use) and ships the workflow skill, the onboarding wizard, and the specialist agent.
 
-### 3. Register the MCP server with Claude Code (one-time)
+1. **Add the marketplace + install the plugin** (in Claude Code):
+   ```
+   /plugin marketplace add LouSputthole/Sbox-Claude
+   /plugin install sbox-claude
+   ```
+2. **Install the editor addon** from the s&box **Asset Library**: search for **`sboxskinsgg.claudebridge`** and install it *into your project*. It lands in `<your-project>/Libraries/`.
+3. **Open s&box**, open your project, and open the **View → Claude Bridge** dock. Leave it open (see the note below).
+4. **Verify** in a new Claude Code session: *"Check the bridge status."* You want `connected: true` and `handlerCount: 144`.
 
-```bash
-claude mcp add sbox -- node /full/path/to/sbox-claude/sbox-mcp-server/dist/index.js
-```
+### B. npm + manual MCP registration
 
-Or, if you have the published npm package:
+If you don't use the plugin, register the server yourself.
 
-```bash
-claude mcp add sbox -- npx sbox-mcp-server
-```
+1. **Register the MCP server** (one-time):
+   ```bash
+   claude mcp add sbox -- npx -y sbox-mcp-server@1.5.1
+   ```
+2. **Install the editor addon** from the s&box Asset Library (`sboxskinsgg.claudebridge`) into your project — same as path A, step 2.
+3. **Open s&box**, open the **View → Claude Bridge** dock, keep it visible.
+4. **Verify:** ask Claude to *"check the bridge status."*
 
-### 4. Open the bridge dock
+### C. Fully manual / from source
 
-In s&box, go to **View → Claude Bridge** to open the dock. **The dock must stay visible** — the bridge's frame handler only fires while the dock is on-screen. If you close it, every Claude tool call will time out.
+For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
-### 5. Verify
+1. **Clone and build the MCP server:**
+   ```bash
+   git clone https://github.com/LouSputthole/Sbox-Claude.git
+   cd Sbox-Claude/sbox-mcp-server
+   npm install
+   npm run build
+   ```
+2. **Register the built server** with Claude Code:
+   ```bash
+   claude mcp add sbox -- node /full/path/to/Sbox-Claude/sbox-mcp-server/dist/index.js
+   ```
+3. **Install the addon into your project.** Use the helper script from the repo root — it copies the addon to `<your-project>/Libraries/claudebridge/` (the correct location) and can clean up old wrong-location installs:
+   ```powershell
+   # Windows
+   .\install.ps1                     # auto-detects your s&box project
+   .\install.ps1 -RemoveStaleAddons  # also remove old <sbox>/addons/ installs
+   ```
+   ```bash
+   # Linux / macOS / WSL
+   ./install.sh                      # auto-detects
+   ./install.sh --remove-stale       # also remove old installs
+   ```
+4. **Open s&box**, open the **View → Claude Bridge** dock, keep it visible, and verify.
 
-Ask Claude:
-```
-"Check the bridge status."
-```
+> See **[INSTALL.md](INSTALL.md)** for the long-form guide and **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** for the 10 most common failure modes.
 
-If it reports `connected: true` and `handlerCount: 142`, you're set. If it times out, see `TROUBLESHOOTING.md`.
+### Two install rules that bite everyone
 
-> **Tip — verifying visual changes:** `take_screenshot` always renders from the scene's **Main Camera** (one fixed angle). To actually *see* the thing you just changed, use **`screenshot_from`** — it aims the camera at any object or point, captures, and restores. This is the single most useful habit for closing the build-and-check loop.
+- **The addon must live in your project's `Libraries/` folder — not s&box's global `addons/` folder.** The global folder is built-in-only and silently refuses to compile custom C#. The Asset Library install and the `install` scripts both put it in the right place.
+- **The Claude Bridge dock must stay open.** The bridge's editor-frame loop (which drains the request queue *and* drives the heartbeat) only fires while the dock is visible. Close it and every tool call times out at 30s.
 
-### 6. Start building
+> **Connection issue / 30s hangs?** The single most common cause is the MCP server and the addon resolving **different** temp dirs (Node reads `TEMP`, C# reads `TMP`). Set **`SBOX_BRIDGE_IPC_DIR`** to the same absolute path on both sides to realign. The addon logs its resolved dir (`[SboxBridge] … IPC at <dir>`) and reports it in `get_bridge_status`.
 
-```
-"Create a first-person player controller with WASD movement and mouse look"
-"Add a cube at position 0,0,100 and give it a box model"
-"What scenes are in the project?"
-"Create a new script called EnemyAI with patrol behavior"
-```
+---
 
-## Available Tools (150 tools / 142 handlers)
+## Tools & features
 
-The MCP server registers **150 tools**; `get_bridge_status` reports **142** C# handlers compiled inside the s&box editor. Six tools run **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories` — so they keep working even when the editor has crashed or stalled.
+**151 tools** across the areas below (live handler count is **144** — a handful of log/docs/exec tools run server-side). Highlights per area; the server's `--help` lists every tool, and `describe_type` / live reflection is always the source of truth for s&box APIs.
 
-> **2026-06-03 (v1.5.0):** +16 tools — self-diagnosis (`read_log`, `get_compile_errors`), aimed screenshots (`screenshot_from`), navmesh (`bake_navmesh`, `get_navmesh_path`), spatial queries (`physics_overlap`), reflections (`bake_reflections`), real `.vpcf` particles (`spawn_vpcf`), console/C# execution (`console_run`, `execute_csharp`), live docs search (`search_docs` etc.), and object utilities (`remove_component`, `get_tags`). Plus a security & correctness hardening pass: handler errors now report `success=false` (were masked as success), path-traversal safety on all file handlers, sanitized generated identifiers, atomic IPC, honest networking schemas. See the **New in v1.5.0** rows below and `CHANGELOG.md`.
->
-> **2026-06-02 (v1.4.0):** +32 authoring tools across 7 batches — lighting & atmosphere, characters, scene layout, environment scatter, and object utilities. The bridge goes from one-object-at-a-time to scene composition. See the **New in v1.4.0** rows below.
->
-> **2026-05-16 (v1.3.1):** Discoverability patch. MCP server ships `instructions` that surface every Claude Code session and points at the companion plugin. No tool changes.
->
-> **2026-05-16 (v1.3.0):** Closes 5 community issues. Fixed editor bootstrap crash (PR #6 by @FurkanZhlp). RPCs now process even when the Claude Bridge dock is closed (#2). `get_scene_hierarchy` honors `maxDepth` + optional `rootId` (#4). Removed 10 phantom tools that never had addon handlers (#3). See `CHANGELOG.md`.
->
-> **2026-05-15 (v1.2.0):** Stability release. Fixed install-to-wrong-folder, frame-error spam, and play-mode save corruption; handler registration made fault-tolerant. See `CHANGELOG.md` and `TROUBLESHOOTING.md`.
->
-> **2026-04-26 (v1.1.0):** +21 tools — generic component-button invocation, map editing, heightmap sculpt brushes, and type-discovery helpers.
+### Project, files & scripts
+| Tool | Does |
+|---|---|
+| `get_project_info`, `list_project_files`, `read_file`, `write_file` | Inspect and edit project files (path-traversal-guarded) |
+| `create_script`, `edit_script`, `delete_script` | Author C# components and classes |
+| `trigger_hotload` | Recompile + hot-reload after a code edit |
 
+### Scenes, GameObjects & hierarchy
+| Tool | Does |
+|---|---|
+| `list_scenes`, `load_scene`, `save_scene`, `create_scene` | Manage `.scene` files |
+| `create_gameobject`, `delete_gameobject`, `duplicate_gameobject`, `rename_gameobject` | GameObject CRUD |
+| `set_parent`, `set_enabled`, `set_transform` | Parenting, enable/disable, position/rotation/scale |
+| `get_scene_hierarchy` (`maxDepth` + `rootId`), `get_selected_objects`, `select_object`, `focus_object` | Traverse a subtree without dumping the whole scene |
 
+### Components
+| Tool | Does |
+|---|---|
+| `list_available_components` | Discover component types in the SDK |
+| `add_component_with_properties`, `remove_component` | Add/remove components |
+| `get_property`, `set_property`, `get_all_properties` | Read/write component properties (edit-mode) |
+| `set_prefab_ref` | Assign a prefab GameObject to a component property |
 
-### Working & Tested
-| Category | Tools |
-|----------|-------|
-| **Project & Files** | `get_project_info`, `list_project_files`, `read_file`, `write_file` |
-| **Scripts** | `create_script`, `edit_script`, `delete_script` |
-| **Scenes** | `list_scenes`, `load_scene`, `save_scene`, `create_scene` |
-| **GameObjects** | `create_gameobject`, `delete_gameobject`, `duplicate_gameobject`, `rename_gameobject`, `set_parent`, `set_enabled`, `set_transform` |
-| **Hierarchy** | `get_scene_hierarchy`, `get_selected_objects`, `select_object`, `focus_object` |
-| **Components** | `get_property`, `set_property`, `get_all_properties`, `list_available_components`, `add_component_with_properties` |
-| **Play Mode** | `start_play`, `stop_play`, `is_playing`, `get_runtime_property`, `set_runtime_property` |
-| **Assets** | `search_assets`, `get_asset_info`, `assign_model`, `create_material`, `assign_material` |
-| **Audio** | `list_sounds`, `create_sound_event`, `assign_sound`, `play_sound_preview` |
-| **Prefabs** | `create_prefab`, `instantiate_prefab`, `list_prefabs`, `get_prefab_info` |
-| **Physics** | `add_physics`, `add_collider`, `add_joint`, `raycast` |
-| **Materials** | `set_material_property` |
-| **Templates** | `create_player_controller`, `create_npc_controller`, `create_game_manager`, `create_trigger_zone` |
-| **UI** | `create_razor_ui`, `add_screen_panel`, `add_world_panel` |
-| **Editor** | `undo`, `redo`, `take_screenshot`, `trigger_hotload` |
-| **Networking** | `network_spawn`, `add_sync_property`, `add_rpc_method`, `create_networked_player`, `create_lobby_manager`, `create_network_events`, `add_network_helper`, `configure_network`, `get_network_status`, `set_ownership` |
-| **Publishing** | `get_project_config`, `set_project_config`, `validate_project`, `set_project_thumbnail`, `get_package_details`, `install_asset`, `list_asset_library` |
-| **Components Extra** | `set_prefab_ref` (assign GameObject prefab to a component property) |
-| **World Gen** | `invoke_button`, `list_component_buttons`, `raycast_terrain`, `build_terrain_mesh` |
-| **Map Edit** | `add_terrain_hill`, `add_terrain_clearing`, `add_terrain_trail`, `clear_terrain_features`, `sculpt_terrain` |
-| **Caves** | `add_cave_waypoint`, `clear_cave_path` |
-| **Forest** | `add_forest_poi`, `add_forest_trail`, `set_forest_seed`, `clear_forest_pois`, `paint_forest_density` |
-| **Placement** | `place_along_path` |
-| **Discovery** | `describe_type`, `search_types`, `get_method_signature`, `find_in_project` |
-| **Status** | `get_bridge_status` |
+### Physics & spatial
+| Tool | Does |
+|---|---|
+| `add_physics`, `add_collider`, `add_joint` | Rigidbodies, box/sphere/capsule/hull colliders, joints |
+| `raycast` | Cast a ray, get the hit |
+| `physics_overlap` | Sphere/box volume query — *what's in this region* (the volume counterpart to `raycast`) |
 
-### New in v1.4.0 — scene composition
-| Category | Tools |
-|----------|-------|
-| **Visual & Atmosphere** | `add_light`, `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe`, `apply_atmosphere`, `apply_post_fx_look` |
-| **Characters & Models** | `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression` |
-| **Scene & Level** | `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance` |
-| **Environment** | `scatter_props`, `randomize_transforms`, `group_objects` |
-| **Object Utilities** | `find_objects`, `set_tint`, `replace_model`, `set_tags` |
-| **VFX (experimental)** | `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` — compile but do **not** render through the bridge; use `spawn_vpcf` (below) for visible particles |
+### UI
+`create_razor_ui` (Razor `.razor` panel + scss), `add_screen_panel`, `add_world_panel` — screen-space HUDs and in-world panels.
 
-### New in v1.5.0 — diagnosis, aimed screenshots, navmesh, particles, docs
-| Category | Tools |
-|----------|-------|
-| **Diagnostics** *(MCP-server-side)* | `read_log`, `get_compile_errors` — read `sbox-dev.log` directly; work even when the editor has crashed |
-| **Camera** | `screenshot_from` (**aim a screenshot at any object/point**), `frame_camera` (move the editor viewport) |
-| **Navigation** | `bake_navmesh`, `get_navmesh_path` |
-| **Spatial** | `physics_overlap` (volume counterpart to `raycast`) |
-| **Reflections** | `bake_reflections` (a placed `EnvmapProbe` captures nothing until baked) |
-| **Particles** | `spawn_vpcf` — play a compiled `.vpcf` via `LegacyParticleSystem` (the **supported** particle path) |
-| **Console / Exec** | `console_run`, `execute_csharp` *(experimental)* |
-| **Object Utilities** | `remove_component`, `get_tags` |
-| **Docs Search** *(MCP-server-side)* | `search_docs`, `get_doc_page`, `list_doc_categories` — official `Facepunch/sbox-docs` |
+### Networking
+| Tool | Does |
+|---|---|
+| `add_network_helper`, `configure_network`, `get_network_status`, `network_spawn`, `set_ownership` | Stand up multiplayer, spawn networked objects, transfer ownership |
+| `add_sync_property`, `add_rpc_method` | Annotate a property `[Sync]`; generate an RPC stub *(honest schemas — they do exactly this)* |
+| `create_networked_player`, `create_lobby_manager`, `create_network_events` | Scaffolds for networked play |
 
-### How the World Gen / Map Edit tools work
+### Materials & audio
+| Tool | Does |
+|---|---|
+| `assign_model`, `create_material`, `assign_material`, `set_material_property` | Models + materials (see Known Issues re: `create_material`) |
+| `list_sounds`, `create_sound_event`, `assign_sound`, `play_sound_preview` | Sound events and playback |
 
-The `invoke_button` tool is the keystone — it presses any `[Button]` on any component in the scene by attribute label or method name. The map-edit tools (`add_terrain_hill` etc.) build on top: each looks up a target component (default: first `MapBuilder` / `CaveBuilder` / `ForestGenerator` in scene) by reflection, mutates the relevant `[Property] List<>` (e.g. `Hills`, `Path`, `POIs`), and optionally re-invokes the rebuild button.
+### Prefabs & templates
+`create_prefab`, `instantiate_prefab`, `list_prefabs`, `get_prefab_info` for prefabs; `create_player_controller`, `create_npc_controller`, `create_game_manager`, `create_trigger_zone` for ready-made gameplay scaffolds.
 
-This means **the tools work on any project** that follows the same component pattern (lists of feature data + a `[Button]` to rebuild). They don't take a hard dependency on the bigfoot game code.
+### Lighting & atmosphere
+| Tool | Does |
+|---|---|
+| `add_light` | Directional / point / spot / ambient (intensity = colour magnitude; `brightness` scales RGB, >1 for HDR) |
+| `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe` | Haze, bloom/tonemapping/vignette/DoF, skybox, reflection probes |
+| `apply_atmosphere`, `apply_post_fx_look` | One-call presets (`horror-night`, `foggy-dawn`, `warm-interior`, `overcast`) |
+| `bake_reflections` | Bake all `EnvmapProbe`s — *a placed probe captures nothing until baked* |
 
-The `Discovery` tools surface `Game.TypeLibrary` reflection so Claude can look up real method signatures, properties, and events instead of guessing API names. Use `describe_type "MeshComponent"` before writing code that touches it.
+### Characters & models
+| Tool | Does |
+|---|---|
+| `spawn_model`, `spawn_citizen` | Any model (with tint); an animated Citizen that idles in-editor |
+| `dress_citizen`, `set_bodygroup`, `equip_model`, `set_expression` | Clothing, bodygroups, attached props, facial morphs |
+| `pose_citizen`, `set_look_at`, `add_ragdoll` | Hold/move/sit/crouch poses, gaze tracking, ragdoll physics |
 
-### Not implemented (no s&box editor API exists)
-`pause_play`, `resume_play`, `get_console_output`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish` — removed from the MCP surface in v1.3.0.
+### Scene layout & environment
+| Tool | Does |
+|---|---|
+| `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance` | Compose and arrange objects |
+| `scatter_props`, `randomize_transforms`, `group_objects` | Seeded scatter, natural variation, reparent under a centroid |
+| `find_objects`, `set_tint`, `replace_model`, `set_tags`, `get_tags` | Query by name/type/tag (composable — feed GUIDs into align/distribute/group/delete) |
 
-> Note: `get_compile_errors` *used* to be on this list. As of v1.5.0 it's implemented **MCP-server-side** — it reads the compile failures straight out of `sbox-dev.log`, so it needs no editor API. Same for `read_log`.
+### Terrain & world generation
+| Tool | Does |
+|---|---|
+| `invoke_button`, `list_component_buttons` | **The keystone** — press any `[Button]` on any component by label or method name |
+| `add_terrain_hill`, `add_terrain_clearing`, `add_terrain_trail`, `clear_terrain_features`, `sculpt_terrain`, `build_terrain_mesh` | Heightmap features + a direct raise/lower/flatten/smooth brush |
+| `raycast_terrain` | Sample surface height at a world XY to place props on the ground |
+| `add_cave_waypoint`, `clear_cave_path` | Cave tunnel paths |
+| `add_forest_poi`, `add_forest_trail`, `set_forest_seed`, `clear_forest_pois`, `paint_forest_density` | Procedural forest clearings, trails, density painting, re-rolls |
+| `place_along_path` | Drop model instances along a curve with spacing/jitter/scale |
 
-## Technical Notes
+> The named map tools work on **any project** whose components follow the `[Property] List<Feature>` + `[Button]`-to-rebuild convention — they find the component by reflection, mutate the list, and re-press the button. No hard dependency on any specific game's code. See [CHANGELOG.md](CHANGELOG.md) `[1.1.0]` for the convention.
 
-- **No WebSocket**: s&box's sandboxed C# doesn't allow `System.Net`. We use file-based IPC instead.
-- **Main thread required**: Scene APIs must run on the editor's main thread. A `[Dock]` widget with `[EditorEvent.Frame]` processes queued requests.
-- **Addon location**: Must be in the project's `Libraries/` folder, NOT the global `addons/` folder.
-- **UTF-8 BOM**: C#'s `Encoding.UTF8` writes a BOM prefix (`EF BB BF`) that breaks Node.js `JSON.parse`. The bridge writes with `new UTF8Encoding(false)` to avoid this, and the MCP server strips any BOM as a safety net.
-- **Dock must be visible**: The `[EditorEvent.Frame]` handler only fires when the Claude Bridge dock widget is open in the editor. If it's closed, no requests will be processed (the frame loop also drives the heartbeat). Still true in v1.5.0 — keep the dock open.
-- **Screenshots are fixed to the Main Camera**: `take_screenshot` always renders the scene's Main Camera. Use `screenshot_from` to aim at a specific object/point — otherwise visual changes outside the camera's current framing can't be verified.
-- **Particles**: the runtime `ParticleEffect` tools are experimental and don't render through the bridge. Use `spawn_vpcf` (compiled `.vpcf` + `LegacyParticleSystem`) for visible particles.
-- **`is_playing.sessionPlaying` can read stale** after a restart — trust the `gameFlag` field.
-- **API reference**: Use `describe_type` / `search_types` (live reflection) as the source of truth, or download the full type schema from `sbox.game/api`.
+### Navigation
+`bake_navmesh` (enable + bake `NavMesh.BakeNavMesh`, async) and `get_navmesh_path` (query a walkable route via `GetSimplePath`; returns the path or `reachable:false`).
 
-## Development
+### Particles
+`spawn_vpcf` — play a compiled `.vpcf` via `LegacyParticleSystem`. **This is the supported particle path.** The experimental runtime tools `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam` compile and build the right component graph but **do not render visibly through the bridge** (see Known Issues).
 
-```bash
-# Build MCP Server
-cd sbox-mcp-server && npm install && npm run build
+### Verification, diagnostics & self-restart
+| Tool | Does |
+|---|---|
+| `take_screenshot` | Render the scene's **Main Camera** (one fixed angle) |
+| `screenshot_from` | **Aim a screenshot at any object/point**, capture, and restore — the habit that makes the whole authoring layer screenshot-verifiable |
+| `frame_camera` | Move the editor *viewport* to focus an object/point |
+| `read_log`, `get_compile_errors` *(server-side)* | Tail/filter `sbox-dev.log` and surface C# compile failures — **work even when the editor has crashed**, so Claude can debug itself |
+| `restart_editor` *(v1.5.1)* | Restart the s&box editor and wait for the bridge to reconnect — **closes the C#-edit → recompile loop** so addon changes apply without a manual restart |
 
-# Test IPC manually (PowerShell):
-echo '{"id":"test","command":"get_project_info","params":{}}' > $env:TEMP\sbox-bridge-ipc\req_test.json
-cat $env:TEMP\sbox-bridge-ipc\res_test.json
-```
+### Console & C# execution
+`console_run` (run an s&box ConCmd via `ConsoleSystem.Run`) and `execute_csharp` *(experimental)* — compile + run a C# snippet in the unsandboxed editor context (temp `[ConCmd]` → hotload → run → read result from the log → clean up).
 
-See [CLAUDE.md](CLAUDE.md) for detailed architecture docs, verified APIs, and lessons learned.
+### Discovery & library detection
+| Tool | Does |
+|---|---|
+| `describe_type`, `search_types`, `get_method_signature` | Live `Game.TypeLibrary` reflection — **the source of truth** for s&box APIs (call `describe_type "MeshComponent"` before writing code that touches it) |
+| `find_in_project` | Grep the project for usage examples |
+| `list_libraries` *(v1.5.1)* | List installed s&box libraries/addons so Claude can **build on what you already have** (e.g. drive a character controller instead of writing movement from scratch — see Integrations) |
 
-## Credits
+### Documentation search
+`search_docs`, `get_doc_page`, `list_doc_categories` *(server-side)* — search the official **`Facepunch/sbox-docs`** guides (git-tree cached + raw Markdown), so Claude can consult real docs without leaving the session.
 
-Built by [sboxskins.gg](https://sboxskins.gg) — the s&box community marketplace.
+### Publishing & status
+`get_project_config`, `set_project_config`, `validate_project`, `set_project_thumbnail`, `get_package_details` for shipping; `get_bridge_status` for the connection health-check (IPC dir, heartbeat age, real round-trip result, build version).
+
+> **Not implemented** (no s&box editor API exists): `pause_play`, `resume_play`, `get_console_output`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish`. Removed from the surface in v1.3.0. For console output, use `read_log` instead.
+
+---
+
+## Integrations
+
+- **Claude Code plugin** — bundles the MCP server config, the `sbox-build-feature` workflow skill, the `sbox-setup` onboarding wizard, and the `sbox-game-dev` specialist agent. (See the next section.)
+- **The s&box engine** — the file-IPC editor addon runs inside the editor and executes everything on the main thread.
+- **Installed-library detection & leverage** — `list_libraries` reads your project's `Libraries/` and each `.sbproj`, so Claude can discover and *drive what you already have* rather than reinventing it. If you have the **Shrimple Character Controller** (`fish.scc`) or **`facepunch.playercontroller`**, it can wire up player movement via `add_component_with_properties` instead of writing a controller from scratch. The `sbox-setup` wizard surfaces this on first connect.
+- **s&box Cloud assets** — reference cloud models/textures/sounds (note: Cloud-only assets are ephemeral across restarts — prefer local files for anything permanent).
+- **Facepunch docs** — `search_docs` queries the official `Facepunch/sbox-docs` repo so API guidance comes from the source, not stale memory.
+
+---
+
+## The Claude plugin
+
+**`sbox-claude`** is the recommended way to use the bridge from Claude Code. It bundles:
+
+| Piece | What it is |
+|---|---|
+| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.5.1` and fetches it via `npx -y` on first use — no manual registration, no version drift |
+| **Skill: `sbox-build-feature`** | The screenshot-driven build workflow: confirm the bridge is alive → brainstorm non-trivial features → research the API with `describe_type` → bite-sized edits → hotload + scan the log → **screenshot and read it yourself**. Plus a table of s&box gotchas (`MathF` doesn't exist in the sandbox; Cloud assets aren't persistent; Citizen bone names are case-sensitive; `CitizenAnimationHelper.IkRightHand` drives IK at runtime; `Color` properties want `"r, g, b, a"` strings; etc.) |
+| **Skill: `sbox-setup`** | A warm ~30-second onboarding wizard. It greets you on first connect, verifies the bridge, **detects your installed libraries** (`list_libraries`), recommends a concrete first move, and points you to help + feedback |
+| **Agent: `sbox-game-dev`** | A specialist sub-agent for self-contained game-dev tasks; it runs `sbox-build-feature` as its default workflow |
+
+**Day to day:** install the plugin → open s&box with the addon + dock → start a Claude Code session and it greets you and detects your setup → just ask it to build things. Run **`/sbox-setup`** anytime to re-orient, or invoke **`/sbox-claude:sbox-build-feature`** to force the disciplined workflow. See [`plugins/sbox-claude/README.md`](plugins/sbox-claude/README.md) for the full plugin docs.
+
+---
+
+## Quickstart — your first 5 minutes
+
+Once both halves are installed and s&box is open with the **Claude Bridge** dock visible:
+
+1. **Confirm the connection.** Ask: *"Check the bridge status."* Claude calls `get_bridge_status` — you want `connected: true`, `handlerCount: 144`, and a fresh heartbeat. (Timeout? See the `SBOX_BRIDGE_IPC_DIR` note above and [TROUBLESHOOTING.md](TROUBLESHOOTING.md).)
+2. **Get oriented.** Run **`/sbox-setup`** — it detects your libraries and suggests a first move.
+3. **Spawn something.** *"Add a cube at 0, 0, 100 and put a box model on it."* or *"Spawn a Citizen and have it idle."*
+4. **See it.** *"Screenshot it from the front."* Claude uses `screenshot_from` to aim the camera at what you just made, then reads the PNG and tells you what it sees. That loop — build → aim → screenshot → read → adjust — is the whole game.
+
+Then ask for the real thing: *"Create a first-person player controller with WASD and mouse look,"* or *"Set a horror-night mood with fog and a flickering light."*
+
+---
+
+## Troubleshooting & feedback
+
+- **Stuck?** Start with **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — wrong install location, dock-closed timeouts, IPC-dir mismatch, stale `.csproj` paths, `create_material` workaround, color formatting, and more. Claude can also read its own errors: ask it to check the log (`read_log` / `get_compile_errors`) even when the editor is unresponsive.
+- **Bugs & feature requests:** **[github.com/LouSputthole/Sbox-Claude/issues](https://github.com/LouSputthole/Sbox-Claude/issues)**.
+- **Deeper docs:** [CLAUDE.md](CLAUDE.md) (architecture, verified APIs, lessons learned) and [CHANGELOG.md](CHANGELOG.md) (full feature history).
+
+### Known issues (short list)
+- **Particles:** runtime `ParticleEffect` tools don't render through the bridge — use `spawn_vpcf`. No flame `.vpcf` currently ships in a bridge-loadable form (under investigation).
+- **`take_screenshot`** is locked to the Main Camera and ignores its `path` arg — use `screenshot_from` to aim, then read the newest file in `<sbox>/screenshots/`.
+- **`is_playing.sessionPlaying`** can read stale after a restart — trust the `gameFlag` field.
+- **`create_material`** has a dictionary-key bug — workaround: write the `.vmat` via `write_file` (see TROUBLESHOOTING.md).
+- **`execute_csharp`** is experimental (hotload latency; briefly recompiles the editor assembly).
+
+---
 
 ## License
 
-**GPL-3.0** — see [LICENSE](LICENSE) for details.
+**GPL-3.0** — see [LICENSE](LICENSE).
 
-This means you can freely use Claude Bridge in your s&box games (free or commercial). You can modify it for your own use. But if you redistribute a modified version of the bridge itself, you must keep it open source under GPL-3.0 and credit sboxskins.gg.
+You can freely use the Claude Bridge in your s&box games, free or commercial, and modify it for your own use. If you redistribute a modified version of the bridge itself, keep it open source under GPL-3.0 and credit sboxskins.gg.
 
-Copyright (c) 2026 [sboxskins.gg](https://sboxskins.gg)
+Built by **[sboxskins.gg](https://sboxskins.gg)** — the s&box community marketplace. Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp); early bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
+
+Copyright © 2026 [sboxskins.gg](https://sboxskins.gg)

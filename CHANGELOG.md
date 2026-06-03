@@ -4,7 +4,7 @@ All notable changes to the s&box Claude Bridge.
 
 ## [1.5.1] — 2026-06-03
 
-**Closes the dev loop + adds library awareness. `restart_editor` lets Claude relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 152 tools / 144 handlers.**
+**Closes the dev loop + adds library awareness. `restart_editor` lets Claude relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 151 tools / 144 handlers.**
 
 ### Added
 

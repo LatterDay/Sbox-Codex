@@ -2,12 +2,12 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: 150 Tools / 142 Handlers (v1.5.0)
+## Status: 151 Tools / 144 Handlers (v1.5.1)
 
-**Last updated:** 2026-06-03 (v1.5.0)
+**Last updated:** 2026-06-03 (v1.5.1)
 **Bridge:** File-based IPC ✅ working on main thread
-**Tools:** 150 MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
-**Handlers:** 142 C# command handlers compiled and registered (verified via the live bridge)
+**Tools:** 151 MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
+**Handlers:** 144 C# command handlers compiled and registered (verified via the live bridge)
 **Why the difference:** 6 tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
 
 ### What's new in v1.5.0
@@ -155,7 +155,7 @@ sbox-claude/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # Entry point — registers all 150 tools
+│   │   ├── index.ts                   # Entry point — registers all 151 tools
 │   │   ├── transport/
 │   │   │   └── bridge-client.ts       # File-based IPC client
 │   │   └── tools/
