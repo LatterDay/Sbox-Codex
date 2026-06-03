@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.5.0";
+	private const string BridgeVersion = "1.5.1";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -344,6 +344,12 @@ public static class ClaudeBridge
 
 		// ── Batch 29: real particles (.vpcf) ────────────────────────────
 		Register( "spawn_vpcf",               () => new SpawnVpcfHandler() );
+
+		// ── Batch 30: editor lifecycle ──────────────────────────────────
+		Register( "restart_editor",           () => new RestartEditorHandler() );
+
+		// ── Batch 31: library discovery ─────────────────────────────────
+		Register( "list_libraries",           () => new ListLibrariesHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -6478,5 +6484,110 @@ public class SpawnVpcfHandler : IBridgeHandler
 		{
 			return Task.FromResult<object>( new { error = $"spawn_vpcf failed: {ex.Message}" } );
 		}
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 30 — restart_editor: closes the C#-edit→recompile loop.
+//  EditorUtility.RestartEditor() relaunches sbox-dev.exe with the same args
+//  + this project (reopens straight back in). We handle unsaved scenes here
+//  (save or discard) because the engine's own save popup is non-blocking and
+//  would race the relaunch — and a bridge-driven restart must be headless
+//  (no dialog for a human to click). Mechanism confirmed from screch.auto_restart.
+// ═════════════════════════════════════════════════════════════════════
+public class RestartEditorHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		// Default: save unsaved scenes before restarting. Pass save:false to discard them.
+		bool save = !p.TryGetProperty( "save", out var s ) || s.GetBoolean();
+		int handled = 0;
+		try
+		{
+			var unsaved = SceneEditorSession.All.Where( x => x != null && x.HasUnsavedChanges ).ToList();
+			foreach ( var sess in unsaved )
+			{
+				try
+				{
+					if ( save ) sess.Save( false );
+					else        sess.HasUnsavedChanges = false; // mark clean so the engine's OnClose check passes
+				}
+				catch ( Exception ex )
+				{
+					Log.Warning( $"[SboxBridge] restart_editor: scene '{sess.Scene?.Name}' {(save ? "save" : "discard")} failed: {ex.Message}" );
+				}
+				handled++;
+			}
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"restart_editor pre-flight failed: {ex.Message}" } );
+		}
+
+		// RestartEditor()'s Close() is non-blocking, so this returns and the bridge writes
+		// the response before the old process exits; the MCP server then polls
+		// get_bridge_status until the relaunched editor's bridge reconnects.
+		try { EditorUtility.RestartEditor(); }
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"RestartEditor failed: {ex.Message}" } ); }
+
+		return Task.FromResult<object>( new
+		{
+			restarting    = true,
+			scenesHandled = handled,
+			saved         = save,
+			note          = "Editor relaunching into this project; poll get_bridge_status until it reconnects (~30-90s)."
+		} );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 31 — list_libraries: what addons/libraries are installed in this
+//  project (reads Libraries/ + each .sbproj). Lets Claude DISCOVER what's
+//  available to build on (e.g. fish.scc = Shrimple Character Controller,
+//  facepunch.playercontroller) and leverage it via add_component_with_properties
+//  instead of writing movement/tools from scratch.
+// ═════════════════════════════════════════════════════════════════════
+public class ListLibrariesHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var root = Project.Current.GetRootPath();
+		var libsDir = Path.Combine( root, "Libraries" );
+		var libs = new List<object>();
+		try
+		{
+			if ( Directory.Exists( libsDir ) )
+			{
+				foreach ( var dir in Directory.GetDirectories( libsDir ) )
+				{
+					// A library is enabled if it has a live .sbproj (disabled ones use .sbproj.disabled).
+					var sbproj = Directory.GetFiles( dir, "*.sbproj" ).FirstOrDefault();
+					bool enabled = sbproj != null;
+					if ( sbproj == null )
+						sbproj = Directory.GetFiles( dir, "*.sbproj.disabled" ).FirstOrDefault();
+
+					string ident = Path.GetFileName( dir ), org = null, title = null, type = null;
+					if ( sbproj != null )
+					{
+						try
+						{
+							using var doc = JsonDocument.Parse( File.ReadAllText( sbproj ) );
+							var r = doc.RootElement;
+							if ( r.TryGetProperty( "Title", out var t ) ) title = t.GetString();
+							if ( r.TryGetProperty( "Org",   out var o ) ) org   = o.GetString();
+							if ( r.TryGetProperty( "Ident", out var i ) ) ident = i.GetString();
+							if ( r.TryGetProperty( "Type",  out var ty ) ) type = ty.GetString();
+						}
+						catch { /* leave folder-name fallbacks */ }
+					}
+					libs.Add( new { folder = Path.GetFileName( dir ), ident, org, title, type, enabled } );
+				}
+			}
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"list_libraries failed: {ex.Message}" } );
+		}
+		return Task.FromResult<object>( new { count = libs.Count, libraries = libs } );
 	}
 }

@@ -29,6 +29,18 @@ export function registerDiscoveryTools(
     }
   );
 
+  // ── list_libraries ───────────────────────────────────────────────
+  server.tool(
+    "list_libraries",
+    "List the s&box libraries/addons installed in this project (reads Libraries/ + each .sbproj). Discovers what's available to build ON — e.g. character controllers (fish.scc = Shrimple Character Controller, facepunch.playercontroller), world/spline/road tools — so you can leverage an installed library (add its components via add_component_with_properties, or generate code against its API) instead of writing from scratch. Returns ident/org/title/type/enabled per library. Read-only.",
+    {},
+    async () => {
+      const res = await bridge.send("list_libraries", {});
+      if (!res.success) return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
   // ── search_types ─────────────────────────────────────────────────
   server.tool(
     "search_types",

@@ -157,6 +157,8 @@ To get good results:
 
 5. Scene-mutating tools (create_gameobject, set_property, etc.) refuse during play mode and return a clear error. Stop play before making scene edits.
 
+6. First session with the bridge (or when the user asks "how do I start?" / "what can this do?")? Offer to run setup — invoke the \`sbox-setup\` skill: it verifies the connection, detects the user's installed libraries (\`list_libraries\`), recommends a first move, and points to help + feedback.
+
 If you're running inside Claude Code, install the companion plugin for the full workflow:
     /plugin marketplace add LouSputthole/Sbox-Claude
     /plugin install sbox-claude

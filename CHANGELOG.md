@@ -2,6 +2,22 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.5.1] — 2026-06-03
+
+**Closes the dev loop + adds library awareness. `restart_editor` lets Claude relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 152 tools / 144 handlers.**
+
+### Added
+
+- **`restart_editor`** — restart the s&box editor and wait for the bridge to reconnect (`EditorUtility.RestartEditor` + headless unsaved-scene handling, saves by default). Closes the C#-edit→recompile loop: addon/bridge changes apply without a manual restart. Uses the engine API directly — **no dependency on the `auto_restart` library** (that's just where the mechanism was confirmed).
+- **`list_libraries`** — list installed s&box libraries/addons (reads `Libraries/` + each `.sbproj`). Lets Claude discover what's available to build on — character controllers (Shrimple `fish.scc`, `facepunch.playercontroller`), world tools, etc. — and leverage them via `add_component_with_properties` instead of writing from scratch.
+- **Setup wizard** — a `sbox-setup` skill plus a connect-time nudge in the MCP `instructions`: welcomes, verifies the bridge, detects libraries, recommends a first move, and points to help + feedback.
+
+### Notes
+
+- No breaking changes — all 1.5.0 tools unchanged.
+
+---
+
 ## [1.5.0] — 2026-06-03
 
 **16 new tools — self-diagnosis, aimed screenshots, navmesh + spatial queries, real `.vpcf` particles, console/C# execution, and live docs search — plus a security & correctness hardening pass from an external code audit. Total: 150 tools / 142 handlers.**

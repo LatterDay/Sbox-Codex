@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { BridgeClient } from "../transport/bridge-client.js";
 
 /**
@@ -68,6 +69,70 @@ export function registerStatusTools(
           {
             type: "text",
             text: `${text}\n\n${JSON.stringify(status, null, 2)}`,
+          },
+        ],
+      };
+    }
+  );
+
+  // ── restart_editor ────────────────────────────────────────────────
+  server.tool(
+    "restart_editor",
+    "Restart the s&box editor and wait for the bridge to reconnect — closes the C#-edit→recompile loop so addon/bridge changes apply without a manual restart. Relaunches straight back into the current project (EditorUtility.RestartEditor). Saves unsaved scenes by default (pass save:false to discard them). Blocks until the bridge is back (or waitMs elapses), then reports the handler count.",
+    {
+      save: z
+        .boolean()
+        .optional()
+        .describe("Save unsaved scenes before restarting (default true; false discards them)"),
+      waitMs: z
+        .number()
+        .int()
+        .optional()
+        .describe("Max ms to wait for reconnect (default 150000)"),
+    },
+    async (params) => {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      // Fire the restart. The editor closes mid-request, so a timeout/no-response here is EXPECTED.
+      try {
+        await bridge.send("restart_editor", { save: params.save ?? true }, 5000);
+      } catch {
+        /* editor going down — expected */
+      }
+
+      const waitMs = params.waitMs ?? 150000;
+      const deadline = Date.now() + waitMs;
+      // Let the old process actually exit (heartbeat goes stale) before checking, so we
+      // don't false-positive on the pre-restart connection.
+      await sleep(8000);
+
+      while (Date.now() < deadline) {
+        await sleep(2500);
+        if (bridge.isConnected()) {
+          // Heartbeat is fresh again — confirm the request loop drains + read the count.
+          try {
+            const st = await bridge.send("get_bridge_status", {}, 5000);
+            if (st.success && st.data) {
+              const hc = (st.data as Record<string, unknown>).handlerCount;
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Editor restarted — bridge reconnected${hc ? ` with ${hc} handlers` : ""}.`,
+                  },
+                ],
+              };
+            }
+          } catch {
+            /* still settling — keep polling */
+          }
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Restart fired, but the bridge didn't reconnect within ${waitMs}ms — the editor may still be compiling. Try get_bridge_status in a moment.`,
           },
         ],
       };
