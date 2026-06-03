@@ -16,7 +16,7 @@ Most tools have **two parts**:
 
 The command name is the same on both sides. `create_gameobject` in TypeScript sends `"create_gameobject"`, which the C# bridge dispatches to its `create_gameobject` handler.
 
-**Exception — MCP-server-side tools.** Six tools have *no* editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They run entirely in the Node server (reading `sbox-dev.log`, fetching docs, or hotload-evaluating), which is why they keep working when the editor has crashed. This is why the MCP server exposes **150 tools** but `get_bridge_status` reports **142 handlers**.
+**Exception — MCP-server-side tools.** Six tools have *no* editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They run entirely in the Node server (reading `sbox-dev.log`, fetching docs, or hotload-evaluating), which is why they keep working when the editor has crashed. This is why the MCP server exposes **151 tools** but `get_bridge_status` reports **144 handlers**.
 
 ## Adding a New Tool
 

@@ -1,6 +1,6 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **150 tools / 142 editor handlers** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
+MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **151 tools / 144 editor handlers** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
 
 ## Fastest install — the Claude Code plugin
 
@@ -44,7 +44,7 @@ Open your project. The bridge starts automatically. Verify with:
 Check the bridge status.
 ```
 
-You should see `connected: true, handlerCount: 142`. (That's the editor-side handler count; the server exposes 150 tools total — a handful run MCP-server-side and need no editor handler.)
+You should see `connected: true, handlerCount: 144`. (That's the editor-side handler count; the server exposes 151 tools total — a handful run MCP-server-side and need no editor handler.)
 
 ## How it works
 
@@ -54,9 +54,9 @@ Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → 
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
 
-## Tools (150 / 142 editor handlers — v1.5.0)
+## Tools (151 / 144 editor handlers — v1.5.1)
 
-`get_bridge_status` reports `handlerCount: 142` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
+`get_bridge_status` reports `handlerCount: 144` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
 
 | Category | Tools |
 |----------|-------|

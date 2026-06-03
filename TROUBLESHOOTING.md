@@ -199,8 +199,8 @@ List the most-recent file there and read it. (And remember §4 — it's the Main
 
 - **`Unknown command: <name>`** round-tripping to the editor → your **MCP server is newer than the addon** (it's sending a command the installed addon doesn't handle). Re-run the installer to update the addon, then restart s&box.
 - **`tool not found` at the MCP server** for an old tool like `get_console_output` → your **MCP server is stale** (those phantom tools were removed in v1.3.0). Update it: `npx sbox-mcp-server@latest`, or `/reload-plugins` if you use the plugin.
-- **`handlerCount` lower than 142** in `get_bridge_status` → the addon didn't fully compile, or some handlers failed to register. Check `get_compile_errors` / the log for `Failed to register`.
-- **Plugin pin vs. plugin version.** The plugin is **v1.5.0**, but its `.mcp.json` pins `sbox-mcp-server@1.4.0` until `1.5.0` is published to npm. That's intentional — `1.4.0` works; you just won't see the 16 new v1.5.0 tools until the pin is bumped to `1.5.0`. Don't pin `@1.5.0` before it's published or the plugin will 404 on install.
+- **`handlerCount` lower than 144** in `get_bridge_status` → the addon didn't fully compile, or some handlers failed to register. Check `get_compile_errors` / the log for `Failed to register`.
+- **Plugin pin vs. plugin version.** The plugin (v1.5.1) pins `sbox-mcp-server@1.5.1` in its `.mcp.json`, matching the published npm release — keep the two in lockstep. If you bump the pin, publish that npm version **first**, or `npx` will 404 on install.
 
 **Rule of thumb:** keep the bridge addon and the MCP server on the same major.minor. If you upgrade one, upgrade both.
 
