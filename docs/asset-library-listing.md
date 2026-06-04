@@ -89,6 +89,12 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 
 ## What's new
 
+### v1.7 — play-mode eyes, AI brains & playable scaffolds
+- **See the running game** — `capture_view` captures the *live* game in play mode (player POV + HUD), not just the edit scene. The bridge's first real play-mode eyes.
+- **NPCs that hunt** — `create_npc_brain` generates a full behavior state machine (patrol → chase → search, with FOV cone + line-of-sight + hearing and 5 presets) that *animates* as it moves; plus patrol routes, wave spawners, and an edit-mode perception checker.
+- **From scene to *game*** — gameplay scaffolds (`create_health_system`, `create_pickup`, `create_objective_system`, spawners) + wiring tools (`set_component_reference`, `add_component_to_new_object`) turn placed objects into a playable loop. A bundled `sbox-scaffold-game` skill assembles a first-person starter in one ask.
+- **Trust & correctness** — a `run_self_test` health check, plus fixes under the hood: `set_property` now sets model/asset/object references reliably, `create_material` / `load_scene` / `stop_play` repaired, and an upgraded `create_player_controller` (first-person / third-person / top-down + auto scene placement).
+
 ### v1.6 — animation & better eyes
 - **Bring characters to life** — `set_animgraph_param` drives a Citizen's AnimationGraph (walk, crouch, aim, gestures); `play_animation` plays a named sequence; `list_animations` shows every animation a model has (a Citizen has 500+).
 - **See it from every side** — `screenshot_orbit` captures an object from several angles in one call, so Claude can verify 3D work from the front, back, and sides instead of guessing from a single view.
@@ -213,9 +219,13 @@ Every tool the bridge exposes, grouped by area:
 
 **Play mode & editor (5)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`
 
-**Verify, diagnostics & lifecycle (11)** — `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`
+**Verify, diagnostics & lifecycle (13)** — `capture_view`, `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `run_self_test`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`
 
 **Discovery & docs (8)** — `describe_type`, `search_types`, `get_method_signature`, `find_in_project`, `list_libraries`, `search_docs`, `get_doc_page`, `list_doc_categories`
+
+**NPC AI (5)** — `create_npc_brain`, `place_patrol_route`, `assign_patrol_route`, `create_npc_spawner`, `simulate_npc_perception`
+
+**Gameplay scaffolds (5)** — `create_health_system`, `create_pickup`, `create_objective_system`, `add_component_to_new_object`, `set_component_reference`
 
 **Publishing (5)** — `get_project_config`, `set_project_config`, `validate_project`, `set_project_thumbnail`, `get_package_details`
 
