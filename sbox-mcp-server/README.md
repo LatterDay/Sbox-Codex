@@ -54,7 +54,7 @@ Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → 
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
 
-## Tools (151 / 145 editor handlers — v1.5.1)
+## Tools (v1.5.2)
 
 `get_bridge_status` reports the `handlerCount` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
 
