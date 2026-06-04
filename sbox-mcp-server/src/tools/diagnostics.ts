@@ -507,4 +507,36 @@ export function registerDiagnosticTools(
       return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
     }
   );
+
+  // ── capture_view ──────────────────────────────────────────────────── (bridge, Batch 34)
+  server.tool(
+    "capture_view",
+    "Capture a PNG of the scene from a camera — and crucially this WORKS IN PLAY MODE, capturing the RUNNING game (via CameraComponent.RenderToBitmap, unlike take_screenshot/screenshot_from which are edit-only). With no args it renders the live main camera = the player's POV (incl. HUD). Pass position {x,y,z} (+ lookAt or rotation) or id (a GameObject to frame) to capture from a temporary camera that never disturbs the game's own camera. Returns the saved PNG's absolute 'path' — READ it to see the result.",
+    {
+      id: z.string().optional().describe("GUID of a GameObject to frame (uses a temp camera)"),
+      position: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe("Camera world position (temp camera; use instead of id)"),
+      lookAt: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe("World point to look at (pair with position)"),
+      rotation: z
+        .object({ pitch: z.number(), yaw: z.number(), roll: z.number() })
+        .optional()
+        .describe("Explicit camera rotation (pair with position)"),
+      fov: z.number().optional().describe("Field of view for the temp camera"),
+      renderUI: z.boolean().optional().describe("Include UI/HUD in the capture (default true)"),
+      width: z.number().int().optional().describe("Width (default 1280)"),
+      height: z.number().int().optional().describe("Height (default 720)"),
+    },
+    async (params) => {
+      const res = await bridge.send("capture_view", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
 }

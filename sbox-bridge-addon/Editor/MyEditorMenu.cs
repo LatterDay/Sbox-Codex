@@ -360,6 +360,9 @@ public static class ClaudeBridge
 		Register( "set_animgraph_param",      () => new SetAnimgraphParamHandler() );
 		Register( "get_bounds",               () => new GetBoundsHandler() );
 
+		// ── Batch 34: play-mode eyes ────────────────────────────────────
+		Register( "capture_view",             () => new CaptureViewHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -570,6 +573,7 @@ public static class ClaudeBridge
 				{
 					connected = true,
 					running = _running,
+					version = BridgeVersion,
 					handlerCount = _handlers.Count,
 					registeredCommands = _handlers.Keys.ToArray()
 				}
@@ -1761,7 +1765,9 @@ public class IsPlayingHandler : IBridgeHandler
 		}
 		catch { }
 
-		var isPlaying = tracked || gameFlag || sessionPlaying;
+		// sessionPlaying (Game.ActiveScene != session.Scene) reads stale after a restart,
+		// so it's diagnostic-only; the authoritative flag is the engine's Game.IsPlaying.
+		var isPlaying = gameFlag || tracked;
 
 		return Task.FromResult<object>( new
 		{
@@ -1875,24 +1881,56 @@ public class CreateMaterialHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var rootPath = Project.Current.GetRootPath();
-		var name     = p.GetProperty( "name" ).GetString();
-		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Materials";
+		// Accept "path" (preferred — matches the create_material tool) or legacy "name"(+"directory").
+		// Previously this did p.GetProperty("name") which THREW KeyNotFoundException when the
+		// tool sent "path" (the "dictionary key" bug). Now it reads either.
+		string rel = null;
+		if ( p.TryGetProperty( "path", out var pe ) && !string.IsNullOrWhiteSpace( pe.GetString() ) )
+			rel = pe.GetString();
+		else if ( p.TryGetProperty( "name", out var ne ) && !string.IsNullOrWhiteSpace( ne.GetString() ) )
+		{
+			var subdir = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "materials";
+			rel = Path.Combine( subdir, ne.GetString() );
+		}
+		if ( string.IsNullOrWhiteSpace( rel ) )
+			return Task.FromResult<object>( new { error = "path is required (e.g. 'materials/walls/brick.vmat')" } );
+		if ( !rel.EndsWith( ".vmat", StringComparison.OrdinalIgnoreCase ) ) rel += ".vmat";
 
-		var fileName = name.EndsWith( ".vmat" ) ? name : $"{name}.vmat";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
+		if ( !ClaudeBridge.TryResolveProjectPath( rel, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
-
 		if ( File.Exists( fullPath ) )
-			return Task.FromResult<object>( new { error = $"Material already exists: {subdir}/{fileName}" } );
+			return Task.FromResult<object>( new { error = $"Material already exists: {rel}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		var shader = p.TryGetProperty( "shader", out var sh ) ? sh.GetString() : "shaders/simple.shader";
-		var vmat = $"// THIS FILE IS AUTO-GENERATED\n\"Layer0\"\n{{\n\tshader \"{shader}\"\n\n\tF_SELF_ILLUM 0\n\n\tTextureColor \"materials/default/default.tga\"\n}}\n";
+		var shader = p.TryGetProperty( "shader", out var sh ) && !string.IsNullOrWhiteSpace( sh.GetString() ) ? sh.GetString() : "shaders/complex.shader";
 
-		File.WriteAllText( fullPath, vmat );
+		var sb = new System.Text.StringBuilder();
+		sb.Append( "// THIS FILE IS AUTO-GENERATED\n\"Layer0\"\n{\n" );
+		sb.Append( "\tshader \"" + shader + "\"\n\n" );
+		int wrote = 0;
+		if ( p.TryGetProperty( "properties", out var props ) && props.ValueKind == JsonValueKind.Object )
+		{
+			foreach ( var kv in props.EnumerateObject() )
+			{
+				string val = kv.Value.ValueKind switch
+				{
+					JsonValueKind.String => "\"" + kv.Value.GetString() + "\"",
+					JsonValueKind.Number => kv.Value.GetRawText(),
+					JsonValueKind.True   => "1",
+					JsonValueKind.False  => "0",
+					_ => null
+				};
+				if ( val != null ) { sb.Append( "\t" + kv.Name + " " + val + "\n" ); wrote++; }
+			}
+		}
+		if ( wrote == 0 )
+			sb.Append( "\tg_flMetalness 0.0\n\tg_flRoughness 1.0\n" );
+		sb.Append( "}\n" );
+
+		File.WriteAllText( fullPath, sb.ToString() );
 		var relativePath = Path.GetRelativePath( rootPath, fullPath ).Replace( '\\', '/' );
-		return Task.FromResult<object>( new { created = true, path = relativePath } );
+		return Task.FromResult<object>( new { created = true, path = relativePath, shader, propertiesWritten = wrote } );
 	}
 }
 
@@ -6855,5 +6893,107 @@ public class SetAnimgraphParamHandler : IBridgeHandler
 			kind,
 			note = "Animgraph parameter set. Citizen poses in-editor when PlayAnimationsInEditorScene is on; screenshot to verify."
 		} );
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 34 — PLAY-MODE EYES (v1.7.0)
+//  capture_view renders a CameraComponent's view to a PNG via
+//  CameraComponent.RenderToBitmap + Bitmap.ToPng. Unlike take_screenshot /
+//  screenshot_from (EditorScene, EDIT-only), this renders a camera's view of
+//  the ACTIVE scene — so during PLAY it captures the RUNNING game (incl. HUD
+//  when renderUI=true). No pose  -> the live main camera (player POV).
+//  position/id -> a temp camera (created + destroyed in one frame, never
+//  disturbs the game's own camera). Saves a uniquely-named PNG to TEMP and
+//  returns the absolute path (no 1-second filename collisions).
+// ═════════════════════════════════════════════════════════════════════
+public class CaptureViewHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		bool playing = Game.IsPlaying;
+		var scene = playing ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		int w = p.TryGetProperty( "width", out var wEl ) ? wEl.GetInt32() : 1280;
+		int h = p.TryGetProperty( "height", out var hEl ) ? hEl.GetInt32() : 720;
+		if ( w < 16 ) w = 16; if ( w > 3840 ) w = 3840;
+		if ( h < 16 ) h = 16; if ( h > 2160 ) h = 2160;
+		bool renderUI = !( p.TryGetProperty( "renderUI", out var uiEl ) && uiEl.ValueKind == JsonValueKind.False );
+
+		GameObject tempCam = null;
+		try
+		{
+			CameraComponent cam;
+			string framed;
+			bool hasId = p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out _ );
+			bool hasPos = p.TryGetProperty( "position", out var posEl );
+
+			if ( hasId || hasPos )
+			{
+				Vector3 camPos; Rotation camRot;
+				if ( hasId )
+				{
+					Guid.TryParse( idEl.GetString(), out var guid );
+					var t = scene.Directory.FindByGuid( guid );
+					if ( t == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+					var box = t.GetBounds(); var c = box.Center; float sz = box.Size.Length; if ( sz < 1f ) sz = 128f;
+					float dist = sz * 1.4f; if ( dist < 150f ) dist = 150f;
+					camPos = c + new Vector3( -1f, -0.6f, 0.7f ).Normal * dist;
+					camRot = Rotation.LookAt( ( c - camPos ).Normal, Vector3.Up );
+					framed = t.Name;
+				}
+				else
+				{
+					camPos = ClaudeBridge.ParseVector3( posEl );
+					if ( p.TryGetProperty( "lookAt", out var laEl ) )
+						camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
+					else if ( p.TryGetProperty( "rotation", out var rotEl ) )
+						camRot = CharacterHelpers.ParseRotation( rotEl );
+					else camRot = Rotation.Identity;
+					framed = $"({camPos.x:0.#},{camPos.y:0.#},{camPos.z:0.#})";
+				}
+				tempCam = scene.CreateObject( true );
+				tempCam.Name = "__bridge_capture_cam";
+				tempCam.WorldPosition = camPos;
+				tempCam.WorldRotation = camRot;
+				cam = tempCam.AddComponent<CameraComponent>();
+				if ( p.TryGetProperty( "fov", out var fovEl ) ) cam.FieldOfView = fovEl.GetSingle();
+			}
+			else
+			{
+				cam = VisualHelpers.FindMainCamera( scene );
+				if ( cam == null ) return Task.FromResult<object>( new { error = "No main camera in the scene. Pass position {x,y,z} or id to capture from a temporary camera." } );
+				framed = playing ? "live main camera (player view)" : "main camera";
+			}
+
+			var bmp = new Bitmap( w, h );
+			cam.RenderToBitmap( bmp, renderUI );
+			byte[] png = bmp.ToPng();
+			string path = System.IO.Path.Combine( System.IO.Path.GetTempPath(), $"bridge_capture_{System.Guid.NewGuid():N}.png" );
+			System.IO.File.WriteAllBytes( path, png );
+
+			return Task.FromResult<object>( new
+			{
+				captured = true,
+				playing,
+				framed,
+				width = w,
+				height = h,
+				renderUI,
+				path,
+				note = playing
+					? "Captured the RUNNING game. Read the PNG at 'path'."
+					: "Captured the edit scene from a camera. Read the PNG at 'path'."
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"capture_view failed: {ex.Message}" } );
+		}
+		finally
+		{
+			tempCam?.Destroy();
+		}
 	}
 }

@@ -42,6 +42,7 @@ import { registerObjectTools } from "./tools/objecttools.js";
 import { registerDiagnosticTools } from "./tools/diagnostics.js";
 import { registerDocsTools } from "./tools/docs.js";
 import { registerNavigationTools } from "./tools/navigation.js";
+import { registerSelfTestTools } from "./tools/selftest.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -199,6 +200,7 @@ registerObjectTools(server, bridge);
 registerDiagnosticTools(server, bridge);
 registerDocsTools(server, bridge);
 registerNavigationTools(server, bridge);
+registerSelfTestTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {
