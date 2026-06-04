@@ -89,6 +89,11 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 
 ## What's new
 
+### v1.6 — animation & better eyes
+- **Bring characters to life** — `set_animgraph_param` drives a Citizen's AnimationGraph (walk, crouch, aim, gestures); `play_animation` plays a named sequence; `list_animations` shows every animation a model has (a Citizen has 500+).
+- **See it from every side** — `screenshot_orbit` captures an object from several angles in one call, so Claude can verify 3D work from the front, back, and sides instead of guessing from a single view.
+- **Know how big things are** — `get_bounds` returns an object's world-space size, center, and extents for precise placement and framing.
+
 ### v1.5 — reliability & autonomy
 - **Claude reads its own errors** — `read_log` + `get_compile_errors` surface compile failures and logs, even when the editor has stalled. No more guessing.
 - **Aimed screenshots** — `screenshot_from` points the camera at any object/point so Claude can actually *see* what it built (and fix the angle).
@@ -182,7 +187,7 @@ Every tool the bridge exposes, grouped by area:
 
 **Lighting, atmosphere & VFX (13)** — `add_light`, `set_fog`, `add_post_process`, `set_skybox`, `add_envmap_probe`, `bake_reflections`, `apply_atmosphere`, `apply_post_fx_look`, `spawn_particle`, `create_particle_effect`, `add_trail`, `add_beam`, `spawn_vpcf`
 
-**Characters & models (9)** — `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression`
+**Characters & animation (12)** — `spawn_model`, `spawn_citizen`, `dress_citizen`, `set_bodygroup`, `pose_citizen`, `equip_model`, `set_look_at`, `add_ragdoll`, `set_expression`, `list_animations`, `play_animation`, `set_animgraph_param`
 
 **Scene layout & environment (8)** — `snap_to_ground`, `align_objects`, `distribute_objects`, `grid_duplicate`, `measure_distance`, `scatter_props`, `randomize_transforms`, `group_objects`
 
@@ -208,7 +213,7 @@ Every tool the bridge exposes, grouped by area:
 
 **Play mode & editor (5)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`
 
-**Verify, diagnostics & lifecycle (9)** — `take_screenshot`, `screenshot_from`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`
+**Verify, diagnostics & lifecycle (11)** — `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`
 
 **Discovery & docs (8)** — `describe_type`, `search_types`, `get_method_signature`, `find_in_project`, `list_libraries`, `search_docs`, `get_doc_page`, `list_doc_categories`
 

@@ -268,4 +268,73 @@ export function registerCharacterTools(
       };
     }
   );
+
+  // ── list_animations ───────────────────────────────────────────────── (Batch 33)
+  server.tool(
+    "list_animations",
+    "List the animation sequences available on a GameObject's SkinnedModelRenderer (a spawned Citizen or animated model), plus whether it's driven by an AnimationGraph. Call this before play_animation or set_animgraph_param to see valid names.",
+    {
+      id: z.string().describe("GUID of the GameObject with a SkinnedModelRenderer"),
+    },
+    async (params) => {
+      const res = await bridge.send("list_animations", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── play_animation ─────────────────────────────────────────────────
+  server.tool(
+    "play_animation",
+    "Play a named animation sequence on a GameObject's SkinnedModelRenderer (sets the Sequence). Best for models with raw sequences; for AnimationGraph characters (Citizen) prefer set_animgraph_param. The renderer needs PlayAnimationsInEditorScene = true to animate in-editor — then screenshot to verify. Use list_animations for valid names.",
+    {
+      id: z.string().describe("GUID of the GameObject with a SkinnedModelRenderer"),
+      animation: z.string().describe("Sequence name to play (see list_animations)"),
+      looping: z.boolean().optional().describe("Loop the sequence (default: the model's setting)"),
+      speed: z.number().optional().describe("Playback rate multiplier (default 1)"),
+    },
+    async (params) => {
+      const res = await bridge.send("play_animation", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── set_animgraph_param ────────────────────────────────────────────
+  server.tool(
+    "set_animgraph_param",
+    "Set an AnimationGraph parameter on a GameObject's SkinnedModelRenderer (calls Set). This drives Citizen/animgraph motion — e.g. 'move_x'/'move_y' (float), 'b_grounded'/'b_ducked' (bool), or a Vector3. Pose previews in-editor when PlayAnimationsInEditorScene is on; screenshot to verify. Param names are defined by the model's animation graph.",
+    {
+      id: z.string().describe("GUID of the GameObject with a SkinnedModelRenderer"),
+      param: z.string().describe("Animgraph parameter name, e.g. 'move_x', 'b_grounded'"),
+      value: z
+        .union([
+          z.number(),
+          z.boolean(),
+          z.object({ x: z.number(), y: z.number(), z: z.number() }),
+        ])
+        .describe("Value: number (float), boolean, or {x,y,z} vector"),
+      type: z
+        .enum(["float", "int", "bool", "vector"])
+        .optional()
+        .describe("Force the parameter type (default: inferred from value)"),
+    },
+    async (params) => {
+      const res = await bridge.send("set_animgraph_param", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

@@ -2,6 +2,25 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.6.0] — 2026-06-03
+
+**Animation + better eyes. Drive `SkinnedModelRenderer` animgraphs (`set_animgraph_param`, `play_animation`, `list_animations`), read world bounds (`get_bounds`), and capture an object from multiple angles in one call (`screenshot_orbit`). 157 tools / 149 handlers.**
+
+### Added
+
+- **`list_animations`** — list the sequences on a GameObject's `SkinnedModelRenderer` (merges `Sequence.SequenceNames` + `Model.AnimationNames`) and report whether it's AnimationGraph-driven. A spawned Citizen returns 500+ sequences.
+- **`set_animgraph_param`** — set an AnimationGraph parameter via `SkinnedModelRenderer.Set(name, value)` — the way to drive Citizen/animgraph motion (e.g. `move_x`/`move_y` float, `b_grounded`/`duck` bool, or a Vector3). Poses preview in-editor when `PlayAnimationsInEditorScene` is on. Verified: `duck=1.0` visibly crouches a Citizen.
+- **`play_animation`** — play a named sequence by setting `SkinnedModelRenderer.Sequence` (best for raw-sequence models; for animgraph characters prefer `set_animgraph_param`). Validates the name against the model's sequences and returns the available list on a miss.
+- **`get_bounds`** — a GameObject's world-space bounding box: center, size, extents, mins/maxs, radius (`GameObject.GetBounds()`). Objects with no renderer report `empty:true` with their world position.
+- **`screenshot_orbit`** — capture an object from several angles in one call. Drives `get_bounds` for framing, then `screenshot_from` per angle (each its own frame — the reliable capture path), spacing shots so s&box's 1-second screenshot filenames don't collide. Returns the saved PNG paths in order for Claude to read.
+
+### Notes
+
+- Additive only — no existing tool contract changes. `set_animgraph_param` / `play_animation` are play-mode-guarded edit-mode tools (like `pose_citizen`); `get_bounds` / `list_animations` are read-only.
+- The 5 new tools need both the updated MCP server (npm `@1.6.0`) and the republished addon; existing tools are unaffected by version skew.
+
+---
+
 ## [1.5.2] — 2026-06-03
 
 **`recompile_asset` — compile a project asset from the bridge (`Editor.AssetSystem.RegisterFile` + `Asset.Compile`), so an asset Claude writes or edits gets its compiled form regenerated without a manual editor step. 152 tools / 145 handlers.**

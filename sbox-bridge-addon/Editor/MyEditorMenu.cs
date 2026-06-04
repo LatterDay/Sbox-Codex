@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.5.2";
+	private const string BridgeVersion = "1.6.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -354,6 +354,12 @@ public static class ClaudeBridge
 		// ── Batch 32: asset compile ─────────────────────────────────────
 		Register( "recompile_asset",          () => new RecompileAssetHandler() );
 
+		// ── Batch 33: animation + bounds ────────────────────────────────
+		Register( "list_animations",          () => new ListAnimationsHandler() );
+		Register( "play_animation",           () => new PlayAnimationHandler() );
+		Register( "set_animgraph_param",      () => new SetAnimgraphParamHandler() );
+		Register( "get_bounds",               () => new GetBoundsHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -366,6 +372,7 @@ public static class ClaudeBridge
 		"spawn_particle", "add_trail", "add_beam", "create_particle_effect",
 		"spawn_model", "spawn_citizen", "dress_citizen", "set_bodygroup", "pose_citizen",
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
+		"set_animgraph_param", "play_animation",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
 		"set_tint", "replace_model", "set_tags",
@@ -6668,5 +6675,185 @@ public class RecompileAssetHandler : IBridgeHandler
 		{
 			return Task.FromResult<object>( new { error = $"recompile_asset failed: {ex.Message}" } );
 		}
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 33 — animation + bounds (v1.6.0)
+//  • list_animations / play_animation drive SkinnedModelRenderer.Sequence
+//  • set_animgraph_param drives Set(name,value) for AnimationGraph-driven
+//    characters (e.g. Citizen — move_x / move_y / b_grounded …)
+//  • get_bounds returns world bounds/center/size (used standalone + by the
+//    TS-side screenshot_orbit verification tool)
+// ═════════════════════════════════════════════════════════════════════
+
+public class GetBoundsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+
+		var box = go.GetBounds();
+		var c = box.Center; var s = box.Size; var e = box.Extents;
+		var mins = c - e; var maxs = c + e;
+		bool empty = s.Length < 0.01f;
+		return Task.FromResult<object>( new
+		{
+			id = idEl.GetString(),
+			name = go.Name,
+			center   = new { c.x, c.y, c.z },
+			size     = new { s.x, s.y, s.z },
+			extents  = new { e.x, e.y, e.z },
+			mins     = new { mins.x, mins.y, mins.z },
+			maxs     = new { maxs.x, maxs.y, maxs.z },
+			radius   = s.Length * 0.5f,
+			position = new { go.WorldPosition.x, go.WorldPosition.y, go.WorldPosition.z },
+			empty,
+			note = empty ? "Zero/near-zero bounds (no renderer) — using world position; orbit will frame a default radius." : null
+		} );
+	}
+}
+
+public class ListAnimationsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (animations need one — e.g. spawn_citizen, or a model with sequences)" } );
+		if ( body.Model == null ) return Task.FromResult<object>( new { error = "The SkinnedModelRenderer has no Model assigned" } );
+
+		var names = new List<string>();
+		try { foreach ( var n in body.Sequence.SequenceNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
+		try { foreach ( var n in body.Model.AnimationNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
+		names.Sort( StringComparer.OrdinalIgnoreCase );
+
+		return Task.FromResult<object>( new
+		{
+			id = idEl.GetString(),
+			name = go.Name,
+			model = body.Model.ResourceName,
+			useAnimGraph = body.UseAnimGraph,
+			hasAnimGraph = body.AnimationGraph != null,
+			count = names.Count,
+			animations = names,
+			note = body.UseAnimGraph
+				? "Uses an AnimationGraph (e.g. Citizen) — drive motion with set_animgraph_param (graph params like move_x / move_y / b_grounded / b_ducked). play_animation sets a raw sequence by name."
+				: "Drive these with play_animation (sequence name)."
+		} );
+	}
+}
+
+public class PlayAnimationHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (use spawn_citizen or a model with sequences)" } );
+		if ( body.Model == null ) return Task.FromResult<object>( new { error = "The SkinnedModelRenderer has no Model assigned" } );
+
+		var anim = p.TryGetProperty( "animation", out var aEl ) ? aEl.GetString()
+			: ( p.TryGetProperty( "name", out var nEl ) ? nEl.GetString() : null );
+		if ( string.IsNullOrWhiteSpace( anim ) )
+			return Task.FromResult<object>( new { error = "animation (sequence name) is required — call list_animations to see options" } );
+
+		var seq = body.Sequence;
+		var names = new List<string>();
+		try { foreach ( var n in seq.SequenceNames ) names.Add( n ); } catch { }
+		if ( names.Count > 0 && !names.Contains( anim, StringComparer.OrdinalIgnoreCase ) )
+			return Task.FromResult<object>( new { error = $"Sequence '{anim}' not found on this model.", available = names } );
+
+		seq.Name = anim;
+		if ( p.TryGetProperty( "looping", out var lEl ) && ( lEl.ValueKind == JsonValueKind.True || lEl.ValueKind == JsonValueKind.False ) )
+			seq.Looping = lEl.GetBoolean();
+		if ( p.TryGetProperty( "speed", out var spEl ) && spEl.ValueKind == JsonValueKind.Number )
+			seq.PlaybackRate = spEl.GetSingle();
+		if ( p.TryGetProperty( "time", out var tEl ) && tEl.ValueKind == JsonValueKind.Number )
+			seq.TimeNormalized = tEl.GetSingle();
+
+		return Task.FromResult<object>( new
+		{
+			playing = true,
+			animation = anim,
+			looping = seq.Looping,
+			playbackRate = seq.PlaybackRate,
+			duration = seq.Duration,
+			note = "Sequence set. The renderer needs PlayAnimationsInEditorScene = true to animate in the editor; screenshot to verify a pose. For Citizen/animgraph characters, set_animgraph_param usually drives motion."
+		} );
+	}
+}
+
+public class SetAnimgraphParamHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (animgraph params need one — e.g. a Citizen)" } );
+
+		var name = p.TryGetProperty( "param", out var nEl ) ? nEl.GetString()
+			: ( p.TryGetProperty( "name", out var n2 ) ? n2.GetString() : null );
+		if ( string.IsNullOrWhiteSpace( name ) )
+			return Task.FromResult<object>( new { error = "param (animgraph parameter name, e.g. 'move_x') is required" } );
+		if ( !p.TryGetProperty( "value", out var vEl ) )
+			return Task.FromResult<object>( new { error = "value is required (number, bool, or {x,y,z})" } );
+
+		var hint = p.TryGetProperty( "type", out var tEl ) ? tEl.GetString()?.ToLowerInvariant() : null;
+		string kind;
+		try
+		{
+			if ( hint == "bool" || ( hint == null && ( vEl.ValueKind == JsonValueKind.True || vEl.ValueKind == JsonValueKind.False ) ) )
+			{
+				bool b = vEl.ValueKind == JsonValueKind.String ? string.Equals( vEl.GetString(), "true", StringComparison.OrdinalIgnoreCase ) : vEl.GetBoolean();
+				body.Set( name, b ); kind = "bool";
+			}
+			else if ( hint == "vector" || ( hint == null && vEl.ValueKind == JsonValueKind.Object ) )
+			{
+				body.Set( name, ClaudeBridge.ParseVector3( vEl ) ); kind = "vector";
+			}
+			else if ( hint == "int" )
+			{
+				int iv = vEl.ValueKind == JsonValueKind.String ? int.Parse( vEl.GetString() ) : (int) vEl.GetSingle();
+				body.Set( name, iv ); kind = "int";
+			}
+			else // float (default for numbers)
+			{
+				float fv = vEl.ValueKind == JsonValueKind.String ? float.Parse( vEl.GetString() ) : vEl.GetSingle();
+				body.Set( name, fv ); kind = "float";
+			}
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"Failed to set '{name}': {ex.Message}" } );
+		}
+
+		return Task.FromResult<object>( new
+		{
+			set = true,
+			param = name,
+			kind,
+			note = "Animgraph parameter set. Citizen poses in-editor when PlayAnimationsInEditorScene is on; screenshot to verify."
+		} );
 	}
 }

@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeClient } from "../transport/bridge-client.js";
-import { existsSync, readFileSync, statSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, statSync, readdirSync } from "fs";
+import { join, dirname } from "path";
 
 /**
  * Diagnostic tools (Batch 24 — "let Claude see its own errors"): read s&box's
@@ -63,6 +63,36 @@ function locateSboxLog(): { path: string | null; tried: string[] } {
   }
 
   return { path: null, tried };
+}
+
+/**
+ * Derive the editor's screenshots folder from the located log path
+ * (<sbox>/logs/sbox-dev.log → <sbox>/screenshots). SBOX_SCREENSHOTS_DIR overrides.
+ */
+function locateScreenshotsDir(): string | null {
+  if (process.env.SBOX_SCREENSHOTS_DIR) return process.env.SBOX_SCREENSHOTS_DIR;
+  const { path } = locateSboxLog();
+  if (!path) return null;
+  return join(dirname(dirname(path)), "screenshots");
+}
+
+/** Newest .png in a dir with mtime strictly greater than afterMs, or null. */
+function newestPng(
+  dir: string,
+  afterMs: number
+): { path: string; mtimeMs: number } | null {
+  try {
+    let best: { path: string; mtimeMs: number } | null = null;
+    for (const f of readdirSync(dir)) {
+      if (!f.toLowerCase().endsWith(".png")) continue;
+      const fp = join(dir, f);
+      const m = statSync(fp).mtimeMs;
+      if (m > afterMs && (!best || m > best.mtimeMs)) best = { path: fp, mtimeMs: m };
+    }
+    return best;
+  } catch {
+    return null;
+  }
 }
 
 function tailLines(text: string, n: number): string[] {
@@ -358,6 +388,123 @@ export function registerDiagnosticTools(
           },
         ],
       };
+    }
+  );
+
+  // ── get_bounds ─────────────────────────────────────────────────────── (bridge, Batch 33)
+  server.tool(
+    "get_bounds",
+    "Get a GameObject's world-space bounding box — center, size, extents, mins/maxs, and a radius. Useful for placing/framing objects and sizing camera moves. Reads GameObject.GetBounds(); objects with no renderer report empty:true with their world position.",
+    {
+      id: z.string().describe("GUID of the GameObject to measure"),
+    },
+    async (params) => {
+      const res = await bridge.send("get_bounds", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // ── screenshot_orbit ──────────────────────────────────────────────── (orchestrated, Batch 33)
+  server.tool(
+    "screenshot_orbit",
+    "Capture a GameObject from several angles in ONE call — orbits the scene's main camera around the object and screenshots each angle, so Claude can verify 3D work from multiple sides instead of guessing from one. Drives get_bounds (framing) + screenshot_from per angle (each its own frame, the reliable capture path). Returns the saved PNG paths in order — READ them to inspect.",
+    {
+      id: z.string().describe("GUID of the GameObject to orbit"),
+      shots: z
+        .number()
+        .int()
+        .optional()
+        .describe("Number of angles around the object (default 4, clamped 2-8)"),
+      elevation: z
+        .number()
+        .optional()
+        .describe("Camera height factor: 0 = level, 1 = high (default 0.4)"),
+      distance: z
+        .number()
+        .optional()
+        .describe("Camera distance in units (default: auto from bounds)"),
+      width: z.number().int().optional().describe("Screenshot width (default 1280)"),
+      height: z.number().int().optional().describe("Screenshot height (default 720)"),
+    },
+    async (params) => {
+      const b = await bridge.send("get_bounds", { id: params.id });
+      if (!b.success) {
+        return { content: [{ type: "text", text: `Error (get_bounds): ${b.error}` }] };
+      }
+      const data = b.data as any;
+      const c = data.center as { x: number; y: number; z: number };
+      const sizeLen = Math.hypot(data.size.x, data.size.y, data.size.z);
+      const dist = params.distance ?? Math.max(sizeLen * 1.6, 150);
+      let shots = params.shots ?? 4;
+      shots = Math.max(2, Math.min(8, shots));
+      const elev = params.elevation ?? 0.4;
+      const w = params.width ?? 1280;
+      const h = params.height ?? 720;
+
+      const ssDir = locateScreenshotsDir();
+      let lastMtime = 0;
+      if (ssDir) {
+        const n = newestPng(ssDir, 0);
+        if (n) lastMtime = n.mtimeMs;
+      }
+
+      const results: Array<Record<string, unknown>> = [];
+      for (let i = 0; i < shots; i++) {
+        // s&box names screenshots at 1-second granularity, so two shots in the
+        // same wall-clock second overwrite each other. Space them out.
+        if (i > 0) await new Promise((res) => setTimeout(res, 1100));
+        const ang = (2 * Math.PI * i) / shots;
+        const dx = Math.cos(ang);
+        const dy = Math.sin(ang);
+        const len = Math.hypot(dx, dy, elev) || 1;
+        const camPos = {
+          x: c.x + (dx / len) * dist,
+          y: c.y + (dy / len) * dist,
+          z: c.z + (elev / len) * dist,
+        };
+        const deg = Math.round((ang * 180) / Math.PI);
+        const r = await bridge.send("screenshot_from", {
+          position: camPos,
+          lookAt: c,
+          width: w,
+          height: h,
+        });
+        if (!r.success) {
+          results.push({ angle: deg, error: r.error });
+          continue;
+        }
+        let file: string | null = null;
+        if (ssDir) {
+          const started = Date.now();
+          while (Date.now() - started < 4000) {
+            const n = newestPng(ssDir, lastMtime);
+            if (n) {
+              file = n.path;
+              lastMtime = n.mtimeMs;
+              break;
+            }
+            await new Promise((res) => setTimeout(res, 200));
+          }
+        }
+        results.push({ angle: deg, position: camPos, file });
+      }
+
+      const files = results
+        .filter((s) => typeof s.file === "string")
+        .map((s) => s.file as string);
+      const summary = {
+        orbited: data.name ?? params.id,
+        center: c,
+        distance: Math.round(dist),
+        shots: results,
+        note: ssDir
+          ? `Captured ${files.length}/${shots} angle(s). READ these PNGs to inspect the object from each side:\n${files.join("\n")}`
+          : `Captured ${shots} angle(s), but couldn't locate the screenshots folder (set SBOX_LOG_PATH or SBOX_SCREENSHOTS_DIR). Read the newest PNGs in <sbox>/screenshots/.`,
+      };
+      return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
     }
   );
 }

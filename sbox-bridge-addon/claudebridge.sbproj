@@ -12,7 +12,7 @@
   "Mounts": null,
   "IsStandaloneOnly": false,
   "Metadata": {
-    "Summary": "Claude builds s&box game systems for you — 150+ tools (v1.5.0 adds self-diagnosis, aimed screenshots, navmesh, spatial queries, real .vpcf particles, console/C# exec, docs search + a security hardening pass), stable across SDK updates",
+    "Summary": "Claude builds s&box game systems for you — 150+ tools (v1.6.0 adds character animation, multi-angle screenshots & object bounds), stable across SDK updates",
     "Public": true,
     "Tags": "ai,claude,mcp,tool,editor,bridge,automation,code-generation,terrain,worldgen,stable",
     "Compiler": {
