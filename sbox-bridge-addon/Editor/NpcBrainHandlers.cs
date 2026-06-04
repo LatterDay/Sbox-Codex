@@ -156,6 +156,55 @@ internal static class NpcBrainHelpers
 
 		return fallbackComp;
 	}
+
+	/// <summary>
+	/// Find the "perception brain" component on <paramref name="go"/> — the component
+	/// simulate_npc_perception should read SightRange/FovDegrees/EyeHeight/TargetTag from.
+	///
+	/// Why not just match the type name "NpcBrain": a custom-named brain (e.g. BigfootBrain,
+	/// generated via create_npc_brain with name="BigfootBrain") exposes the same perception
+	/// [Property] surface but a different type name, so a literal name match silently falls
+	/// back to spec defaults. We match by CAPABILITY instead:
+	///   1. a component literally named "NpcBrain" (the default), else
+	///   2. a component whose TypeLibrary description exposes BOTH SightRange and FovDegrees
+	///      (the perception contract), else
+	///   3. a component whose type name ends with "Brain".
+	/// Returns null if none match (caller then uses defaults / explicit overrides).
+	/// </summary>
+	public static Component FindPerceptionBrain( GameObject go )
+	{
+		if ( go == null ) return null;
+
+		Component byProps = null;
+		Component byName  = null;
+
+		foreach ( var c in go.Components.GetAll() )
+		{
+			var typeName = c.GetType().Name;
+
+			// 1. Exact "NpcBrain" wins immediately (the generated default).
+			if ( typeName.Equals( "NpcBrain", StringComparison.OrdinalIgnoreCase ) )
+				return c;
+
+			// 2. Capability match: exposes the perception property contract.
+			if ( byProps == null )
+			{
+				var td = Game.TypeLibrary.GetType( typeName );
+				if ( td != null
+					&& td.Properties.Any( pp => pp.Name == "SightRange" )
+					&& td.Properties.Any( pp => pp.Name == "FovDegrees" ) )
+				{
+					byProps = c;
+				}
+			}
+
+			// 3. Name heuristic: "...Brain".
+			if ( byName == null && typeName.EndsWith( "Brain", StringComparison.OrdinalIgnoreCase ) )
+				byName = c;
+		}
+
+		return byProps ?? byName;
+	}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -986,10 +1035,12 @@ public class SimulateNpcPerceptionHandler : IBridgeHandler
 
 		try
 		{
-			// ── Read perception params from the NpcBrain if present, else fall back
-			//    to spec defaults / explicit overrides in the call.
-			var brain = npc.Components.GetAll()
-				.FirstOrDefault( c => c.GetType().Name.Equals( "NpcBrain", StringComparison.OrdinalIgnoreCase ) );
+			// ── Read perception params from the NPC's brain if present, else fall back
+			//    to spec defaults / explicit overrides in the call. Matches the brain by
+			//    CAPABILITY (exposes SightRange+FovDegrees) or a "...Brain" type name — NOT
+			//    just the literal type name "NpcBrain" — so a custom-named brain
+			//    (e.g. BigfootBrain) is read instead of silently using defaults.
+			var brain = NpcBrainHelpers.FindPerceptionBrain( npc );
 			// `var` (never name TypeDescription) — its namespace isn't guaranteed importable here.
 			var brainTd = brain != null ? Game.TypeLibrary.GetType( brain.GetType().Name ) : null;
 
@@ -1105,9 +1156,10 @@ public class SimulateNpcPerceptionHandler : IBridgeHandler
 				sightRange,
 				targetTag,
 				eye = new { eye.x, eye.y, eye.z },
+				brainComponent = brain?.GetType().Name,
 				note = brain == null
-					? "No NpcBrain on this GameObject — used spec defaults / call overrides for the perception params."
-					: "Used the NpcBrain's own SightRange/FovDegrees/EyeHeight/TargetTag (call params override). canSee mirrors what the generated brain computes."
+					? "No perception brain found on this GameObject — used spec defaults / call overrides for the perception params."
+					: $"Read perception params from the '{brain.GetType().Name}' component's own SightRange/FovDegrees/EyeHeight/TargetTag (call params override). canSee mirrors what the generated brain computes."
 			} );
 		}
 		catch ( Exception ex )

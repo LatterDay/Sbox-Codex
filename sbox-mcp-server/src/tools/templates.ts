@@ -16,7 +16,7 @@ export function registerTemplateTools(
   // ── create_player_controller ──────────────────────────────────────
   server.tool(
     "create_player_controller",
-    "Generate a player controller script with WASD movement, mouse look, jumping, and sprint. Supports first-person and third-person camera modes",
+    "Generate a player controller script with WASD movement, mouse look, jumping, and sprint. Supports first-person, third-person, and top-down movement modes. Optionally places a player rig (GameObject + CharacterController + Camera) in the scene — note the generated component is attached AFTER a trigger_hotload (it isn't in the TypeLibrary until a recompile)",
     {
       name: z
         .string()
@@ -27,10 +27,10 @@ export function registerTemplateTools(
         .optional()
         .describe("Subdirectory under code/ for the file"),
       type: z
-        .enum(["first_person", "third_person"])
+        .enum(["first_person", "third_person", "top_down"])
         .optional()
         .describe(
-          "Camera mode: 'first_person' or 'third_person'. Defaults to 'first_person'"
+          "Movement mode: 'first_person' (mouse-look body+camera, WASD relative to facing), 'third_person' (mouse yaw, WASD relative to facing, boom camera), or 'top_down' (screen-relative WASD, fixed overhead camera, no jump). Defaults to 'first_person'"
         ),
       moveSpeed: z
         .number()
@@ -39,11 +39,29 @@ export function registerTemplateTools(
       jumpForce: z
         .number()
         .optional()
-        .describe("Jump force. Defaults to 350"),
+        .describe("Jump force (ignored for top_down). Defaults to 350"),
       sprintMultiplier: z
         .number()
         .optional()
-        .describe("Sprint speed multiplier. Defaults to 1.5"),
+        .describe("Sprint speed multiplier (held 'run' action). Defaults to 1.5"),
+      placeInScene: z
+        .boolean()
+        .optional()
+        .describe(
+          "If true, build a player rig in the scene: a GameObject (tagged 'player') with a CharacterController and (unless createCamera=false) a Camera. The generated controller component is NOT attached in this call — trigger_hotload then add_component_with_properties on the returned GameObject. Defaults to false (file-only)."
+        ),
+      createCamera: z
+        .boolean()
+        .optional()
+        .describe(
+          "When placeInScene is true, also create a Camera (FP/TP: child at eye/boom offset; top_down: fixed overhead). Defaults to true."
+        ),
+      spawnPosition: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .optional()
+        .describe(
+          "When placeInScene is true, the world position to spawn the player rig at. Defaults to the origin."
+        ),
     },
     async (params) => {
       const res = await bridge.send("create_player_controller", params);

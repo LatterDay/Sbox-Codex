@@ -1748,16 +1748,69 @@ public class StopPlayHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
+		// StartPlayHandler enters play via the editor's own EditorScene.Play(session) path.
+		// The symmetric teardown is the STATIC EditorScene.Stop() — it tears down the play
+		// GameSession and restores the editor scene the same way the editor's Stop button
+		// does. The previous code only called the instance-level SceneEditorSession.StopPlaying(),
+		// which is the lower half of that and can leave Game.IsPlaying (the engine "gameFlag")
+		// stuck true — which then blocks scene-mutating commands. We now prefer EditorScene.Stop(),
+		// fall back to StopPlaying(), then verify gameFlag and re-stop once if it's still set.
+		string method = null;
+		string warning = null;
 		try
 		{
-			SceneEditorSession.Active?.StopPlaying();
+			try
+			{
+				EditorScene.Stop();
+				method = "EditorScene.Stop";
+			}
+			catch ( Exception editorEx )
+			{
+				SceneEditorSession.Active?.StopPlaying();
+				method = "SceneEditorSession.StopPlaying (fallback)";
+				warning = $"EditorScene.Stop failed, used StopPlaying fallback: {editorEx.Message}";
+			}
+
+			// Always clear the tracked flag regardless of which path stopped play.
 			PlayState.IsPlaying = false;
-			return Task.FromResult<object>( new { stopped = true } );
+
+			// Verify the engine actually left play. If gameFlag is still set, try the other
+			// teardown call once more — this is the documented engine-state quirk.
+			bool stillPlaying = false;
+			try { stillPlaying = Game.IsPlaying; } catch { }
+
+			if ( stillPlaying )
+			{
+				try { SceneEditorSession.Active?.StopPlaying(); } catch { }
+				try { EditorScene.Stop(); } catch { }
+				PlayState.IsPlaying = false;
+				try { stillPlaying = Game.IsPlaying; } catch { }
+				if ( stillPlaying )
+					warning = ( warning == null ? "" : warning + " " ) +
+						"Game.IsPlaying still reports true immediately after stop (engine clears it on a later frame). " +
+						"The tracked flag is cleared; if a scene edit is still blocked, retry it next frame or restart the editor.";
+			}
+
+			return Task.FromResult<object>( new
+			{
+				stopped = true,
+				method,
+				gameFlag = SafeGameIsPlaying(),
+				tracked = PlayState.IsPlaying,
+				warning
+			} );
 		}
 		catch ( Exception ex )
 		{
-			return Task.FromResult<object>( new { error = $"Failed to stop play: {ex.Message}" } );
+			// Even on a hard failure, clear our tracked flag so is_playing isn't wedged on it.
+			PlayState.IsPlaying = false;
+			return Task.FromResult<object>( new { error = $"Failed to stop play: {ex.Message}", method, tracked = PlayState.IsPlaying } );
 		}
+	}
+
+	static bool SafeGameIsPlaying()
+	{
+		try { return Game.IsPlaying; } catch { return false; }
 	}
 }
 
@@ -2322,6 +2375,22 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "PlayerController";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
+		// Movement mode — honor the advertised `type` enum. Default first_person (back-compat).
+		var type = ( p.TryGetProperty( "type", out var tEl ) ? tEl.GetString() : "first_person" )
+			?.ToLowerInvariant() switch
+			{
+				"third_person" => "third_person",
+				"top_down"     => "top_down",
+				_              => "first_person"
+			};
+
+		// Tunables — these were previously DEAD (hardcoded). Now they flow into the
+		// generated [Property] defaults. Invariant-culture formatting so a comma-decimal
+		// locale can't emit "300,0f" and break the generated code's compile.
+		float moveSpeed   = ReadFloat( p, "moveSpeed",        300f );
+		float jumpForce   = ReadFloat( p, "jumpForce",        350f );
+		float sprintMult  = ReadFloat( p, "sprintMultiplier", 1.5f );
+
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
 		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
@@ -2332,12 +2401,136 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
-		var code = $@"using Sandbox;
+		var code = BuildControllerCode( className, type, moveSpeed, jumpForce, sprintMult );
+		// Generated game code is SANDBOXED — write UTF-8 without BOM (the s&box compiler reads it).
+		File.WriteAllText( fullPath, code, new UTF8Encoding( false ) );
 
+		// ── Optional in-scene placement (opt-in; default behavior is file-only, back-compat). ──
+		// The just-generated component type is NOT in the TypeLibrary until a hotload, so we
+		// CANNOT attach it here in the same call. We build the player rig (GO + CharacterController
+		// + optional Camera) and report a clear note telling the caller to trigger_hotload then
+		// add_component_with_properties (component="<className>") on the returned GameObject.
+		bool placeInScene = p.TryGetProperty( "placeInScene", out var pisEl ) && pisEl.ValueKind == JsonValueKind.True;
+		object placed = null;
+		string note = null;
+
+		if ( placeInScene )
+		{
+			placed = BuildPlayerRig( p, className, type, out note );
+		}
+
+		return Task.FromResult<object>( new
+		{
+			created = true,
+			path = $"{directory}/{fileName}",
+			className,
+			type,
+			moveSpeed, jumpForce, sprintMultiplier = sprintMult,
+			gameObject = placed,
+			note
+		} );
+	}
+
+	static float ReadFloat( JsonElement p, string key, float fallback )
+	{
+		if ( !p.TryGetProperty( key, out var e ) ) return fallback;
+		if ( e.ValueKind == JsonValueKind.Number && e.TryGetSingle( out var f ) ) return f;
+		if ( e.ValueKind == JsonValueKind.String
+		     && float.TryParse( e.GetString(), System.Globalization.NumberStyles.Float,
+		                        System.Globalization.CultureInfo.InvariantCulture, out var fs ) ) return fs;
+		return fallback;
+	}
+
+	// ── Build the player rig: a GO at spawnPosition with a CharacterController and (for
+	//    FP/TP) a child Camera. Reuses the same scene-mutation APIs the other handlers use.
+	//    Does NOT attach the generated controller component (needs a hotload first).
+	static object BuildPlayerRig( JsonElement p, string className, string type, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+
+		var go = scene.CreateObject( true );
+		go.Name = className;
+		go.Tags.Add( "player" );
+
+		if ( p.TryGetProperty( "spawnPosition", out var sp ) )
+			go.WorldPosition = ClaudeBridge.ParseVector3( sp );
+
+		// CharacterController is a built-in type — always in the TypeLibrary, safe to add now.
+		try { go.AddComponent<CharacterController>(); }
+		catch ( Exception ex ) { note = $"CharacterController add failed: {ex.Message}"; }
+
+		// Camera: child for FP/TP at eye height; fixed overhead for top_down.
+		bool createCamera = !p.TryGetProperty( "createCamera", out var cc ) || cc.ValueKind != JsonValueKind.False;
+		if ( createCamera )
+		{
+			try
+			{
+				var camGo = scene.CreateObject( true );
+				camGo.Name = "Camera";
+				var cam = camGo.AddComponent<CameraComponent>();
+
+				switch ( type )
+				{
+					case "top_down":
+						// Fixed camera high above the spawn, looking straight down.
+						camGo.WorldPosition = go.WorldPosition + Vector3.Up * 600f;
+						camGo.WorldRotation = Rotation.From( 90f, 0f, 0f ); // pitch down
+						break;
+					case "third_person":
+						camGo.SetParent( go, keepWorldPosition: false );
+						camGo.LocalPosition = new Vector3( -150f, 0f, 80f ); // boom behind + above
+						camGo.LocalRotation = Rotation.From( 10f, 0f, 0f );
+						break;
+					default: // first_person
+						camGo.SetParent( go, keepWorldPosition: false );
+						camGo.LocalPosition = new Vector3( 0f, 0f, 64f ); // eye height
+						camGo.LocalRotation = Rotation.Identity;
+						break;
+				}
+			}
+			catch ( Exception ex )
+			{
+				note = ( note == null ? "" : note + " " ) + $"Camera setup failed: {ex.Message}";
+			}
+		}
+
+		note = ( note == null ? "" : note + " " ) +
+			$"Built the player rig (GameObject + CharacterController" + ( createCamera ? " + Camera" : "" ) +
+			$"). The {className} controller is NOT attached yet — it's not in the TypeLibrary until a recompile. " +
+			$"Next: trigger_hotload, then add_component_with_properties (id=this GameObject, component=\"{className}\").";
+
+		return ClaudeBridge.SerializeGo( go );
+	}
+
+	// ── Generate the controller .cs by movement mode. EVERY API used here is sandbox-legal
+	//    and was verified against the live type library:
+	//      Input.AnalogMove (.x/.y), Input.AnalogLook (.yaw/.pitch), Input.Pressed/Down(string),
+	//      CharacterController.IsOnGround/Punch/Accelerate/ApplyFriction(f)/Move(),
+	//      Scene.Camera (CameraComponent), MathX (NOT System.Math). ApplyFriction(10f) matches
+	//      the long-shipping FP template's proven single-arg call.
+	static string BuildControllerCode( string className, string type, float moveSpeed, float jumpForce, float sprintMult )
+	{
+		string Inv( float v ) => v.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
+		string ms = Inv( moveSpeed );
+		string jf = Inv( jumpForce );
+		string sm = Inv( sprintMult );
+
+		switch ( type )
+		{
+			case "top_down":
+				// Screen-relative WASD, no mouse-look, no jump. A fixed overhead camera frames the player.
+				return $@"using Sandbox;
+
+/// <summary>
+/// {className} — TOP-DOWN movement. WASD moves the player on the XY plane relative to the
+/// world (the camera looks straight down). Self-contained; pair it with an overhead Camera.
+/// </summary>
 public sealed class {className} : Component
 {{
-	[Property] public float MoveSpeed {{ get; set; }} = 200f;
-	[Property] public float JumpForce {{ get; set; }} = 400f;
+	[Property] public float MoveSpeed {{ get; set; }} = {ms};
+	[Property] public float SprintMultiplier {{ get; set; }} = {sm};
 
 	private CharacterController _controller;
 
@@ -2348,25 +2541,119 @@ public sealed class {className} : Component
 
 	protected override void OnUpdate()
 	{{
-		if ( _controller == null ) return;
+		if ( _controller is null ) return;
 
-		var move = new Vector3(
-			Input.AnalogMove.x,
-			0,
-			Input.AnalogMove.y
-		) * MoveSpeed;
+		// Screen-relative on the ground plane. AnalogMove.x = strafe, .y = forward.
+		float speed = MoveSpeed * ( Input.Down( ""run"" ) ? SprintMultiplier : 1f );
+		var wish = new Vector3( Input.AnalogMove.y, Input.AnalogMove.x, 0f ).Normal * speed;
+
+		_controller.Accelerate( wish );
+		_controller.ApplyFriction( 8f );
+		_controller.Move();
+	}}
+}}
+";
+
+			case "third_person":
+				// Camera-relative WASD + mouse yaw on the body + jump/sprint. Camera is a child boom.
+				return $@"using Sandbox;
+
+/// <summary>
+/// {className} — THIRD-PERSON movement. Mouse yaw turns the body; WASD moves relative to the
+/// body's facing; Space jumps; the 'run' action sprints. Put a Camera child behind/above the
+/// player (a boom). Self-contained — no hard dependency on any other script.
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public float MoveSpeed {{ get; set; }} = {ms};
+	[Property] public float JumpForce {{ get; set; }} = {jf};
+	[Property] public float SprintMultiplier {{ get; set; }} = {sm};
+
+	private CharacterController _controller;
+
+	protected override void OnStart()
+	{{
+		_controller = GetOrAddComponent<CharacterController>();
+	}}
+
+	protected override void OnUpdate()
+	{{
+		if ( _controller is null ) return;
+
+		// Mouse yaw turns the whole body (the camera boom is a child, so it follows).
+		var ang = WorldRotation.Angles();
+		ang.yaw += Input.AnalogLook.yaw;
+		ang.pitch = 0f;
+		ang.roll = 0f;
+		WorldRotation = ang.ToRotation();
+
+		// WASD relative to where the body faces.
+		float speed = MoveSpeed * ( Input.Down( ""run"" ) ? SprintMultiplier : 1f );
+		var wish = ( WorldRotation.Forward * Input.AnalogMove.x + WorldRotation.Left * Input.AnalogMove.y ).Normal * speed;
 
 		if ( _controller.IsOnGround && Input.Pressed( ""jump"" ) )
 			_controller.Punch( Vector3.Up * JumpForce );
 
-		_controller.Accelerate( move );
+		_controller.Accelerate( wish );
 		_controller.ApplyFriction( 10f );
 		_controller.Move();
 	}}
 }}
 ";
-		File.WriteAllText( fullPath, code );
-		return Task.FromResult<object>( new { created = true, path = $"{directory}/{fileName}", className } );
+
+			default: // first_person
+				// WASD relative to facing + full mouse-look (body yaw, camera pitch) + jump/sprint.
+				return $@"using Sandbox;
+
+/// <summary>
+/// {className} — FIRST-PERSON movement. Mouse yaw turns the body, mouse pitch tilts the child
+/// Camera (clamped); WASD moves relative to facing; Space jumps; the 'run' action sprints.
+/// Put a Camera child at eye height. Self-contained.
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public float MoveSpeed {{ get; set; }} = {ms};
+	[Property] public float JumpForce {{ get; set; }} = {jf};
+	[Property] public float SprintMultiplier {{ get; set; }} = {sm};
+
+	private CharacterController _controller;
+	private float _pitch;
+
+	protected override void OnStart()
+	{{
+		_controller = GetOrAddComponent<CharacterController>();
+	}}
+
+	protected override void OnUpdate()
+	{{
+		if ( _controller is null ) return;
+
+		// Body yaw from the mouse.
+		var ang = WorldRotation.Angles();
+		ang.yaw += Input.AnalogLook.yaw;
+		ang.pitch = 0f;
+		ang.roll = 0f;
+		WorldRotation = ang.ToRotation();
+
+		// Camera pitch from the mouse (clamped). Scene.Camera is the active CameraComponent.
+		_pitch = MathX.Clamp( _pitch + Input.AnalogLook.pitch, -89f, 89f );
+		if ( Scene?.Camera is not null )
+			Scene.Camera.WorldRotation = Rotation.From( _pitch, ang.yaw, 0f );
+
+		// WASD relative to facing.
+		float speed = MoveSpeed * ( Input.Down( ""run"" ) ? SprintMultiplier : 1f );
+		var wish = ( WorldRotation.Forward * Input.AnalogMove.x + WorldRotation.Left * Input.AnalogMove.y ).Normal * speed;
+
+		if ( _controller.IsOnGround && Input.Pressed( ""jump"" ) )
+			_controller.Punch( Vector3.Up * JumpForce );
+
+		_controller.Accelerate( wish );
+		_controller.ApplyFriction( 10f );
+		_controller.Move();
+	}}
+}}
+";
+		}
 	}
 }
 

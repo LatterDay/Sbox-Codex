@@ -72,15 +72,18 @@ internal static class ScaffoldHelpers
 				var pd = typeDesc.Properties.FirstOrDefault( pp => pp.Name == prop.Name );
 				if ( pd == null ) continue;
 
+				// Coerce the JSON token to the property's type. CRITICAL: a number/bool
+				// token must NOT be read via GetString() — that throws InvalidOperationException
+				// on a non-string token, and the best-effort catch then silently swallowed it,
+				// dropping numeric props entirely. Read numbers as numbers, strings as strings,
+				// and tolerate a numeric string ({"Scale":"2"}) too. Mirrors NpcBrainHelpers.Float/Int.
 				var propType = pd.PropertyType;
 				object typedValue = propType?.Name switch
 				{
-					"Single"  or "float"  => float.Parse( prop.Value.GetString() ),
-					"Double"  or "double" => double.Parse( prop.Value.GetString() ),
-					"Int32"   or "int"    => int.Parse( prop.Value.GetString() ),
-					"Boolean" or "bool"   => prop.Value.ValueKind == JsonValueKind.True
-					                          || ( prop.Value.ValueKind == JsonValueKind.String
-					                               && bool.TryParse( prop.Value.GetString(), out var b ) && b ),
+					"Single"  or "float"  => (object) CoerceFloat( prop.Value ),
+					"Double"  or "double" => (object) (double) CoerceFloat( prop.Value ),
+					"Int32"   or "int"    => (object) CoerceInt( prop.Value ),
+					"Boolean" or "bool"   => (object) CoerceBool( prop.Value ),
 					_                     => prop.Value.ValueKind == JsonValueKind.String
 					                          ? prop.Value.GetString()
 					                          : prop.Value.ToString()
@@ -91,6 +94,34 @@ internal static class ScaffoldHelpers
 			catch { /* best-effort, same as AddComponentWithPropertiesHandler */ }
 		}
 		return applied;
+	}
+
+	/// <summary>Read a JSON token as a float — accepts a JSON number OR a numeric string.</summary>
+	static float CoerceFloat( JsonElement v )
+	{
+		if ( v.ValueKind == JsonValueKind.Number && v.TryGetSingle( out var f ) ) return f;
+		if ( v.ValueKind == JsonValueKind.String
+		     && float.TryParse( v.GetString(), System.Globalization.NumberStyles.Float,
+		                        System.Globalization.CultureInfo.InvariantCulture, out var fs ) ) return fs;
+		return float.Parse( v.ToString(), System.Globalization.CultureInfo.InvariantCulture );
+	}
+
+	/// <summary>Read a JSON token as an int — accepts a JSON number OR a numeric string.</summary>
+	static int CoerceInt( JsonElement v )
+	{
+		if ( v.ValueKind == JsonValueKind.Number && v.TryGetInt32( out var i ) ) return i;
+		if ( v.ValueKind == JsonValueKind.String && int.TryParse( v.GetString(), out var iss ) ) return iss;
+		// Tolerate a float-shaped number/string for an int property (e.g. 2.0 -> 2).
+		return (int) CoerceFloat( v );
+	}
+
+	/// <summary>Read a JSON token as a bool — accepts true/false tokens OR a "true"/"false" string.</summary>
+	static bool CoerceBool( JsonElement v )
+	{
+		if ( v.ValueKind == JsonValueKind.True ) return true;
+		if ( v.ValueKind == JsonValueKind.False ) return false;
+		if ( v.ValueKind == JsonValueKind.String && bool.TryParse( v.GetString(), out var b ) ) return b;
+		return false;
 	}
 
 	/// <summary>
