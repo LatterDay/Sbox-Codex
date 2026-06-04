@@ -21,7 +21,7 @@ If your change affects anything visual (a model, a position, an animation, a UI 
 mcp__sbox__get_bridge_status
 ```
 
-If timed out: s&box isn't running, or the **Claude Bridge dock is closed** — the dock must stay visible for the bridge's frame loop to process requests. Don't go further until it responds.
+If timed out: s&box isn't running, or the editor is mid-compile/relaunch. (The bridge's frame loop runs independently of the dock as of v1.3.0 — the dock no longer needs to be open.) Don't go further until it responds.
 
 ### 2. Brainstorm before code (for non-trivial features)
 
@@ -82,6 +82,17 @@ For diagnosing a compile/runtime failure, you don't need the editor to respond: 
 
 For timing-sensitive captures (e.g. a 0.20s animation phase), coordinate with the user: "press the action and tell me 'go' the moment you do" — fire `take_screenshot` immediately, the round-trip captures roughly the right window.
 
+## Seeing & driving the RUNNING game (play mode)
+
+The bridge can verify *gameplay*, not just the edit scene — but the play-mode tools behave differently from the edit-mode ones:
+
+- **`capture_view` is the play-mode eyes.** It renders a camera's view of the *active* scene (`RenderToBitmap`), so in **play mode it captures the running game** — no args = the live main camera (player POV); pass `position`/`id` for a temp camera at any angle. `take_screenshot`/`screenshot_from` are **edit-only**. After it returns, `Read` the PNG at the `path` it gives you.
+- **`capture_view` sees *through* screen-space menus.** It renders the world + **world-space** UI but NOT fullscreen **screen-space** panels (lobby/title `ScreenPanel`s) — so a fullscreen lobby overlay won't black it out, but it also won't show screen-space HUD. `take_screenshot` (literal viewport) is the screen-space-UI complement.
+- **To start a match / fire game logic / get past an in-game menu, use `invoke_button`.** It calls *any parameterless public method* on a component (not just `[Button]`s) — e.g. `invoke_button` with `component="SasquatchedGame" method="StartGame"` leaves the lobby. The bridge can't synthesize a UI click; this is how you drive game state.
+- **Networked components are proxies in a no-session solo playtest** — a host-authoritative component (`if (IsProxy) return;`) won't run solo. Generate NPC brains etc. with `networked:false` to iterate solo, or start a host session.
+- **Prove runtime behavior with `get_runtime_property`** (an NPC's `CurrentState`, a health value, etc.) — unambiguous, and it works even under a menu overlay.
+- **Play-state is reliable now:** `stop_play` actually stops (symmetric `EditorScene.Stop`) and `is_playing.isPlaying` is authoritative.
+
 ## Common s&box gotchas (so you don't re-discover them)
 
 | Gotcha | What to do instead |
@@ -98,9 +109,14 @@ For timing-sensitive captures (e.g. a 0.20s animation phase), coordinate with th
 | `set_property` for `Color` wants `"r, g, b, a"` as a string, not a JSON object | Format the value as a comma-separated string |
 | `take_screenshot` renders the **Main Camera** (one fixed angle) and ignores its `path` arg | Use `screenshot_from` to aim at your target; read the latest file in `<sbox>/screenshots/` |
 | Runtime `ParticleEffect` tools (`spawn_particle`, `add_trail`, `add_beam`) don't render through the bridge | Use `spawn_vpcf` (compiled `.vpcf` + `LegacyParticleSystem`) |
-| `is_playing.sessionPlaying` can read stale (true in edit mode after a restart) | Trust the `gameFlag` field |
+| Play-state flags | `is_playing.isPlaying` is authoritative (`gameFlag‖tracked`); `sessionPlaying` is diagnostic-only and can read stale |
 | A placed `EnvmapProbe` captures nothing until baked | Call `bake_reflections` |
 | Scene-mutating tools refused during play mode (v1.2.0+) | Stop play, mutate, restart play |
+| `play_animation` is overridden by the animgraph on a Citizen | Use `set_animgraph_param` (`duck`, `move_x`/`move_y`, …) for Citizens; `play_animation` is for raw-sequence models |
+| Code-gen tools (`create_npc_brain`, `create_*_system`, `create_player_controller`) write game-code *strings* — inspection misses compile errors | Always compile-verify the generated component: `describe_type <Class>` resolves only if it compiled (or scan the log for `error CS`) |
+| `trigger_hotload` doesn't reliably recompile externally-edited `.cs` | Entering play (`start_play`) forces the project recompile; **addon** changes need a full `restart_editor` |
+| Generated game code runs in the sandbox | `MathX` not `System.Math`/`MathF`; only sandbox-allowed BCL |
+| `set_property`/`add_component_with_properties` now coerce asset + reference props | You can set `Model`/`Material`/`GameObject`/`Component` props by path/GUID; an unresolvable value returns `success:false` (no more silent null) |
 
 ## Project-level CLAUDE.md
 

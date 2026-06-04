@@ -1,6 +1,22 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BridgeClient } from "../transport/bridge-client.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+// The running MCP server's own version (from package.json) — compared against the
+// addon's reported BridgeVersion to catch a stale server vs. a newer addon (or vice
+// versa), the #1 source of "the new tools aren't showing up" confusion.
+let SERVER_VERSION = "unknown";
+try {
+  const pkg = JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json"), "utf-8")
+  );
+  SERVER_VERSION = (pkg.version as string) ?? "unknown";
+} catch {
+  /* best-effort */
+}
 
 /**
  * Diagnostic and health-check tool (get_bridge_status).
@@ -43,12 +59,17 @@ export function registerStatusTools(
         }
       }
 
+      const versionsAligned =
+        bridgeVersion == null || bridgeVersion === SERVER_VERSION;
+
       const status = {
         connected,
         ipcDir,
         heartbeatAgeMs,
         roundTripOk,
         bridgeVersion,
+        mcpServerVersion: SERVER_VERSION,
+        versionsAligned,
         handlerCount,
         latencyMs: connected ? latencyMs : null,
         lastPong: connected
@@ -63,7 +84,7 @@ export function registerStatusTools(
       if (!connected) {
         text = `Bridge NOT connected — no recent heartbeat in ${ipcDir}. Is s&box running with the Claude Bridge addon?`;
       } else if (roundTripOk) {
-        text = `Bridge connected and responding — v${bridgeVersion ?? "?"}, ${handlerCount ?? "?"} handlers (IPC: ${ipcDir}, heartbeat ${heartbeatAgeMs ?? "?"}ms ago).`;
+        text = `Bridge connected and responding — addon v${bridgeVersion ?? "?"} / server v${SERVER_VERSION}, ${handlerCount ?? "?"} handlers (IPC: ${ipcDir}, heartbeat ${heartbeatAgeMs ?? "?"}ms ago).${versionsAligned ? "" : ` ⚠️ Version mismatch — restart Claude Code (and/or republish the addon) so the MCP server and addon match.`}`;
       } else {
         text = `Bridge heartbeat is live but a test round-trip FAILED — the editor isn't draining requests. IPC: ${ipcDir}. Check the s&box editor console for [SboxBridge] lines.`;
       }

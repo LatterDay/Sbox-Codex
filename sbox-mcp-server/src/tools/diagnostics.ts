@@ -527,7 +527,7 @@ export function registerDiagnosticTools(
         .optional()
         .describe("Explicit camera rotation (pair with position)"),
       fov: z.number().optional().describe("Field of view for the temp camera"),
-      renderUI: z.boolean().optional().describe("Include UI/HUD in the capture (default true)"),
+      renderUI: z.boolean().optional().describe("Include UI/HUD (default true). Renders world + world-space UI but NOT fullscreen screen-space panels (lobby/title overlays) — so capture_view sees 'through' menus; use take_screenshot for screen-space UI."),
       width: z.number().int().optional().describe("Width (default 1280)"),
       height: z.number().int().optional().describe("Height (default 720)"),
     },
