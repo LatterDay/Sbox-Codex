@@ -39,13 +39,15 @@ export function registerGameplayTools(
   bridge: BridgeClient
 ): void {
   // ── set_component_reference ───────────────────────────────────────
-  // The highest-value gap-filler: assign one scene GameObject (or a component
-  // on it) to a component property. set_property only does primitives;
-  // set_prefab_ref only assigns a PREFAB asset. This wires live scene objects:
-  // Spawner.SpawnPoint = thatEmpty, Camera follows thatPlayer, Door.Hinge = thatPivot.
+  // Assign one scene GameObject (or a component on it) to a component property.
+  // set_property can now also set a GameObject/Component ref from a GUID, but this
+  // tool is the ergonomic choice for refs: it can pull a specific component type off
+  // the target (targetComponent) and validates the wiring. set_prefab_ref is for
+  // PREFAB assets. Wires live scene objects: Spawner.SpawnPoint = thatEmpty,
+  // Camera follows thatPlayer, Door.Hinge = thatPivot.
   server.tool(
     "set_component_reference",
-    "Wire a component's GameObject/Component-typed property to ANOTHER live object in the scene by GUID (e.g. ObjectiveManager.Player = the player, a camera's follow target, a door's hinge). Fills the gap set_property (primitives only) and set_prefab_ref (prefab assets only) can't. Set clear:true to null the reference",
+    "Wire a component's GameObject/Component-typed property to ANOTHER live object in the scene by GUID (e.g. ObjectiveManager.Player = the player, a camera's follow target, a door's hinge). Preferred for object/component refs (can pick a specific component type off the target via targetComponent, and validates). set_property also accepts a GUID for ref props; set_prefab_ref is for prefab assets. Set clear:true to null the reference",
     {
       id: z
         .string()

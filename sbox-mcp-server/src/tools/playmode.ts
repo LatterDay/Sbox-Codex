@@ -123,12 +123,16 @@ export function registerPlayModeTools(
   // ── set_property ─────────────────────────────────────────────────
   server.tool(
     "set_property",
-    "Set a property value on a component (editor mode). Reads the value back to confirm",
+    "Set a property value on a component (editor mode), and PERSIST it (survives save+reload). Handles primitives, enums, value types (Color/Vector3 as comma strings), AND references: pass an asset PATH for Model/Material/Texture/SoundEvent props, or a GameObject GUID for GameObject/Component-typed props (resolved like set_component_reference). Returns success=false with a clear error if a path/GUID can't be resolved (no more silent null). For wiring object refs prefer set_component_reference; for prefab refs use set_prefab_ref",
     {
       id: z.string().describe("GUID of the GameObject"),
       component: z.string().describe("Component type name"),
       property: z.string().describe("Property name to set"),
-      value: z.unknown().describe("New value — auto-converted to the correct type"),
+      value: z
+        .unknown()
+        .describe(
+          "New value as a string. Primitive: '5', 'true'. Color/Vector3: '1,0,0,1' / '0,0,200'. Enum: the member name. Asset ref (Model/Material/...): the asset path e.g. 'models/dev/box.vmdl'. GameObject/Component ref: the target GameObject's GUID. Empty/'null' clears the property"
+        ),
     },
     async (params) => {
       const res = await bridge.send("set_property", params);

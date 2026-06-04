@@ -72,24 +72,23 @@ internal static class ScaffoldHelpers
 				var pd = typeDesc.Properties.FirstOrDefault( pp => pp.Name == prop.Name );
 				if ( pd == null ) continue;
 
-				// Coerce the JSON token to the property's type. CRITICAL: a number/bool
-				// token must NOT be read via GetString() — that throws InvalidOperationException
-				// on a non-string token, and the best-effort catch then silently swallowed it,
-				// dropping numeric props entirely. Read numbers as numbers, strings as strings,
-				// and tolerate a numeric string ({"Scale":"2"}) too. Mirrors NpcBrainHelpers.Float/Int.
-				var propType = pd.PropertyType;
-				object typedValue = propType?.Name switch
+				// Normalize the JSON token to a string, then route through the shared
+				// type-aware coercion (ClaudeBridge.CoercePropertyAndSet). This fixes the
+				// same reference/asset gap as set_property: a Model/Material/GameObject/
+				// Component property used to receive a raw string and silently stayed null.
+				// Now they're loaded/resolved to the right typed value so they persist.
+				// Numbers/bools/value-type strings keep working. Best-effort per property.
+				string valStr = prop.Value.ValueKind switch
 				{
-					"Single"  or "float"  => (object) CoerceFloat( prop.Value ),
-					"Double"  or "double" => (object) (double) CoerceFloat( prop.Value ),
-					"Int32"   or "int"    => (object) CoerceInt( prop.Value ),
-					"Boolean" or "bool"   => (object) CoerceBool( prop.Value ),
-					_                     => prop.Value.ValueKind == JsonValueKind.String
-					                          ? prop.Value.GetString()
-					                          : prop.Value.ToString()
+					JsonValueKind.String => prop.Value.GetString(),
+					JsonValueKind.True   => "true",
+					JsonValueKind.False  => "false",
+					JsonValueKind.Null   => "null",
+					_                    => prop.Value.GetRawText()
 				};
-				pd.SetValue( component, typedValue );
-				applied.Add( prop.Name );
+
+				if ( ClaudeBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out _ ) )
+					applied.Add( prop.Name );
 			}
 			catch { /* best-effort, same as AddComponentWithPropertiesHandler */ }
 		}

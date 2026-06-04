@@ -82,7 +82,7 @@ export function registerComponentTools(
   // ── add_component_with_properties ────────────────────────────────
   server.tool(
     "add_component_with_properties",
-    "Add a component to a GameObject and configure its properties in one call. Use list_available_components to find valid types",
+    "Add a component to a GameObject and configure its properties in one call (properties PERSIST through save+reload). Use list_available_components to find valid types. Returns appliedProperties + failedProperties so you can see exactly what stuck",
     {
       id: z.string().describe("GUID of the GameObject"),
       component: z
@@ -92,7 +92,7 @@ export function registerComponentTools(
         .record(z.unknown())
         .optional()
         .describe(
-          "Key-value map of property names to values. Values are auto-converted to the correct type"
+          "Key-value map of property names to values, each auto-converted to the property's real type. Primitives '5'/true; Color/Vector3 as comma strings '1,0,0,1'; enum member names; ASSET refs as a path ('Model':'models/dev/box.vmdl', 'MaterialOverride':'materials/x.vmat'); GameObject/Component refs as a target GUID. Best-effort per key — failures are reported in failedProperties, not silently dropped"
         ),
     },
     async (params) => {

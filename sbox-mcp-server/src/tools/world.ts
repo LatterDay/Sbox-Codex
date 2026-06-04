@@ -25,14 +25,14 @@ export function registerWorldTools(
   // ── invoke_button ────────────────────────────────────────────────
   server.tool(
     "invoke_button",
-    "Press a [Button] on a component (e.g. 'Build Terrain' on MapBuilder). Matches by attribute label, then method name. The keystone for driving any component-with-buttons workflow.",
+    "Call a no-argument public method on a component. Matching is tried in order: (1) a [Button] attribute label, (2) the exact method NAME, (3) case-insensitive name with spaces stripped. So this calls ANY parameterless public method, not only [Button]-attributed ones (e.g. 'StartGame' works even without a [Button]). This is the general 'call a component method to drive game state' tool. LIMITATION: parameterless methods only — methods that take arguments are skipped. (list_component_buttons only lists [Button] methods, so a plain method may be invokable yet not appear there.)",
     {
       component: z
         .string()
-        .describe("Component type name (e.g. 'MapBuilder', 'CaveBuilder')"),
+        .describe("Component type name (e.g. 'MapBuilder', 'SasquatchedGame')"),
       button: z
         .string()
-        .describe("Button label or method name (e.g. 'Build Terrain', 'Generate Forest')"),
+        .describe("A [Button] label OR a public no-arg method name (e.g. 'Build Terrain', 'StartGame'); case- and space-insensitive"),
       id: z
         .string()
         .optional()
@@ -48,7 +48,7 @@ export function registerWorldTools(
   // ── list_component_buttons ───────────────────────────────────────
   server.tool(
     "list_component_buttons",
-    "List all [Button]s available on a component. Use before invoke_button to discover what's there.",
+    "List the [Button]-attributed methods on a component. NOTE: this only finds methods decorated with [Button]; invoke_button can ALSO call any plain public no-arg method by name, so a method missing here may still be invokable. Use describe_type / get_method_signature to find non-button methods.",
     {
       component: z.string().describe("Component type name"),
       id: z.string().optional().describe("Optional GameObject GUID"),

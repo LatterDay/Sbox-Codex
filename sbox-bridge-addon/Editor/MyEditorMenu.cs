@@ -768,6 +768,157 @@ public static class ClaudeBridge
 		return Rotation.From( pitch, yaw, roll );
 	}
 
+	/// <summary>
+	/// Coerce a string value to a component property's real type and SET it.
+	///
+	/// WHY THIS EXISTS: the old set_property / add_component_with_properties type
+	/// switch only handled float/double/int/bool/string and passed every other
+	/// type's value through as a raw STRING. s&box's PropertyDescription.SetValue
+	/// auto-parses a string into value types (Vector3, Color, Rotation, Angles…),
+	/// so those "just worked" — but it does NOT parse a string into a Model /
+	/// Material / Texture / SoundEvent / prefab / GameObject / Component REFERENCE.
+	/// Those silently stayed null, yet the handler still reported success=true, and
+	/// the null then serialized into the saved .scene. (Verified: assign_model and
+	/// set_component_reference persist fine; only the string-coercion path was broken.)
+	///
+	/// This routes asset/resource refs through ResourceLibrary.Get&lt;T&gt; (the same
+	/// path the scene deserializer uses) and object/component refs through the active
+	/// scene directory by GUID, so the CORRECT typed object is assigned and therefore
+	/// serializes. Value types/enums/strings keep the old (working) behavior.
+	///
+	/// Returns true on a successful set. Returns false with <paramref name="error"/>
+	/// set when a non-empty ref/asset/guid value could not be resolved — callers
+	/// surface that as success=false instead of a false "set":true.
+	/// </summary>
+	/// <param name="propType">The property's declared type (propDesc.PropertyType).</param>
+	/// <param name="setValue">Closure that performs propDesc.SetValue( target, v ).</param>
+	/// <param name="propName">The property name (for error messages only).</param>
+	/// <remarks>
+	/// Takes the property via (type + setter closure + name) rather than a
+	/// PropertyDescription parameter ON PURPOSE: the rest of the addon never NAMES
+	/// the s&box reflection types (they use `var`) because their namespace isn't
+	/// guaranteed importable in this assembly. This keeps that invariant.
+	/// </remarks>
+	internal static bool CoercePropertyAndSet( Type propType, Action<object> setValue, string propName, string valueStr, out string error )
+	{
+		error = null;
+		if ( propType == null ) { error = "Could not resolve property type"; return false; }
+
+		// Treat empty / "null" as "clear the property" (assign default/null).
+		bool wantsNull = valueStr == null || valueStr == "null";
+
+		try
+		{
+			// 1. string — pass through (covers string props AND lets s&box coerce
+			//    value-type strings like "1,0,0,1" Color / "0,0,200" Vector3 / enums).
+			if ( propType == typeof( string ) )
+			{
+				setValue( valueStr );
+				return true;
+			}
+
+			// 2. primitives — explicit parse (invariant, same as before).
+			switch ( propType.Name )
+			{
+				case "Single":  case "float":  setValue( float.Parse( valueStr, System.Globalization.CultureInfo.InvariantCulture ) );  return true;
+				case "Double":  case "double": setValue( double.Parse( valueStr, System.Globalization.CultureInfo.InvariantCulture ) ); return true;
+				case "Int32":   case "int":    setValue( int.Parse( valueStr ) );    return true;
+				case "Int64":                  setValue( long.Parse( valueStr ) );   return true;
+				case "Boolean": case "bool":   setValue( bool.Parse( valueStr ) );   return true;
+			}
+
+			// 3. enum — parse by name (case-insensitive).
+			if ( propType.IsEnum )
+			{
+				if ( wantsNull ) { setValue( Activator.CreateInstance( propType ) ); return true; }
+				setValue( Enum.Parse( propType, valueStr, ignoreCase: true ) );
+				return true;
+			}
+
+			// 4. GameObject reference — resolve the string as a scene GUID.
+			if ( propType == typeof( GameObject ) )
+			{
+				if ( wantsNull ) { setValue( null ); return true; }
+				var scene = SceneEditorSession.Active?.Scene;
+				if ( scene == null ) { error = "No active scene to resolve GameObject reference"; return false; }
+				if ( !Guid.TryParse( valueStr, out var goGuid ) )
+				{ error = $"Property '{propName}' is a GameObject reference; value must be a GameObject GUID (got '{valueStr}'). Use set_component_reference."; return false; }
+				var refGo = scene.Directory.FindByGuid( goGuid );
+				if ( refGo == null ) { error = $"GameObject not found for GUID '{valueStr}'"; return false; }
+				setValue( refGo );
+				return true;
+			}
+
+			// 5. Component reference — resolve the GUID's GameObject, pull the component.
+			if ( typeof( Component ).IsAssignableFrom( propType ) )
+			{
+				if ( wantsNull ) { setValue( null ); return true; }
+				var scene = SceneEditorSession.Active?.Scene;
+				if ( scene == null ) { error = "No active scene to resolve Component reference"; return false; }
+				if ( !Guid.TryParse( valueStr, out var cGuid ) )
+				{ error = $"Property '{propName}' is a {propType.Name} reference; value must be a GameObject GUID (got '{valueStr}'). Use set_component_reference."; return false; }
+				var cGo = scene.Directory.FindByGuid( cGuid );
+				if ( cGo == null ) { error = $"GameObject not found for GUID '{valueStr}'"; return false; }
+				var comp = cGo.Components.GetAll().FirstOrDefault( c => propType.IsAssignableFrom( c.GetType() ) );
+				if ( comp == null ) { error = $"GameObject '{cGo.Name}' has no component assignable to '{propType.Name}'"; return false; }
+				setValue( comp );
+				return true;
+			}
+
+			// 6. Resource / GameResource (Model, Material, Texture, SoundEvent,
+			//    PrefabFile, custom GameResources…) — load by path via the generic
+			//    ResourceLibrary.Get<T>, the same accessor the scene deserializer uses.
+			if ( IsResourceType( propType ) )
+			{
+				if ( wantsNull ) { setValue( null ); return true; }
+				var loaded = LoadResource( propType, valueStr );
+				if ( loaded == null )
+				{ error = $"Could not load {propType.Name} from path '{valueStr}' (check the asset path)."; return false; }
+				setValue( loaded );
+				return true;
+			}
+
+			// 7. Everything else (Vector3, Color, Rotation, Angles, Transform…):
+			//    hand the string to s&box's setter, which parses value-type strings.
+			setValue( valueStr );
+			return true;
+		}
+		catch ( Exception ex )
+		{
+			error = $"Failed to set '{propName}' ({propType.Name}): {ex.Message}";
+			return false;
+		}
+	}
+
+	/// <summary>True if the type is an s&box asset/resource (Resource or GameResource subtype).</summary>
+	internal static bool IsResourceType( Type t )
+	{
+		for ( var b = t; b != null; b = b.BaseType )
+			if ( b.Name == "Resource" || b.Name == "GameResource" )
+				return true;
+		return false;
+	}
+
+	/// <summary>Load an asset of <paramref name="resourceType"/> from a project path via ResourceLibrary.Get&lt;T&gt;.</summary>
+	internal static object LoadResource( Type resourceType, string path )
+	{
+		try
+		{
+			// ResourceLibrary.Get<T> is generic with two overloads, Get<T>(string) and
+			// Get<T>(int). Type.GetMethod(name, Type[]) can't bind a generic method by
+			// arg types, so find it by hand: the open generic Get with a single string param.
+			var generic = typeof( ResourceLibrary )
+				.GetMethods( BindingFlags.Public | BindingFlags.Static )
+				.FirstOrDefault( m => m.Name == "Get"
+					&& m.IsGenericMethodDefinition
+					&& m.GetParameters().Length == 1
+					&& m.GetParameters()[0].ParameterType == typeof( string ) );
+			if ( generic == null ) return null;
+			return generic.MakeGenericMethod( resourceType ).Invoke( null, new object[] { path } );
+		}
+		catch { return null; }
+	}
+
 	internal static object SerializeGo( GameObject go )
 	{
 		return new
@@ -989,25 +1140,58 @@ public class LoadSceneHandler : IBridgeHandler
 	{
 		var scenePath = p.GetProperty( "path" ).GetString();
 		var rootPath  = Project.Current.GetRootPath();
+		var assetsPath = Project.Current.GetAssetsPath();
 
 		// Try as relative path first, then absolute
 		var fullPath = Path.IsPathRooted( scenePath )
 			? scenePath
 			: Path.GetFullPath( Path.Combine( rootPath, scenePath ) );
 
+		// Callers also pass an assets-relative path (e.g. "scenes/foo.scene"); resolve that too.
+		if ( !File.Exists( fullPath ) )
+		{
+			var altFull = Path.IsPathRooted( scenePath )
+				? scenePath
+				: Path.GetFullPath( Path.Combine( assetsPath, scenePath ) );
+			if ( File.Exists( altFull ) ) fullPath = altFull;
+		}
+
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Scene file not found: {scenePath}" } );
 
 		try
 		{
-			// SceneFile is the resource type for .scene files
-			var sceneFile = ResourceLibrary.Get<SceneFile>( scenePath );
+			// ResourceLibrary.Get<SceneFile> wants the path RELATIVE TO THE ASSETS FOLDER
+			// (e.g. "scenes/minimal.scene"), NOT the project-root-relative or absolute path.
+			// Build that from the resolved full path so any accepted input form works.
+			string assetRel = Path.GetRelativePath( assetsPath, fullPath ).Replace( '\\', '/' );
+
+			// SceneFile is the resource type for .scene files. Try the assets-relative path
+			// first, then fall back to the raw input (covers paths already in that form).
+			var sceneFile = ResourceLibrary.Get<SceneFile>( assetRel )
+				?? ResourceLibrary.Get<SceneFile>( scenePath );
+
+			// Fallback: ResourceLibrary.Get returns null if the .scene isn't currently
+			// registered (observed after switching between scenes — the resource for an
+			// inactive scene can be evicted). Resolve it through the AssetSystem instead,
+			// registering the file if needed, then load its SceneFile resource. This makes
+			// load_scene reliable regardless of the live ResourceLibrary registration state.
+			if ( sceneFile == null )
+			{
+				try
+				{
+					var asset = AssetSystem.FindByPath( assetRel ) ?? AssetSystem.RegisterFile( fullPath );
+					sceneFile = asset?.LoadResource( typeof( SceneFile ) ) as SceneFile;
+				}
+				catch { /* fall through to the error below */ }
+			}
+
 			if ( sceneFile != null )
 			{
 				EditorScene.OpenScene( sceneFile );
-				return Task.FromResult<object>( new { loaded = true, path = scenePath } );
+				return Task.FromResult<object>( new { loaded = true, path = assetRel } );
 			}
-			return Task.FromResult<object>( new { error = "Could not load scene resource. Try using a path relative to the assets folder." } );
+			return Task.FromResult<object>( new { error = $"Could not load scene resource '{assetRel}'. The .scene file exists but could not be resolved via ResourceLibrary or AssetSystem." } );
 		}
 		catch ( Exception ex )
 		{
@@ -1588,19 +1772,13 @@ public class SetPropertyHandler : IBridgeHandler
 			if ( propDesc == null )
 				return Task.FromResult<object>( new { error = $"Property not found: {propertyName}" } );
 
-			// Attempt type-safe conversion
-			var propType = propDesc.PropertyType;
-			object typedValue = propType?.Name switch
-			{
-				"Single"  or "float"  => float.Parse( valueStr ),
-				"Double"  or "double" => double.Parse( valueStr ),
-				"Int32"   or "int"    => int.Parse( valueStr ),
-				"Boolean" or "bool"   => bool.Parse( valueStr ),
-				"String"  or "string" => valueStr,
-				_                     => valueStr
-			};
+			// Type-aware set: handles primitives, enums, value-type strings (Color/Vector3),
+			// AND asset/object references (Model/Material/GameObject/Component) which the old
+			// raw-string path silently dropped to null. Reports success=false on a bad ref/path
+			// instead of a false "set":true.
+			if ( !ClaudeBridge.CoercePropertyAndSet( propDesc.PropertyType, v => propDesc.SetValue( component, v ), propDesc.Name, valueStr, out var setErr ) )
+				return Task.FromResult<object>( new { error = setErr } );
 
-			propDesc.SetValue( component, typedValue );
 			return Task.FromResult<object>( new { set = true, id, component = component.GetType().Name, property = propertyName, value = valueStr } );
 		}
 		catch ( Exception ex )
@@ -1654,33 +1832,43 @@ public class AddComponentWithPropertiesHandler : IBridgeHandler
 			if ( component == null )
 				return Task.FromResult<object>( new { error = "Failed to create component instance" } );
 
-			// Apply optional property overrides
+			// Apply optional property overrides. Routes through the shared type-aware
+			// coercion so asset/object references (Model/Material/GameObject/Component)
+			// are loaded/resolved to the correct typed value and actually persist —
+			// the old raw-string path silently dropped them to null. Best-effort per
+			// property (a single bad value never aborts the add); failures are reported.
+			var appliedProps = new List<string>();
+			var failedProps  = new List<object>();
 			if ( p.TryGetProperty( "properties", out var props ) && props.ValueKind == JsonValueKind.Object )
 			{
 				foreach ( var prop in props.EnumerateObject() )
 				{
-					try
+					var pd = typeDesc.Properties.FirstOrDefault( pp => pp.Name == prop.Name );
+					if ( pd == null ) { failedProps.Add( new { property = prop.Name, error = "property not found" } ); continue; }
+
+					// Normalize the JSON token to a string the coercer understands.
+					string valStr = prop.Value.ValueKind switch
 					{
-						var pd = typeDesc.Properties.FirstOrDefault( pp => pp.Name == prop.Name );
-						if ( pd != null )
-						{
-							var propType = pd.PropertyType;
-							object typedValue = propType?.Name switch
-							{
-								"Single"  or "float"  => float.Parse( prop.Value.GetString() ),
-								"Double"  or "double" => double.Parse( prop.Value.GetString() ),
-								"Int32"   or "int"    => int.Parse( prop.Value.GetString() ),
-								"Boolean" or "bool"   => prop.Value.ValueKind == JsonValueKind.True,
-								_                     => prop.Value.GetString()
-							};
-							pd.SetValue( component, typedValue );
-						}
-					}
-					catch { /* best-effort property set */ }
+						JsonValueKind.String => prop.Value.GetString(),
+						JsonValueKind.True   => "true",
+						JsonValueKind.False  => "false",
+						JsonValueKind.Null   => "null",
+						_                    => prop.Value.GetRawText()
+					};
+
+					if ( ClaudeBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out var perr ) )
+						appliedProps.Add( prop.Name );
+					else
+						failedProps.Add( new { property = prop.Name, error = perr } );
 				}
 			}
 
-			return Task.FromResult<object>( new { added = true, id, component = typeName } );
+			return Task.FromResult<object>( new
+			{
+				added = true, id, component = typeName,
+				appliedProperties = appliedProps,
+				failedProperties  = failedProps.Count > 0 ? failedProps : null
+			} );
 		}
 		catch ( Exception ex )
 		{
