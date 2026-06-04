@@ -6,7 +6,7 @@ This plugin bundles:
 
 | Component | What it does |
 |---|---|
-| **MCP server registration** (`sbox` from npm) | 152 tools / 145 editor handlers to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
+| **MCP server registration** (`sbox` from npm) | 150+ tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
 | **Skill: `sbox-build-feature`** | Codifies the screenshot-driven iteration workflow — bridge check, brainstorm gate, API research, hotload verify, screenshot read. Prevents the "guess and check" loop |
 | **Agent: `sbox-game-dev`** | Optional specialist for handing off self-contained game-dev tasks |
 
@@ -48,7 +48,7 @@ In a new Claude Code session, ask:
 Check the bridge status.
 ```
 
-Claude should invoke `mcp__sbox__get_bridge_status` and report whether the bridge addon is connected (you'll see `connected: true, handlerCount: 145` if the addon side is also installed and s&box is running).
+Claude should invoke `mcp__sbox__get_bridge_status` and report whether the bridge addon is connected (you'll see `connected: true` with a healthy `handlerCount` if the addon side is also installed and s&box is running).
 
 If it says "tool not found": the MCP server isn't registered — try `/reload-plugins` or check `~/.claude/plugins/`.
 If it says "connection refused" or times out: the bridge addon side isn't installed in your project (see above) or s&box isn't running.

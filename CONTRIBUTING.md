@@ -16,7 +16,7 @@ Most tools have **two parts**:
 
 The command name is the same on both sides. `create_gameobject` in TypeScript sends `"create_gameobject"`, which the C# bridge dispatches to its `create_gameobject` handler.
 
-**Exception — MCP-server-side tools.** Six tools have *no* editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They run entirely in the Node server (reading `sbox-dev.log`, fetching docs, or hotload-evaluating), which is why they keep working when the editor has crashed. This is why the MCP server exposes **152 tools** but `get_bridge_status` reports **145 handlers**.
+**Exception — MCP-server-side tools.** Six tools have *no* editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They run entirely in the Node server (reading `sbox-dev.log`, fetching docs, or hotload-evaluating), which is why they keep working when the editor has crashed. This is why the MCP server exposes more tools than `get_bridge_status` reports handlers (the extras run server-side).
 
 ## Adding a New Tool
 
@@ -94,6 +94,10 @@ registerYourTools(server, bridge);
 ```bash
 cd sbox-mcp-server && npm run build
 ```
+
+## Tool Count in Docs
+
+The tool/handler count drifts every release, so don't hardcode it in docs. Keep the exact number only in CHANGELOG.md entries (per release) and via get_bridge_status (live); elsewhere say 150+ tools or describe it relatively. This avoids a repo-wide doc sweep whenever a tool is added.
 
 ## File Path Security
 

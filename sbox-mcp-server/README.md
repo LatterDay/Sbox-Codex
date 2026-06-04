@@ -1,6 +1,6 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **152 tools / 145 editor handlers** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
+MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **150+ tools** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
 
 ## Fastest install — the Claude Code plugin
 
@@ -44,7 +44,7 @@ Open your project. The bridge starts automatically. Verify with:
 Check the bridge status.
 ```
 
-You should see `connected: true, handlerCount: 145`. (That's the editor-side handler count; the server exposes 152 tools total — a handful run MCP-server-side and need no editor handler.)
+You should see `connected: true` with a healthy `handlerCount`. (That's the editor-side handler count; the server exposes a few more tools total — a handful run MCP-server-side and need no editor handler.)
 
 ## How it works
 
@@ -56,7 +56,7 @@ Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP ser
 
 ## Tools (151 / 145 editor handlers — v1.5.1)
 
-`get_bridge_status` reports `handlerCount: 145` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
+`get_bridge_status` reports the `handlerCount` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
 
 | Category | Tools |
 |----------|-------|
