@@ -260,11 +260,16 @@ public class CreateNpcBrainHandler : IBridgeHandler
 			var fleeHealth    = NpcBrainHelpers.Float( p, "fleeHealthFrac", 0.25f );
 			var networked     = NpcBrainHelpers.Bool(  p, "networked",     true );
 			var targetTag     = NpcBrainHelpers.Str(   p, "targetTag",     "player" );
+			// Citizen locomotion animation: when on (default), the generated brain caches a
+			// SkinnedModelRenderer + CitizenAnimationHelper in OnStart and drives walk/run/idle
+			// from the NavMeshAgent each frame (so the NPC and every spawner clone animate
+			// instead of sliding in bind pose). Proven approach ported from BigfootBrain.cs.
+			var animate       = NpcBrainHelpers.Bool(  p, "animate",       true );
 
 			var cosFov = NpcBrainHelpers.CosHalfFov( fovDegrees );
 
 			var code = BuildSource(
-				className, startState, networked,
+				className, startState, networked, animate,
 				NpcBrainHelpers.EscVerbatim( targetTag ),
 				moveSpeed, chaseSpeed, sightRange, fovDegrees, cosFov, eyeHeight,
 				hearingRadius, giveUpTime, searchRadius, waypointStop, canFlee, fleeHealth );
@@ -287,6 +292,7 @@ public class CreateNpcBrainHandler : IBridgeHandler
 				className,
 				behavior,
 				networked,
+				animate,
 				statesIncluded = states,
 				propertyNames  = props,
 				note = "NavMeshAgent is added automatically via GetOrAddComponent in OnStart. " +
@@ -294,6 +300,9 @@ public class CreateNpcBrainHandler : IBridgeHandler
 				       "Assign a patrol route with place_patrol_route + assign_patrol_route. " +
 				       "Verify perception in EDIT mode with simulate_npc_perception; verify chase/search by entering play mode " +
 				       "(get_runtime_property CurrentState + timed screenshot_from). " +
+				       ( animate
+				         ? "Locomotion animation ON: caches a SkinnedModelRenderer + CitizenAnimationHelper in OnStart and drives walk/run/idle from the NavMeshAgent each frame — attach this brain to a GameObject with a Citizen (or any SkinnedModel) renderer (on it or a child) and it animates while moving instead of sliding. Spawner clones inherit it (each runs its own OnStart). Pass animate:false to disable. "
+				         : "Locomotion animation OFF (animate:false): the NPC slides in bind pose; drive a CitizenAnimationHelper yourself if you want walk/run anims. " ) +
 				       ( networked
 				         ? "Networked: host-authoritative (if(IsProxy)return) + [Sync] CurrentState — needs a host session; a no-session solo playtest makes everything a proxy so the brain won't think (use networked:false to iterate solo)."
 				         : "Solo/edit build: no IsProxy guard, so it ticks in a single-machine playtest." )
@@ -310,9 +319,13 @@ public class CreateNpcBrainHandler : IBridgeHandler
 	/// Movement uses only the confirmed NavMeshAgent.MoveTo(Vector3); perception
 	/// uses only Vector3.Dot/.Normal + scene.Trace.Ray(a,b).Run() + Scene.GetAllComponents.
 	/// FOV uses a baked cosine threshold (no trig in the sandbox).
+	/// When <paramref name="animate"/> is true the generated brain also caches a
+	/// CitizenAnimationHelper (off a SkinnedModelRenderer) and feeds it the NavMeshAgent
+	/// velocity each frame — sandbox-legal locomotion ported from BigfootBrain.cs (uses
+	/// Sandbox.Citizen + MathX, never System.Math).
 	/// </summary>
 	private static string BuildSource(
-		string className, string startState, bool networked, string targetTagLiteral,
+		string className, string startState, bool networked, bool animate, string targetTagLiteral,
 		float moveSpeed, float chaseSpeed, float sightRange, float fovDegrees, float cosFov,
 		float eyeHeight, float hearingRadius, float giveUpTime, float searchRadius,
 		float waypointStop, bool canFlee, float fleeHealth )
@@ -327,9 +340,62 @@ public class CreateNpcBrainHandler : IBridgeHandler
 			? "// Host-authoritative AI brain. Only the host runs the FSM; CurrentState is [Sync]'d\n// so proxy clients can animate the NPC. Needs an active network session (a no-session\n// solo playtest makes everything a proxy — generate with networked:false to iterate solo).\n"
 			: "// Solo / edit-scene AI brain (no networking guard). Ticks in a single-machine playtest.\n";
 
+		// ── Citizen locomotion animation (ported verbatim from the proven BigfootBrain.cs).
+		// Everything here is sandbox-legal: Sandbox.Citizen + GetOrAddComponent + the
+		// NavMeshAgent's own Velocity/WishVelocity, no System.Math. When animate:false these
+		// fragments are empty strings, so the generated brain is byte-for-byte the old one.
+		var animUsing  = animate ? "using Sandbox.Citizen;\n" : "";
+		var animFields = animate
+			? "\n\t// Citizen locomotion. Drives the anim helper from the agent's velocity each frame so the\n" +
+			  "\t// NPC walks/runs/idles instead of sliding in bind pose. Cached off the SkinnedModelRenderer\n" +
+			  "\t// in OnStart (works for the source NPC AND its spawner clones — they each run OnStart).\n" +
+			  "\tprivate CitizenAnimationHelper _anim;\n" +
+			  "\tprivate SkinnedModelRenderer _renderer;\n"
+			: "";
+		// OnStart wiring. Wiring _anim.Target avoids a WithWishVelocity NRE (see SBOX_KNOWLEDGE.md).
+		var animOnStart = animate
+			? "\n\t\t// Locomotion animation. Find the SkinnedModelRenderer (this GO or a child), then\n" +
+			  "\t\t// get-or-add a CitizenAnimationHelper and wire its Target — the helper NREs in\n" +
+			  "\t\t// WithWishVelocity if Target is null. A Citizen .vmdl already has the locomotion\n" +
+			  "\t\t// anim-graph, so once fed velocity it walks/runs/idles on its own.\n" +
+			  "\t\t_renderer = GetComponent<SkinnedModelRenderer>() ?? GetComponentInChildren<SkinnedModelRenderer>();\n" +
+			  "\t\tif ( _renderer.IsValid() )\n" +
+			  "\t\t{\n" +
+			  "\t\t\t_anim = GetOrAddComponent<CitizenAnimationHelper>();\n" +
+			  "\t\t\t_anim.Target = _renderer;\n" +
+			  "\t\t}\n"
+			: "";
+		// Per-frame drive call (placed at the end of OnUpdate) + the method body.
+		var animUpdateCall = animate ? "\t\tDriveAnimation();\n" : "";
+		var animMethod = animate
+			? "\n\t// ── Locomotion animation ────────────────────────────────────────────────────\n" +
+			  "\t/// <summary>Feed the Citizen anim helper from the NavMeshAgent each frame so the NPC\n" +
+			  "\t/// plays walk/run/idle instead of sliding in bind pose. WithVelocity drives the\n" +
+			  "\t/// locomotion blend; WithWishVelocity drives lean/start-stop; IsGrounded keeps it out\n" +
+			  "\t/// of the fall pose. Glance toward the chased target, else toward travel direction.</summary>\n" +
+			  "\tprivate void DriveAnimation()\n" +
+			  "\t{\n" +
+			  "\t\tif ( _anim == null || !_anim.IsValid() ) return;\n" +
+			  "\n" +
+			  "\t\tvar velocity = _agent.Velocity;\n" +
+			  "\t\t_anim.WithVelocity( velocity );\n" +
+			  "\t\t_anim.WithWishVelocity( _agent.WishVelocity );\n" +
+			  "\t\t_anim.IsGrounded = true;\n" +
+			  "\n" +
+			  "\t\tVector3 lookDir;\n" +
+			  "\t\tif ( CurrentState == BrainState.Chase && _target.IsValid() )\n" +
+			  "\t\t\tlookDir = ( _target.WorldPosition - WorldPosition ).WithZ( 0f );\n" +
+			  "\t\telse\n" +
+			  "\t\t\tlookDir = velocity.WithZ( 0f );\n" +
+			  "\n" +
+			  "\t\tif ( lookDir.Length > 1f )\n" +
+			  "\t\t\t_anim.WithLook( lookDir.Normal, 1f, 0.6f, 0.2f );\n" +
+			  "\t}\n"
+			: "";
+
 		return
 $@"using Sandbox;
-using System;
+{animUsing}using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -379,11 +445,11 @@ using System.Linq;
 	private int _waypointIndex;
 	private int _waypointDir = 1;
 	private NavMeshAgent _agent;
-
+{animFields}
 	protected override void OnStart()
 	{{
 		_agent = GetOrAddComponent<NavMeshAgent>();
-		CurrentState = StartState;
+{animOnStart}		CurrentState = StartState;
 		_timeSinceSeen = 999f;
 		_lastKnownPos = WorldPosition;
 		_wanderTarget = WorldPosition;
@@ -396,7 +462,8 @@ using System.Linq;
 		Perceive();
 		Think();
 		Act();
-	}}
+{animUpdateCall}	}}
+{animMethod}
 
 	/// <summary>Recompute the FOV cosine from a degree value at runtime (no trig in
 	/// the sandbox: cos(x) via the half-angle identity from a normalized sweep is
