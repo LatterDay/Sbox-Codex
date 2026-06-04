@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.6.0";
+	private const string BridgeVersion = "1.7.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -363,6 +363,20 @@ public static class ClaudeBridge
 		// ── Batch 34: play-mode eyes ────────────────────────────────────
 		Register( "capture_view",             () => new CaptureViewHandler() );
 
+		// ── Batch 35: playable game scaffolds (Phase 1) ─────────────────
+		Register( "set_component_reference",     () => new SetComponentReferenceHandler() );
+		Register( "add_component_to_new_object", () => new AddComponentToNewObjectHandler() );
+		Register( "create_objective_system",     () => new CreateObjectiveSystemHandler() );
+		Register( "create_health_system",        () => new CreateHealthSystemHandler() );
+		Register( "create_pickup",               () => new CreatePickupHandler() );
+
+		// ── Batch 36: NPC brains ────────────────────────────────────────
+		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
+		Register( "place_patrol_route",       () => new PlacePatrolRouteHandler() );
+		Register( "assign_patrol_route",      () => new AssignPatrolRouteHandler() );
+		Register( "create_npc_spawner",       () => new CreateNpcSpawnerHandler() );
+		Register( "simulate_npc_perception",  () => new SimulateNpcPerceptionHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -376,6 +390,9 @@ public static class ClaudeBridge
 		"spawn_model", "spawn_citizen", "dress_citizen", "set_bodygroup", "pose_citizen",
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
+		"set_component_reference", "add_component_to_new_object",
+		"create_objective_system", "create_health_system", "create_pickup",
+		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
 		"set_tint", "replace_model", "set_tags",

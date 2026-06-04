@@ -2,6 +2,39 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.7.0] — 2026-06-04
+
+**Four-wave release: play-mode eyes, reliability, playable-game scaffolds, and NPC brains. 169 tools / 160 handlers.** Built locally and verified against the live editor (including live play-mode capture and compiling generated code). Additive — no existing tool contract changed.
+
+### Added — Play-mode eyes
+- **`capture_view`** — capture a PNG of the scene from a camera via `CameraComponent.RenderToBitmap` + `Bitmap.ToPng`. Unlike `take_screenshot`/`screenshot_from` (editor-only), this renders a camera's view of the ACTIVE scene, so **it works in play mode — capturing the running game** (the player POV + HUD with `renderUI`). No args = the live main camera; `position`/`id` = a temp camera that never disturbs the game's own. Returns the saved PNG path (uniquely named — no filename collisions). VERIFIED capturing the running game.
+
+### Added — Playable-game scaffolds (the non-coder mission)
+- **`set_component_reference`** — wire a component property to a live scene GameObject by GUID (the missing gap: `set_property` is primitives-only, `set_prefab_ref` is prefab-assets-only).
+- **`add_component_to_new_object`** — atomic create GameObject + add component + set properties.
+- **`create_objective_system`** / **`create_health_system`** / **`create_pickup`** — generate self-contained, sandbox-legal gameplay components (the win/lose primitive; health/damage with host-authoritative guards; collectibles). Generated code VERIFIED to compile.
+- Bundled **`sbox-scaffold-game`** skill (first-person preset) that orchestrates these into a playable starter.
+
+### Added — NPC brains
+- **`create_npc_brain`** — generate an FSM behavior `Component` (Idle/Patrol/Wander/Chase/Search/Flee/Ambush) with occlusion-aware perception (FOV cone + range + LOS trace + hearing) and 5 presets (patrol/guard/hunter/swarm/skittish); host-authoritative + `[Sync] CurrentState` when networked. Generated code VERIFIED to compile + load (full `[Property]` surface).
+- **`place_patrol_route`** / **`assign_patrol_route`** — author + wire patrol waypoints into the brain.
+- **`create_npc_spawner`** — generate a spawner (continuous / waves / burst, max-alive cap, networked).
+- **`simulate_npc_perception`** — READ-ONLY edit-mode verifier: runs the exact FOV+range+LOS check and reports `canSee/inFov/inRange/losBlocked/blockedBy` — verify perception without entering play mode.
+
+### Added — Reliability
+- **`run_self_test`** — end-to-end health check / regression gate (create → component → model → bounds → capture → recompile → cleanup), pass/fail per subsystem, self-cleaning, refuses to run in play mode.
+
+### Fixed
+- **`create_material` crash** — it called `p.GetProperty("name")` and threw `KeyNotFoundException` when the tool sent `path` (the "dictionary key" bug). Now reads `path` (or legacy `name`/`directory`) and honors `properties`. VERIFIED.
+- **`is_playing` stale flag** — `isPlaying` no longer folds in the unreliable `sessionPlaying` (true after a restart); authoritative flag is `gameFlag || tracked`, with `sessionPlaying` kept as a diagnostic field. VERIFIED.
+- **`get_bridge_status`** now reports the bridge `version` + `handlerCount` (the tool was reading a dead `editorVersion`); wired to the addon's built-in status command.
+
+### Notes
+- `capture_view` + the 5 scaffold + 5 NPC tools need both the updated MCP server and the republished addon; the `create_material`/`is_playing`/`get_bridge_status` fixes are addon-side; `run_self_test` is server-side.
+- Deferred to a follow-up: the `create_player_controller` upgrade (third-person/top-down + scene placement — spec'd, with a couple of unverified input APIs to confirm) and `ensure_input_action`.
+
+---
+
 ## [1.6.0] — 2026-06-03
 
 **Animation + better eyes. Drive `SkinnedModelRenderer` animgraphs (`set_animgraph_param`, `play_animation`, `list_animations`), read world bounds (`get_bounds`), and capture an object from multiple angles in one call (`screenshot_orbit`). 157 tools / 149 handlers.**
