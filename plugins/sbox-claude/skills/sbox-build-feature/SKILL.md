@@ -117,6 +117,11 @@ The bridge can verify *gameplay*, not just the edit scene — but the play-mode 
 | `trigger_hotload` doesn't reliably recompile externally-edited `.cs` | Entering play (`start_play`) forces the project recompile; **addon** changes need a full `restart_editor` |
 | Generated game code runs in the sandbox | `MathX` not `System.Math`/`MathF`; only sandbox-allowed BCL |
 | `set_property`/`add_component_with_properties` now coerce asset + reference props | You can set `Model`/`Material`/`GameObject`/`Component` props by path/GUID; an unresolvable value returns `success:false` (no more silent null) |
+| Trigger a Citizen attack/one-shot animation | `helper.HoldType = HoldTypes.Punch` + `helper.Target.Set("b_attack", true)` (one-shot bool trigger). Reset `HoldType` after ~0.4s or the pose sticks |
+| Play a sound in code | `Sound.Play("sounds/<name>.sound", worldPos)` — paths resolve case-insensitively, no `Assets/` prefix |
+| Hit reaction / knockback | `CitizenAnimationHelper.ProceduralHitReaction(new DamageInfo{ Attacker=…, Damage=…, Position=…, Origin=… }, scale, force)` (no factory — object initializer) poses the target's OWN helper; add to `CharacterController.Velocity` for a stagger |
+| Child GameObjects INHERIT parent tags | a child (e.g. a flashlight beam) carries the parent's `player` tag — filter AI targets by an actual component (a health comp), not tag alone |
+| Spawned player-camper has `HealthComponent`, the dummy has `CamperHealth` | when an AI deals damage, try both health component types so it works on real players, not just test dummies |
 
 ## Project-level CLAUDE.md
 
