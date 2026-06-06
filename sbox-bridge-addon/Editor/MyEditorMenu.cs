@@ -826,6 +826,22 @@ public static class ClaudeBridge
 	}
 
 	/// <summary>
+	/// Extract the numeric components from a value string for building value types.
+	/// Accepts "1,2,3", "1 2 3", "[1,2,3]", or a JSON object like {"x":1,"y":2,"z":3}
+	/// / {"r":1,"g":0,"b":0,"a":1}. Needed because PropertyDescription.SetValue does
+	/// NOT auto-parse a string into Vector2/3, Color, or Rotation (it silently no-ops).
+	/// </summary>
+	internal static float[] ExtractFloats( string s )
+	{
+		if ( string.IsNullOrWhiteSpace( s ) ) return System.Array.Empty<float>();
+		var ms = System.Text.RegularExpressions.Regex.Matches( s, @"-?\d+(?:\.\d+)?" );
+		var arr = new float[ms.Count];
+		for ( int i = 0; i < ms.Count; i++ )
+			arr[i] = float.Parse( ms[i].Value, System.Globalization.CultureInfo.InvariantCulture );
+		return arr;
+	}
+
+	/// <summary>
 	/// Coerce a string value to a component property's real type and SET it.
 	///
 	/// WHY THIS EXISTS: the old set_property / add_component_with_properties type
@@ -935,8 +951,37 @@ public static class ClaudeBridge
 				return true;
 			}
 
-			// 7. Everything else (Vector3, Color, Rotation, Angles, Transform…):
-			//    hand the string to s&box's setter, which parses value-type strings.
+			// 7. Common value types — parse explicitly. PropertyDescription.SetValue
+			//    does NOT auto-parse a string into these (verified: it silently no-ops),
+			//    so build the typed value from the numbers in the string and set THAT.
+			//    ExtractFloats accepts "x,y,z", "[..]", or a JSON object form.
+			if ( propType == typeof( Vector3 ) )
+			{
+				var f = ExtractFloats( valueStr );
+				setValue( new Vector3( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f, f.Length > 2 ? f[2] : 0f ) );
+				return true;
+			}
+			if ( propType == typeof( Vector2 ) )
+			{
+				var f = ExtractFloats( valueStr );
+				setValue( new Vector2( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f ) );
+				return true;
+			}
+			if ( propType == typeof( Color ) )
+			{
+				var f = ExtractFloats( valueStr );
+				setValue( new Color( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f, f.Length > 2 ? f[2] : 0f, f.Length > 3 ? f[3] : 1f ) );
+				return true;
+			}
+			if ( propType == typeof( Rotation ) )
+			{
+				var f = ExtractFloats( valueStr );
+				setValue( Rotation.From( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f, f.Length > 2 ? f[2] : 0f ) );
+				return true;
+			}
+
+			// 8. Anything else (Angles, Transform, BBox…): hand the string to s&box's
+			//    setter as a last resort (may parse some types, no-op others).
 			setValue( valueStr );
 			return true;
 		}
@@ -3718,10 +3763,18 @@ public class SetMaterialPropertyHandler : IBridgeHandler
 
 		try
 		{
-			// Ensure we have a mutable material override
+			// Ensure we have a mutable material override — auto-create one from the default
+			// shader if none is assigned, so callers don't need a separate assign_material step.
 			var mat = renderer.MaterialOverride;
+			bool autoCreatedMaterial = false;
 			if ( mat == null )
-				return Task.FromResult<object>( new { error = "No MaterialOverride set — assign a material first via assign_material" } );
+			{
+				mat = Material.Create( "auto_override", "shaders/complex.shader", true );
+				if ( mat == null )
+					return Task.FromResult<object>( new { error = "No MaterialOverride and failed to create a default material" } );
+				renderer.MaterialOverride = mat;
+				autoCreatedMaterial = true;
+			}
 
 			// Apply the property based on the JSON value kind
 			switch ( value.ValueKind )
@@ -3756,7 +3809,7 @@ public class SetMaterialPropertyHandler : IBridgeHandler
 					break;
 			}
 
-			return Task.FromResult<object>( new { set = true, id, property = propertyName } );
+			return Task.FromResult<object>( new { set = true, id, property = propertyName, autoCreatedMaterial } );
 		}
 		catch ( Exception ex )
 		{
@@ -4386,21 +4439,22 @@ internal static class WorldGenHelpers
 		error = $"Property '{propertyName}' is not a list"; return null;
 	}
 
-	public static bool InvokeButton( Component comp, string buttonLabel )
+	public static bool InvokeButton( Component comp, string buttonLabel, object[] args = null )
 	{
+		args ??= System.Array.Empty<object>();
 		var type = comp.GetType();
 		var methods = type.GetMethods( BindingFlags.Public | BindingFlags.Instance );
 
-		// Strategy 1: ButtonAttribute label match
+		// Strategy 1: ButtonAttribute label match (arg count must match)
 		foreach ( var method in methods )
 		{
-			if ( method.GetParameters().Length > 0 ) continue;
+			if ( method.GetParameters().Length != args.Length ) continue;
 			foreach ( var attr in method.GetCustomAttributes( true ) )
 			{
 				if ( !attr.GetType().Name.Contains( "Button" ) ) continue;
 				if ( AttributeStringMatches( attr, buttonLabel ) )
 				{
-					InvokeUnwrap( method, comp );
+					InvokeUnwrap( method, comp, args );
 					return true;
 				}
 			}
@@ -4409,10 +4463,10 @@ internal static class WorldGenHelpers
 		// Strategy 2: exact method name
 		foreach ( var method in methods )
 		{
-			if ( method.GetParameters().Length > 0 ) continue;
+			if ( method.GetParameters().Length != args.Length ) continue;
 			if ( method.Name == buttonLabel )
 			{
-				InvokeUnwrap( method, comp );
+				InvokeUnwrap( method, comp, args );
 				return true;
 			}
 		}
@@ -4421,10 +4475,10 @@ internal static class WorldGenHelpers
 		var normalized = buttonLabel.Replace( " ", "" );
 		foreach ( var method in methods )
 		{
-			if ( method.GetParameters().Length > 0 ) continue;
+			if ( method.GetParameters().Length != args.Length ) continue;
 			if ( string.Equals( method.Name, normalized, StringComparison.OrdinalIgnoreCase ) )
 			{
-				InvokeUnwrap( method, comp );
+				InvokeUnwrap( method, comp, args );
 				return true;
 			}
 		}
@@ -4434,9 +4488,20 @@ internal static class WorldGenHelpers
 
 	// Invoke a method and re-throw the inner exception (not the TargetInvocationException wrapper)
 	// so callers see the real error message instead of "Exception has been thrown by the target of an invocation."
-	private static void InvokeUnwrap( MethodInfo method, object target )
+	private static void InvokeUnwrap( MethodInfo method, object target, object[] args = null )
 	{
-		try { method.Invoke( target, null ); }
+		try
+		{
+			var ps = method.GetParameters();
+			object[] callArgs = null;
+			if ( ps.Length > 0 )
+			{
+				callArgs = new object[ps.Length];
+				for ( int i = 0; i < ps.Length; i++ )
+					callArgs[i] = ConvertValue( ( args != null && i < args.Length ) ? args[i] : null, ps[i].ParameterType );
+			}
+			method.Invoke( target, callArgs );
+		}
 		catch ( TargetInvocationException tie )
 		{
 			var inner = tie.InnerException ?? tie;
@@ -4523,11 +4588,30 @@ public class InvokeButtonHandler : IBridgeHandler
 		var comp = WorldGenHelpers.ResolveComponent( p, typeName, out var err );
 		if ( comp == null ) return Task.FromResult<object>( new { error = err } );
 
+		object[] args = null;
+		if ( p.TryGetProperty( "args", out var argsEl ) && argsEl.ValueKind == JsonValueKind.Array )
+		{
+			var list = new List<object>();
+			foreach ( var el in argsEl.EnumerateArray() )
+			{
+				switch ( el.ValueKind )
+				{
+					case JsonValueKind.String: list.Add( el.GetString() ); break;
+					case JsonValueKind.Number: list.Add( el.GetDouble() ); break;
+					case JsonValueKind.True:   list.Add( true );  break;
+					case JsonValueKind.False:  list.Add( false ); break;
+					case JsonValueKind.Null:   list.Add( null );  break;
+					default:                   list.Add( el.GetRawText() ); break;
+				}
+			}
+			args = list.ToArray();
+		}
+
 		try
 		{
-			var ok = WorldGenHelpers.InvokeButton( comp, label );
-			if ( !ok ) return Task.FromResult<object>( new { error = $"Button '{label}' not found on {typeName}" } );
-			return Task.FromResult<object>( new { invoked = true, component = typeName, button = label } );
+			var ok = WorldGenHelpers.InvokeButton( comp, label, args );
+			if ( !ok ) return Task.FromResult<object>( new { error = $"Button '{label}' not found on {typeName} (with {( args?.Length ?? 0 )} arg(s))" } );
+			return Task.FromResult<object>( new { invoked = true, component = typeName, button = label, argCount = args?.Length ?? 0 } );
 		}
 		catch ( Exception ex )
 		{
@@ -5285,8 +5369,8 @@ public class SetFogHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var type = (p.TryGetProperty( "type", out var t ) ? t.GetString() : "gradient")?.ToLowerInvariant();
-		if ( type != "gradient" )
-			return Task.FromResult<object>( new { error = $"Fog type '{type}' is not supported yet (v1 supports 'gradient')." } );
+		if ( type != "gradient" && type != "cubemap" && type != "volumetric" )
+			return Task.FromResult<object>( new { error = $"Unknown fog type '{type}'. Use gradient|cubemap|volumetric." } );
 
 		// Re-use an existing GameObject if targetId is given, else create a dedicated Fog object.
 		GameObject go = null;
@@ -5295,15 +5379,46 @@ public class SetFogHandler : IBridgeHandler
 		if ( go == null )
 		{
 			go = scene.CreateObject( true );
-			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Gradient Fog";
+			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : (type + " fog");
 		}
 
+		float F( string key, float fallback ) => p.TryGetProperty( key, out var v ) ? v.GetSingle() : fallback;
+
+		if ( type == "cubemap" )
+		{
+			var cf = go.GetOrAddComponent<CubemapFog>();
+			cf.Tint            = AddLightHandler.ParseColor( p, "color", cf.Tint );
+			cf.StartDistance   = F( "startDistance",  cf.StartDistance );
+			cf.EndDistance     = F( "endDistance",    cf.EndDistance );
+			cf.FalloffExponent = F( "falloff",        cf.FalloffExponent );
+			cf.Blur            = F( "blur",           cf.Blur );
+			cf.HeightStart     = F( "heightStart",    cf.HeightStart );
+			cf.HeightWidth     = F( "heightWidth",    cf.HeightWidth );
+			cf.HeightExponent  = F( "heightExponent", cf.HeightExponent );
+			return Task.FromResult<object>( new { created = true, type = "cubemap", gameObject = ClaudeBridge.SerializeGo( go ) } );
+		}
+
+		if ( type == "volumetric" )
+		{
+			var vf = go.GetOrAddComponent<VolumetricFogVolume>();
+			vf.Color           = AddLightHandler.ParseColor( p, "color", vf.Color );
+			vf.Strength        = F( "strength", vf.Strength );
+			vf.FalloffExponent = F( "falloff",  vf.FalloffExponent );
+			if ( p.TryGetProperty( "size", out var sz ) )
+			{
+				var s = ClaudeBridge.ParseVector3( sz );
+				vf.Bounds = new BBox( -s * 0.5f, s * 0.5f );
+			}
+			return Task.FromResult<object>( new { created = true, type = "volumetric", gameObject = ClaudeBridge.SerializeGo( go ) } );
+		}
+
+		// gradient (default)
 		var fog = go.GetOrAddComponent<GradientFog>();
-		fog.Color = AddLightHandler.ParseColor( p, "color", fog.Color );
-		if ( p.TryGetProperty( "startDistance", out var sd ) ) fog.StartDistance = sd.GetSingle();
-		if ( p.TryGetProperty( "endDistance",   out var ed ) ) fog.EndDistance   = ed.GetSingle();
-		if ( p.TryGetProperty( "height",        out var h  ) ) fog.Height        = h.GetSingle();
-		if ( p.TryGetProperty( "falloff",       out var f  ) ) fog.FalloffExponent = f.GetSingle();
+		fog.Color           = AddLightHandler.ParseColor( p, "color", fog.Color );
+		fog.StartDistance   = F( "startDistance", fog.StartDistance );
+		fog.EndDistance     = F( "endDistance",   fog.EndDistance );
+		fog.Height          = F( "height",        fog.Height );
+		fog.FalloffExponent = F( "falloff",       fog.FalloffExponent );
 
 		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}

@@ -80,31 +80,31 @@ export function registerVisualTools(server: McpServer, bridge: BridgeClient): vo
   // ── set_fog ────────────────────────────────────────────────────────
   server.tool(
     "set_fog",
-    "Add or update distance fog in the active scene. v1 supports gradient fog (atmospheric distance haze — great for mood/horror). Re-running on the same target updates it rather than duplicating.",
+    "Add or update fog in the active scene. Types: 'gradient' (distance haze — great for mood/horror), 'cubemap' (sky-tinted distance fog), 'volumetric' (a localized fog volume). Re-running on the same target updates it rather than duplicating.",
     {
       type: z
-        .enum(["gradient"])
+        .enum(["gradient", "cubemap", "volumetric"])
         .optional()
-        .describe("Fog type (default gradient; cubemap/volumetric coming later)"),
+        .describe("Fog type (default gradient)"),
       name: z.string().optional().describe("GameObject name when creating a new fog object"),
       targetId: z
         .string()
         .optional()
-        .describe("GUID of an existing GameObject to host the fog (else a new 'Gradient Fog' object is created)"),
-      color: ColorSchema.optional().describe("Fog colour"),
-      startDistance: z
-        .number()
+        .describe("GUID of an existing GameObject to host the fog (else a new fog object is created)"),
+      color: ColorSchema.optional().describe("Fog colour (gradient/volumetric Color, cubemap Tint)"),
+      startDistance: z.number().optional().describe("gradient/cubemap: distance (units) where fog begins"),
+      endDistance: z.number().optional().describe("gradient/cubemap: distance (units) where fog reaches full density"),
+      height: z.number().optional().describe("gradient: world height the fog settles around"),
+      falloff: z.number().optional().describe("Distance/density falloff exponent (higher = sharper onset)"),
+      blur: z.number().optional().describe("cubemap: sky blur amount"),
+      heightStart: z.number().optional().describe("cubemap: world height where height-fog starts"),
+      heightWidth: z.number().optional().describe("cubemap: height-fog band width"),
+      heightExponent: z.number().optional().describe("cubemap: height-fog falloff exponent"),
+      strength: z.number().optional().describe("volumetric: fog density/strength"),
+      size: z
+        .object({ x: z.number(), y: z.number(), z: z.number() })
         .optional()
-        .describe("Distance (units) where fog begins"),
-      endDistance: z
-        .number()
-        .optional()
-        .describe("Distance (units) where fog reaches full density"),
-      height: z.number().optional().describe("World height the fog settles around"),
-      falloff: z
-        .number()
-        .optional()
-        .describe("Distance falloff exponent (higher = sharper onset)"),
+        .describe("volumetric: bounds size (units) centred on the object"),
     },
     async (params) => {
       const res = await bridge.send("set_fog", params);

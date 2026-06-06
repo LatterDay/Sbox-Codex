@@ -25,18 +25,22 @@ export function registerWorldTools(
   // ── invoke_button ────────────────────────────────────────────────
   server.tool(
     "invoke_button",
-    "Call a no-argument public method on a component. Matching is tried in order: (1) a [Button] attribute label, (2) the exact method NAME, (3) case-insensitive name with spaces stripped. So this calls ANY parameterless public method, not only [Button]-attributed ones (e.g. 'StartGame' works even without a [Button]). This is the general 'call a component method to drive game state' tool. LIMITATION: parameterless methods only — methods that take arguments are skipped. (list_component_buttons only lists [Button] methods, so a plain method may be invokable yet not appear there.)",
+    "Call a public method on a component. Matching is tried in order: (1) a [Button] attribute label, (2) the exact method NAME, (3) case-insensitive name with spaces stripped. Calls ANY public method, not only [Button]-attributed ones (e.g. 'StartGame'). Pass `args` to call methods that take parameters — the arg count must match and each value is coerced to the parameter type (primitives: string/number/bool work; complex types like Vector3 may not coerce). Omit args (or []) for parameterless methods. (list_component_buttons only lists [Button] methods, so a plain method may be invokable yet not appear there.)",
     {
       component: z
         .string()
         .describe("Component type name (e.g. 'MapBuilder', 'SasquatchedGame')"),
       button: z
         .string()
-        .describe("A [Button] label OR a public no-arg method name (e.g. 'Build Terrain', 'StartGame'); case- and space-insensitive"),
+        .describe("A [Button] label OR a public method name (e.g. 'Build Terrain', 'StartGame'); case- and space-insensitive"),
       id: z
         .string()
         .optional()
         .describe("Optional GameObject GUID — if omitted, finds first matching component in scene"),
+      args: z
+        .array(z.unknown())
+        .optional()
+        .describe("Arguments to pass (must match the method's parameter count); coerced to each parameter type"),
     },
     async (params) => {
       const res = await bridge.send("invoke_button", params);
