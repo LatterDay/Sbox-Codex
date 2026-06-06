@@ -6,8 +6,9 @@ This plugin bundles:
 
 | Component | What it does |
 |---|---|
-| **MCP server registration** (`sbox` from npm) | 150+ tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
+| **MCP server registration** (`sbox` from npm) | 160+ tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
 | **Skill: `sbox-build-feature`** | Codifies the screenshot-driven iteration workflow — bridge check, brainstorm gate, API research, hotload verify, screenshot read. Prevents the "guess and check" loop |
+| **Skill: `sbox-api`** | Schema-grounded s&box API knowledge — Unity→s&box translation table, the Ten Rules, and curated component/UI/networking/physics references. Stops Unity-pattern hallucination; repointed to verify signatures via the bridge's live `describe_type`. Adapted from [claude-sbox](https://github.com/gavogavogavo/claude-sbox) (MIT © David Ryan) |
 | **Agent: `sbox-game-dev`** | Optional specialist for handing off self-contained game-dev tasks |
 
 ## What this plugin does NOT include
@@ -89,7 +90,7 @@ The agent runs the `sbox-build-feature` skill as its default workflow.
 
 ## Version compatibility
 
-- This plugin is **v1.5.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.4.0`) so the addon/server pair can't silently drift. The pin trails the plugin version until `sbox-mcp-server@1.5.0` is published to npm — bump the pin to `1.5.0` once it's live. (`1.4.0` works fine; you just won't get the 16 new v1.5.0 tools until the pin is bumped.)
+- This plugin is **v1.8.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.7.0`) so the addon/server pair can't silently drift. Keep the bridge **addon** at a matching `1.7.x` — `get_bridge_status` warns if the server and addon versions diverge. (The plugin version moves independently of the server pin; v1.8.0 adds the bundled `sbox-api` skill, no server change.)
 - The bridge addon and MCP server are major-version-compatible — a `1.x` addon works with a `1.x` MCP server. If you upgrade one, upgrade both.
 
 ## Troubleshooting
@@ -110,4 +111,4 @@ GPL-3.0-or-later. Same as the bridge.
 
 ## Credits
 
-Built by [sboxskins.gg](https://sboxskins.gg). Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp). Original bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
+Built by [sboxskins.gg](https://sboxskins.gg). The `sbox-api` skill is adapted from [claude-sbox](https://github.com/gavogavogavo/claude-sbox) by **David Ryan** (MIT). Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp). Original bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).

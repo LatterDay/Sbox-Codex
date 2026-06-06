@@ -7,6 +7,8 @@ description: Use when building, modifying, or polishing any feature in an s&box 
 
 This skill is the workflow you follow whenever you're about to make non-trivial changes to a player in an s&box project via the bridge. It exists because the bridge gives Claude a lot of power but **no eyes** — without discipline, sessions devolve into guessing about how things look. These steps prevent that.
 
+**Pair this with the `sbox-api` skill** — that's the *brain* (how to write correct s&box C#: the Unity→s&box translation table, the Ten Rules, and component/UI/networking/physics references). This `sbox-build-feature` skill is the *hands + eyes* (drive the editor, screenshot, verify live). Write it right with `sbox-api`; then build it, run it, and SEE it with the bridge. And the bridge's live reflection (`describe_type`/`search_types`/`get_method_signature`) is the authoritative signature check for your installed SDK.
+
 ## Hard rule: never declare a visual feature "working" without seeing it
 
 If your change affects anything visual (a model, a position, an animation, a UI panel, a particle, a light), you **must** see it before saying the work is done. You're a multimodal model — you can read PNGs.
