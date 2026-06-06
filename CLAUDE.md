@@ -121,10 +121,10 @@ Two components:
 - Both fixes are applied — belt and suspenders
 
 ### Bridge Behavior Notes
-- Bridge processes **one request per editor frame** — sending many requests rapidly causes some to be consumed without response
+- Bridge **drains the full request queue every editor frame** (`ProcessPendingOnMainThread` while-loop) — NOT one-per-frame. A single very slow handler still blocks that frame until it finishes (see the optional per-frame time-budget TODO).
 - If game code fails to compile, the editor code (bridge) also fails (`Broken Reference: package.local.X`)
 - Bridge Status menu item always works even when frame processing is broken (it's a sync call)
-- The `[Dock]` widget must be **visible** for `[EditorEvent.Frame]` to fire — if closed, no requests process. (This is still true in v1.5.0 — the frame loop drives the heartbeat and the request queue. Do not assume the dock is optional.)
+- The bridge's `[EditorEvent.Frame]` is a **static** handler (moved off the dock widget — GitHub issue #2), so the request queue + heartbeat process **whether or not the dock is open**. (Frames may still throttle when the editor window is minimized/unfocused — OS-level; unverified.)
 - `Org` in `.sbproj` must be `"local"` for local development — only set to your org name when publishing
 
 ### Visual Verification & Other v1.5.0 Gotchas
@@ -328,7 +328,7 @@ Project.Current.Config.Title / .Org / .Ident / .Type
 - [x] ~~`get_compile_errors` not implementable~~ — Implemented in v1.5.0 **MCP-server-side** (reads `sbox-dev.log` directly, no editor API needed); same for `read_log`
 - [ ] `add_sync_property` only annotates an existing property with `[Sync]`; `add_rpc_method` generates an empty stub (schemas now reflect this honestly as of v1.5.0)
 - [ ] `set_material_property` requires MaterialOverride to be set first
-- [ ] `create_material` has a dictionary-key bug — workaround: write the `.vmat` via `write_file` (see TROUBLESHOOTING.md)
+- [x] ~~`create_material` dictionary-key bug~~ — Fixed; reads `path` (or legacy `name`) and writes a KV1 `.vmat`.
 - [ ] **Runtime `ParticleEffect` tools** (`spawn_particle` etc.) do not render through the bridge — use `spawn_vpcf`. No flame `.vpcf` ships in a bridge-loadable form yet (under investigation).
 - [ ] `is_playing.sessionPlaying` can read stale after a restart — trust `gameFlag`.
 - [ ] `take_screenshot` is fixed to the Main Camera — use `screenshot_from` to aim at a target.

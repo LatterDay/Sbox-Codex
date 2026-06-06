@@ -131,7 +131,7 @@ export function registerPlayModeTools(
       value: z
         .unknown()
         .describe(
-          "New value as a string. Primitive: '5', 'true'. Color/Vector3: '1,0,0,1' / '0,0,200'. Enum: the member name. Asset ref (Model/Material/...): the asset path e.g. 'models/dev/box.vmdl'. GameObject/Component ref: the target GameObject's GUID. Empty/'null' clears the property"
+          "New value. Primitive: '5', 'true'. Color/Vector3: a comma string ('1,0,0,1' / '0,0,200'), an array ([0,0,200]), or an object ({r,g,b,a} / {x,y,z}). Enum: the member name. Asset ref (Model/Material/...): the asset path e.g. 'models/dev/box.vmdl'. GameObject/Component ref: the target GameObject's GUID. Empty/'null' clears the property"
         ),
     },
     async (params) => {

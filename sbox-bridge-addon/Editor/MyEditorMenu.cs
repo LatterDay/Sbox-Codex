@@ -712,6 +712,29 @@ public static class ClaudeBridge
 	}
 
 	/// <summary>
+	/// Resolve a GameObject by its id string. Fast path: persisted-scene GUID lookup
+	/// (scene.Directory.FindByGuid). Fallback: scan the live scene tree by runtime .Id,
+	/// so runtime-spawned objects — which are never added to the scene Directory — are
+	/// addressable too (fixes set_runtime_property / get_runtime_property on spawned objects).
+	/// Returns null if the id is unparseable or no match exists.
+	/// </summary>
+	internal static GameObject ResolveGameObject( Scene scene, string idString )
+	{
+		if ( scene == null || string.IsNullOrEmpty( idString ) ) return null;
+		if ( !Guid.TryParse( idString, out var guid ) ) return null;
+
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go != null ) return go;
+
+		// Runtime-spawned objects aren't in the Directory — fall back to a scene scan by .Id.
+		foreach ( var obj in scene.GetAllObjects( true ) )
+		{
+			if ( obj != null && obj.Id == guid ) return obj;
+		}
+		return null;
+	}
+
+	/// <summary>
 	/// Resolve a user-supplied relative path against the project root and verify
 	/// it stays inside the root (separator-safe containment). Returns false with a
 	/// generic error on escape attempts (audit P2 — path traversal).
@@ -766,6 +789,40 @@ public static class ClaudeBridge
 		float yaw   = e.TryGetProperty( "yaw",   out var ey ) ? ey.GetSingle() : 0f;
 		float roll  = e.TryGetProperty( "roll",  out var er ) ? er.GetSingle() : 0f;
 		return Rotation.From( pitch, yaw, roll );
+	}
+
+	internal static Vector2 ParseVector2( JsonElement e )
+	{
+		float x = e.TryGetProperty( "x", out var ex ) ? ex.GetSingle() : 0f;
+		float y = e.TryGetProperty( "y", out var ey ) ? ey.GetSingle() : 0f;
+		return new Vector2( x, y );
+	}
+
+	internal static Color ParseColor( JsonElement e )
+	{
+		float r = e.TryGetProperty( "r", out var er ) ? er.GetSingle() : 0f;
+		float g = e.TryGetProperty( "g", out var eg ) ? eg.GetSingle() : 0f;
+		float b = e.TryGetProperty( "b", out var eb ) ? eb.GetSingle() : 0f;
+		float a = e.TryGetProperty( "a", out var ea ) ? ea.GetSingle() : 1f;
+		return new Color( r, g, b, a );
+	}
+
+	/// <summary>
+	/// Flatten a JSON value into the string form CoercePropertyAndSet expects:
+	/// scalars as-is, arrays joined with commas (so [0,0,200] -> "0,0,200"), objects as raw JSON.
+	/// </summary>
+	internal static string ElementToValueString( JsonElement el )
+	{
+		switch ( el.ValueKind )
+		{
+			case JsonValueKind.String: return el.GetString();
+			case JsonValueKind.Number: return el.GetRawText();
+			case JsonValueKind.True:   return "true";
+			case JsonValueKind.False:  return "false";
+			case JsonValueKind.Null:   return "null";
+			case JsonValueKind.Array:  return string.Join( ",", el.EnumerateArray().Select( ElementToValueString ) );
+			default:                   return el.GetRawText();
+		}
 	}
 
 	/// <summary>
@@ -1590,10 +1647,7 @@ public class GetPropertyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var id = p.GetProperty( "id" ).GetString();
-		if ( !Guid.TryParse( id, out var guid ) )
-			return Task.FromResult<object>( new { error = "Invalid GUID" } );
-
-		var go = scene.Directory.FindByGuid( guid );
+		var go = ClaudeBridge.ResolveGameObject( scene, id );
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
@@ -1747,16 +1801,13 @@ public class SetPropertyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var id = p.GetProperty( "id" ).GetString();
-		if ( !Guid.TryParse( id, out var guid ) )
-			return Task.FromResult<object>( new { error = "Invalid GUID" } );
-
-		var go = scene.Directory.FindByGuid( guid );
+		var go = ClaudeBridge.ResolveGameObject( scene, id );
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
 		var componentType = p.TryGetProperty( "component", out var ct ) ? ct.GetString() : null;
 		var propertyName  = p.GetProperty( "property" ).GetString();
-		var valueStr      = p.GetProperty( "value" ).GetString();
+		var valueEl       = p.GetProperty( "value" );
 
 		var component = go.Components.GetAll()
 			.FirstOrDefault( c => string.IsNullOrEmpty( componentType ) ||
@@ -1772,11 +1823,32 @@ public class SetPropertyHandler : IBridgeHandler
 			if ( propDesc == null )
 				return Task.FromResult<object>( new { error = $"Property not found: {propertyName}" } );
 
+			// Value-type given as a JSON object ({x,y,z} / {r,g,b,a}) — parse to the typed
+			// value and set it directly so it reliably applies (s&box's string auto-parse
+			// can silently no-op for some value types). Scalars/strings/arrays/refs fall
+			// through to the audited string-coercion path below.
+			var pt = propDesc.PropertyType;
+			if ( valueEl.ValueKind == JsonValueKind.Object )
+			{
+				object typed = null;
+				if ( pt == typeof( Vector3 ) )       typed = ClaudeBridge.ParseVector3( valueEl );
+				else if ( pt == typeof( Vector2 ) )  typed = ClaudeBridge.ParseVector2( valueEl );
+				else if ( pt == typeof( Color ) )    typed = ClaudeBridge.ParseColor( valueEl );
+				else if ( pt == typeof( Rotation ) ) typed = ClaudeBridge.ParseRotation( valueEl );
+
+				if ( typed != null )
+				{
+					propDesc.SetValue( component, typed );
+					return Task.FromResult<object>( new { set = true, id, component = component.GetType().Name, property = propertyName, value = valueEl.ToString() } );
+				}
+			}
+
 			// Type-aware set: handles primitives, enums, value-type strings (Color/Vector3),
 			// AND asset/object references (Model/Material/GameObject/Component) which the old
 			// raw-string path silently dropped to null. Reports success=false on a bad ref/path
 			// instead of a false "set":true.
-			if ( !ClaudeBridge.CoercePropertyAndSet( propDesc.PropertyType, v => propDesc.SetValue( component, v ), propDesc.Name, valueStr, out var setErr ) )
+			var valueStr = ClaudeBridge.ElementToValueString( valueEl );
+			if ( !ClaudeBridge.CoercePropertyAndSet( pt, v => propDesc.SetValue( component, v ), propDesc.Name, valueStr, out var setErr ) )
 				return Task.FromResult<object>( new { error = setErr } );
 
 			return Task.FromResult<object>( new { set = true, id, component = component.GetType().Name, property = propertyName, value = valueStr } );
