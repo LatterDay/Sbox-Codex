@@ -1,19 +1,52 @@
 # Claude Bridge for s&box
 ### Build s&box games by talking to Claude — or any AI.
 
-**150+ tools** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
+**170+ tools · 166 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
+
+But the tools aren't the real story. **v1.9 ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
 📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LouSputthole/Sbox-Claude/issues)
 
 ---
 
-## ⚡ New: one-command Claude Code plugin
+## ⚡ Start here: the one-command plugin (recommended)
+
+If you use Claude Code, install the plugin first. It's the whole experience in one shot:
 
 1. `/plugin marketplace add LouSputthole/Sbox-Claude` — registers the repo as a plugin source
-2. `/plugin install sbox-claude` — installs the plugin (MCP server + workflow skill + onboarding wizard + specialist agent)
+2. `/plugin install sbox-claude` — installs the plugin
 3. Restart Claude Code (or run `/reload-plugins`)
 
+That single install gives you:
+
+- **The brain** — `sbox-cookbook`, a code-grounded recipe library of how real s&box games are built (the #1 reason to use this — see below).
+- **A specialist agent** tuned to build games *with the bridge* — it knows the workflow, the gotchas, and when to reach for the cookbook.
+- **The screenshot workflow skill** — codifies the build → screenshot → verify → fix loop so Claude isn't building blind.
+- **Onboarding** — on first connect it checks the bridge, detects your libraries, and suggests a first move.
+
 You still install the **s&box addon** from this page (see **Install** below). The plugin always pulls the latest MCP server automatically.
+
+Not on Claude Code? The bridge still works with any MCP client via npm (see **Install → Method B**) — you just wire the brain in yourself.
+
+---
+
+## 🧠 The brain: build like a real s&box game, not a guess
+
+This is the headline feature, so it gets its own section.
+
+The hardest part of building an s&box game with an AI isn't typing C# — it's *knowing the right pattern*. How do shipped games actually structure an inventory? Where does the money live so a client can't forge it? How do they sign and version a save file? How does a tycoon tick offline earnings? Get those wrong and you get something that compiles but desyncs, dupes currency, or corrupts saves the first time you change a balance number.
+
+`sbox-cookbook` is a **massive, code-grounded knowledge base** that answers exactly those questions — built by mining **real, shipped, open-source s&box games** plus the modern engine repos, then distilling them into recipes that cite real source you can open. It's a router: ask "how do I build a tycoon / an inventory / a save system?" and it loads the grounded how-to for *that* problem.
+
+What it knows, with proven patterns from real games:
+
+- **Genre playbooks** — tycoon / idle, shopkeeper / management, deathmatch / arena, platformer / obstacle course, survival / horror, card-battler, gacha / dungeon-crawler, social-hub, document / inspection sim, puzzle, sandbox / voxel, vehicles, roleplay. Each gives you the system stack to compose, a build order, and how real games did it.
+- **Game systems** — inventory, economy / currency, shop / vendor / trading, save / persistence, progression / upgrades / prestige, gacha / loot tables, leaderboards, idle / offline earnings, building & placement, crafting, dialogue, round / match flow, spawning & waves, anti-cheat.
+- **Engine fundamentals** — networking & authority, architecture, player controller, Razor UI, weapons / combat, input, physics & traces, component lifecycle, world-gen & rendering, performance & threading, data assets.
+
+And it carries the cross-cutting laws that bite *every* system — authority gating (mutating synced state on a proxy silently rolls back), why money/health/score must be host-authoritative, the request → apply → confirm shape for RPCs, save sanitize-and-clamp-on-load, hotload-safe singletons. The kind of thing you only learn by shipping.
+
+**This is why you use the plugin.** The brain turns "the AI writes plausible C#" into "the AI builds it the way a shipped game would."
 
 ---
 
@@ -21,13 +54,13 @@ You still install the **s&box addon** from this page (see **Install** below). Th
 
 I've seen the thumbs-down reviews on the Claude Bridge release, and I want to address them directly.
 
-I'm not sure yet whether they're from people who simply don't want AI-assisted tools in s&box, or whether the bridge was broken, confusing, or unreliable for some of you. Either way — I want the feedback.
+I'm still not certain whether they're from people who simply don't want AI-assisted tools in s&box, or whether the bridge was broken, confusing, or unreliable for some of you. Either way — I want the feedback.
 
 I built this tool for people who have game ideas but don't necessarily know how to code. The goal isn't to replace creativity. It's to give more people a way to build their dream game by letting Claude act like a coding assistant *inside* the editor. You describe what you want, and Claude helps write scripts, create objects, wire components, and build systems that would otherwise be out of reach for non-programmers.
 
 That said — if the tool didn't work for you, that matters. A bad install, a broken tool call, a timeout, a confusing setup step, or missing docs is on me to fix.
 
-This release fixes a lot of what people were hitting — install paths, tool stability, play-mode safety, timeout confusion, and reliability (Claude can now even read its own errors). A lot of those fixes came directly from user reports, so thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
+The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Claude can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
 
 If you had a bad experience, please reach out: **sboxskins@gmail.com**. Tell me what happened, what broke, what confused you, or what the bridge should do better. I'll move quickly on real issues and keep improving it.
 
@@ -42,18 +75,21 @@ You describe what you want. Claude does the work.
 > **You:** *"Make a player controller with WASD, mouse look, double-jump, and a flashlight."*
 > **Claude:** writes the script, adds the component, wires the input, sets up the spotlight — then aims a camera, screenshots it, and checks its own work.
 
+> **You:** *"Build me an inventory system with a hotbar."*
+> **Claude:** opens the cookbook's inventory recipe, builds it the way real games do (host-authoritative items, networked, drag-and-drop UI) — then runs `networking_lint` and `inspect_networked_object` to confirm it actually replicates.
+
 **✅ Great at — coding game systems through conversation.**
-Player controllers, NPC behavior, networking & multiplayer, UI panels, sound events, prefab wiring, runtime game logic, custom components. Claude writes clean, working s&box C# and iterates from your feedback.
+Player controllers, NPC behavior, networking & multiplayer, UI panels, sound events, prefab wiring, runtime game logic, custom components. With the brain in the loop, it builds inventories, economies, save systems, shops, progression, and whole genre loops the way shipped games do — clean, working s&box C#, iterating from your feedback.
 
 **🟡 Serviceable at — map building.**
-Terrain sculpting, forest/cave/trail generation, prop scatter. Claude can now **aim a camera and screenshot its own work** (a big v1.5 upgrade), so it's no longer building blind — but final visual polish still wants your eyes.
+Terrain sculpting, forest/cave/trail generation, prop scatter. Claude can **aim a camera and screenshot its own work**, so it's no longer building blind — but final visual polish still wants your eyes.
 
 **⛔ Not yet — particle authoring.**
 Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its particle editor, not through the bridge. Build the effect in-editor, and Claude can spawn + place it.
 
 ---
 
-## What it can do (150+ tools)
+## What it can do (170+ tools · 166 handlers)
 
 **Scene & GameObjects** — create, clone, transform, parent, delete; full hierarchy access + editor selection; find objects by name, component, or tag.
 
@@ -65,7 +101,7 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 
 **Lighting & atmosphere** — lights, fog, post-processing, skyboxes, reflection probes (+ bake), and one-call mood presets: **Horror Night · Foggy Dawn · Warm Interior · Overcast**.
 
-**Characters** — spawn, dress, and pose Citizens; hold types; sit / crouch; equip props to bones; aim gaze; add ragdolls; set facial expressions.
+**Characters** — spawn, dress, and pose Citizens; hold types; sit / crouch; equip props to bones; aim gaze; add ragdolls; set facial expressions; drive AnimationGraph params and play named animations.
 
 **Scene layout & environment** — snap-to-ground, align, distribute, grid-duplicate, measure; seeded prop scatter, transform randomization, grouping.
 
@@ -76,6 +112,8 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 **UI & audio** — Razor UI components, screen + world panels; sound events, assignment, and in-editor preview.
 
 **Networking** — network spawn, sync properties, RPC methods, network helpers, lobby config.
+
+**Inspection & validation** — see *exactly* what replicates (`inspect_networked_object`), lint a project for multiplayer footguns (`networking_lint`), catch scene-setup mistakes (`scene_validate`), read/diff save files (`save_inspect`), read services/leaderboards (`services_query`), and drive named input actions in play mode (`simulate_input`). The AI can now **verify** multiplayer, saves, and scenes instead of hoping.
 
 **Assets & prefabs** — search + install Asset Library packages; create / instantiate / inspect prefabs; **compile an asset you just wrote or edited** (e.g. a material).
 
@@ -88,6 +126,17 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 ---
 
 ## What's new
+
+### v1.9 — the brain + see-and-verify
+- **A brain that knows real games** — the companion plugin now bundles `sbox-cookbook`, a code-grounded recipe library mined from **real, shipped, open-source s&box games** + the modern engine source. Genre playbooks, system how-tos, and engine references mean the AI builds inventories, economies, saves, shops, gacha, progression, and netcode the way shipped games do — not from a guess. See **The brain** above.
+- **Inspection & validation (+6 tools)** — the AI can now *verify* what it builds:
+  - `inspect_networked_object` — dump one object's `Network.*` state plus every component's `[Sync]` fields (flags + live values) — see exactly what replicates.
+  - `networking_lint` — static scan for multiplayer footguns: unguarded `[Sync]` mutators, money/health/score as plain `[Sync]`, collections as `[Sync]`, `[Rpc.Host]` methods that never re-check the caller.
+  - `scene_validate` — flags scene-setup footguns: no camera, stray root `Rigidbody`s, `IsTrigger`-vs-trace mismatches.
+  - `save_inspect` — list / read / diff the project's `FileSystem.Data` save files.
+  - `services_query` — read `Sandbox.Services` stats + leaderboards.
+  - `simulate_input` — drive named input actions in play mode.
+  - All six are confirmed live against the SDK. Additive — no existing tool contract changed.
 
 ### v1.7 — play-mode eyes, AI brains & playable scaffolds
 - **See the running game** — `capture_view` captures the *live* game in play mode (player POV + HUD), not just the edit scene. The bridge's first real play-mode eyes.
@@ -108,7 +157,6 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 - **Nav + spatial** — bake navmesh, query paths, sphere/box overlap.
 - **Auto-restart** — the bridge can **restart the s&box editor itself** (`restart_editor`) to recompile and apply changes, so new code and bridge updates take effect *without you manually restarting*. Claude closes its own edit → compile → verify loop.
 - **In-session docs search** — query the official s&box docs without leaving the conversation.
-- **Onboarding wizard** — on first connect, Claude greets you, checks the bridge, detects your libraries, and suggests a first move.
 - **Security & correctness pass** — handler errors now report failure (previously masked as success), path-traversal protection on all file ops, atomic IPC, and honest tool schemas.
 
 ### v1.4 — the Scene Authoring update (+32 tools)
@@ -116,6 +164,7 @@ The bridge went from editing one object at a time to composing entire scenes: **
 
 ### v1.3 — stability & liveness
 - **Honest connection status** — a real heartbeat replaced the old "always connected" false positive; a closed/crashed editor now shows as disconnected within seconds.
+- **Frame loop runs without the dock** — the request queue + heartbeat moved to a **static** frame handler, so tool calls process whether or not the Claude Bridge dock is open on-screen.
 - **Clearer timeouts** — they now tell you *which* side failed (editor not running, wrong temp dir, stalled handler, IPC mismatch). Realign with `SBOX_BRIDGE_IPC_DIR`.
 - **Editor bootstrap crash fixed.**
 
@@ -130,7 +179,7 @@ Reliable first-time install (correct `Libraries/` target), no more `tool.frame` 
 
 - **File-based IPC — no network, no open ports.** The MCP server writes request files to a temp dir; the addon polls them inside the editor, runs them on the main editor thread, and writes responses back. Everything stays on your machine.
 - **Two pieces** — a Node.js MCP server (talks to Claude Code) + a C# editor addon (does the work in s&box).
-- **Self-verifying** — Claude screenshots its work and reads its own logs/compile errors, so it can close the build-and-check loop instead of hoping.
+- **Self-verifying** — Claude screenshots its work, reads its own logs/compile errors, and can lint networking + inspect what replicates, so it can close the build-and-check loop instead of hoping.
 - **Fault-tolerant** — a single broken tool is isolated; it can't take the whole bridge offline.
 - **Path-safe & play-mode-safe** — file ops are confined to your project; scene edits are refused during play mode with a clear error.
 - **Library-aware** — detects the addons already in your project and builds on them.
@@ -146,23 +195,25 @@ Click **Install** on this Asset Library page. s&box drops it into your project's
 
 ### 2. Connect the Claude side — *pick one*
 
-**Method A — Claude Code plugin (easiest).** Use the one-command plugin at the top of this page (`/plugin install sbox-claude`, after `/plugin marketplace add LouSputthole/Sbox-Claude`). It registers the MCP server for you and keeps it updated, and bundles the workflow skill, onboarding wizard, and specialist agent.
+**Method A — Claude Code plugin (recommended).** Use the one-command plugin at the top of this page (`/plugin install sbox-claude`, after `/plugin marketplace add LouSputthole/Sbox-Claude`). It registers the MCP server for you and keeps it updated — *and* bundles the cookbook brain, the specialist agent, the screenshot workflow skill, and onboarding. This is the path that gives you the full experience.
 
 **Method B — manual / npm.**
 1. Install **Node.js 18+** → https://nodejs.org/
 2. Install **Claude Code**, if you don't have it → https://docs.anthropic.com/en/docs/claude-code
 3. Register the server in a terminal:
    ```
-   claude mcp add sbox -- npx sbox-mcp-server
+   claude mcp add sbox -- npx sbox-mcp-server@latest
    ```
+   (Works with any MCP client, not just Claude Code — you just don't get the bundled brain/agent/skill.)
 
-### 3. Open the bridge dock
-In s&box: **View → Claude Bridge**. **Keep it visible** — the frame handler only processes requests while the dock is on-screen, so a closed dock makes tool calls time out at 30s. Dock it out of the way.
+### 3. (Optional) Open the bridge dock
+In s&box: **View → Claude Bridge** opens the Status dock, handy for confirming the connection at a glance. **You do *not* need to keep it open** — since v1.3 the bridge's frame loop is a **static** handler that processes requests whether or not the dock is on-screen. Open it if you want the status readout; close it if you'd rather not.
 
 ### 4. Verify
 In Claude Code (in your project folder), ask *"Check the bridge status"* — you want `connected: true` with a live handler count. Then try:
 > *"Create a cube at 0, 0, 100 with a box model."*
 > *"Write a player controller with WASD and mouse look."*
+> *"Build me a host-authoritative currency system."* (watch it reach for the cookbook)
 
 ---
 
@@ -179,7 +230,7 @@ The MCP server writes request JSON; the addon polls, runs each command on the ed
 
 ## Full tool list
 
-Every tool the bridge exposes, grouped by area:
+Every tool the bridge exposes, grouped by area (166 editor handlers + a handful of MCP-server-side tools that work even when the editor is down):
 
 **Project, files & scripts (9)** — `get_project_info`, `list_project_files`, `read_file`, `write_file`, `recompile_asset`, `create_script`, `edit_script`, `delete_script`, `trigger_hotload`
 
@@ -213,6 +264,8 @@ Every tool the bridge exposes, grouped by area:
 
 **Networking (10)** — `add_network_helper`, `configure_network`, `get_network_status`, `network_spawn`, `set_ownership`, `add_sync_property`, `add_rpc_method`, `create_networked_player`, `create_lobby_manager`, `create_network_events`
 
+**Inspection & validation (6)** — `inspect_networked_object`, `networking_lint`, `scene_validate`, `save_inspect`, `services_query`, `simulate_input`
+
 **Templates & scaffolds (4)** — `create_player_controller`, `create_npc_controller`, `create_game_manager`, `create_trigger_zone`
 
 **Assets (4)** — `search_assets`, `list_asset_library`, `install_asset`, `get_asset_info`
@@ -233,7 +286,7 @@ Every tool the bridge exposes, grouped by area:
 
 ## Troubleshooting
 
-See **[TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md)** for the most common failure modes. The #1 issue is the **dock being closed** — if every tool call times out at 30s, open **View → Claude Bridge** and try again. The #2 issue is an **IPC-dir mismatch** — set `SBOX_BRIDGE_IPC_DIR` to the same path on both sides.
+See **[TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md)** for the most common failure modes. The #1 issue is an **IPC-dir mismatch** — if every tool call times out, the MCP server and the editor addon are watching different temp dirs. Set `SBOX_BRIDGE_IPC_DIR` to the *same* path on both sides (or clear it on both so they share the default `%TEMP%/sbox-bridge-ipc/`). The #2 issue is the **editor not actually running / not finished compiling** — if `get_bridge_status` pings but other tools time out, the editor side isn't processing requests yet; let it finish loading or restart it. (Note: an old guide said the bridge dock must stay open — that's no longer true. Since v1.3 the frame loop is static and runs with the dock closed.)
 
 ## Updating
 - **Addon:** reinstall from the Asset Library when a new version drops.
@@ -243,12 +296,14 @@ See **[TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main
 s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, Linux, macOS
 
 ## Tips
+- **Use the plugin.** The cookbook brain + specialist agent + screenshot skill is most of the value, and it's one command.
 - **Save before a big batch.** Hit Ctrl+S, then turn Claude loose.
 - **Use Git** for your project — keep `.scene` files under version control for anything non-trivial.
+- **Ask for systems by name.** "Build me an inventory / a save system / a host-authoritative economy" lets the brain route you to a proven recipe.
 - **Don't mutate the scene during play mode** — the bridge will refuse with a clear message.
 
 ## License
-**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL and credit sboxskins.gg. The "s&box Claude Bridge" / "sboxskins.gg" name and branding are not licensed for reuse (see NOTICE).
+**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but the **"s&box Claude Bridge" / "sboxskins.gg" name and branding are not licensed for reuse** — you may not use them to present a fork as the original (see **NOTICE**).
 
 ## Links
 - **GitHub:** https://github.com/LouSputthole/Sbox-Claude
@@ -258,6 +313,6 @@ s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, 
 
 ---
 
-**Two pieces, zero ceremony. 150+ tools. Describe your game — Claude builds it.**
+**Two pieces, zero ceremony. 170+ tools · 166 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
 
 *Built by [sboxskins.gg](https://sboxskins.gg), the s&box community marketplace.*
