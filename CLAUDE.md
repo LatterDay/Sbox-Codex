@@ -2,13 +2,28 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.5.2 (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.9.0 — 166 handlers (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-03 (v1.5.2)
+**Last updated:** 2026-06-07 (v1.9.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
-**Handlers:** C# command handlers compiled and registered (verified via the live bridge)
-**Why the difference:** 6 tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+**Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **166 total** as of v1.9.0 (was 160)
+**Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.9.0
+
+**+6 inspection & validation tools → 166 handlers (was 160).** Verified live against the SDK. New TS module `tools/inspection.ts`; C# handlers are **"Batch 37"** in the addon. Additive — no existing tool contract changed.
+
+- **`inspect_networked_object`** — dump a single object's `Network.*` state plus **every component's `[Sync]` fields** (flags + live values), so you can see exactly what replicates.
+- **`networking_lint`** — static scan for multiplayer footguns: unguarded `[Sync]` mutators, money/health/score as plain `[Sync]`, `List`/`Dictionary` as `[Sync]`, and `[Rpc.Host]` methods that never re-check `Rpc.Caller`.
+- **`scene_validate`** — flags scene-setup footguns: no camera, stray root `Rigidbody`s, `IsTrigger`-vs-trace mismatches.
+- **`save_inspect`** — list / read / diff the project's `FileSystem.Data` save files.
+- **`services_query`** — read `Sandbox.Services` stats + leaderboards.
+- **`simulate_input`** — drive named input actions in play mode.
+
+**New skill — `sbox-cookbook`.** A master **router** skill indexing code-grounded recipes mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** + **15 systems** + **14 genre** recipes; it routes "how do I build a tycoon / an inventory / a save system?" to a grounded how-to. Full bundled skill set: `sbox-api`, `sbox-build-feature`, `sbox-setup`, `sbox-scaffold-game`, `sbox-cookbook`.
+
+**License — relicensed GPL-3.0 → AGPL-3.0-or-later** (LICENSE + all `license` fields). Plus a branding/trademark note (see `NOTICE`): the code is open under AGPL, but the "s&box Claude Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
 
 ### What's new in v1.5.0
 
@@ -148,7 +163,8 @@ sbox-claude/
 ├── CLAUDE.md                          ← YOU ARE HERE
 ├── README.md                          ← User-facing docs
 ├── INSTALL.md                         ← Installation guide
-├── LICENSE                            ← MIT
+├── LICENSE                            ← AGPL-3.0-or-later
+├── NOTICE                             ← AGPL summary + name/branding (no-passing-off) note
 ├── install.ps1 / install.sh           ← Legacy installers (need updating)
 │
 ├── sbox-mcp-server/                   # MCP Server (TypeScript)
@@ -183,6 +199,7 @@ sbox-claude/
 │   │       ├── navigation.ts          # bake_navmesh, get_navmesh_path
 │   │       ├── diagnostics.ts         # read_log, get_compile_errors, screenshot_from, frame_camera, console_run, execute_csharp
 │   │       ├── docs.ts                # search_docs, get_doc_page, list_doc_categories (MCP-server-side)
+│   │       ├── inspection.ts          # inspect_networked_object, networking_lint, scene_validate, save_inspect, services_query, simulate_input (Batch 37)
 │   │       └── status.ts              # get_bridge_status
 │   └── dist/                          # Compiled JS
 │

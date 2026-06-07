@@ -248,7 +248,7 @@ s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, 
 - **Don't mutate the scene during play mode** — the bridge will refuse with a clear message.
 
 ## License
-**GPL-3.0.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself, keep it open source and credit sboxskins.gg.
+**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL and credit sboxskins.gg. The "s&box Claude Bridge" / "sboxskins.gg" name and branding are not licensed for reuse (see NOTICE).
 
 ## Links
 - **GitHub:** https://github.com/LouSputthole/Sbox-Claude

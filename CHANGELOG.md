@@ -2,6 +2,35 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.9.0] — 2026-06-07
+
+**6 new inspection & validation tools — see what replicates, lint your networking, catch scene footguns, read saves/services, drive input. 166 handlers (was 160). Plus a new `sbox-cookbook` recipe skill and an AGPL relicense.** Verified live against the SDK. New TS module `tools/inspection.ts`; the C# handlers are **"Batch 37"** in the addon. Additive — no existing tool contract changed.
+
+### Added — Inspection & validation (Batch 37)
+
+- **`inspect_networked_object`** — dump a single object's `Network.*` state plus **every component's `[Sync]` fields** (flags + live values), so you can see exactly what an object replicates.
+- **`networking_lint`** — static scan for multiplayer footguns: unguarded `[Sync]` mutators, money / health / score declared as plain `[Sync]`, `List`/`Dictionary` typed as `[Sync]`, and `[Rpc.Host]` methods that never re-check `Rpc.Caller`.
+- **`scene_validate`** — flags scene-setup footguns: no camera in the scene, stray `Rigidbody`s on root objects, and `IsTrigger`-vs-trace mismatches.
+- **`save_inspect`** — list / read / diff the project's `FileSystem.Data` save files.
+- **`services_query`** — read `Sandbox.Services` stats + leaderboards.
+- **`simulate_input`** — drive named input actions in play mode (press / hold a bound action without a keyboard), to exercise input-driven systems.
+
+### Added — `sbox-cookbook` skill
+
+- A new bundled skill: a master **router** indexing **code-grounded recipes** mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** references (networking-authority, architecture, components-lifecycle, player-controller, ui-razor, combat-weapons, input-interaction, physics-traces-movement, worldgen-rendering, performance-threading, data-assets), **15 systems** (inventory, economy-currency, shop-vendor, save-persistence, progression-upgrades, gacha-loot, leaderboards-services, idle-offline, building-placement, crafting, dialogue, round-match, spawning-waves, anti-cheat, level-design), and **14 genre recipes** (tycoon-idle, shopkeeper, document-sim, roleplay, sandbox-voxel, social-hub, platformer-obstacle, deathmatch-arena, card-battler, survival-horror, gacha-crawler, puzzle, vehicles, party-microgame). Ask "how do I build a tycoon / an inventory / a save system?" and it routes to a grounded how-to. Full bundled skill set: `sbox-api`, `sbox-build-feature`, `sbox-setup`, `sbox-scaffold-game`, `sbox-cookbook`.
+
+### Changed — License
+
+- **Relicensed GPL-3.0 → AGPL-3.0-or-later** (the `LICENSE` file and every `license` field). The AGPL's network/hosted-service clause now applies: if you run a modified bridge as a service, make your modified source available to its users.
+- **Added a `NOTICE`** with the AGPL summary plus a **branding/trademark** note: the code is open under AGPL, but the **"s&box Claude Bridge"** / **"sboxskins.gg"** name and branding may not be reused to present a fork as the original.
+
+### Notes
+
+- The 6 new tools need both the updated MCP server (npm `@1.9.0`) and the republished addon (`BridgeVersion` `1.9.0`); the cookbook skill and the license/NOTICE changes are docs-side.
+- **No breaking changes** to existing tool contracts.
+
+---
+
 ## [1.8.0] — 2026-06-06
 
 **Reliability + correctness pass on core authoring tools, verified live in the editor. Additive — no existing tool contract changed.**

@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.7.0";
+	private const string BridgeVersion = "1.9.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -376,6 +376,14 @@ public static class ClaudeBridge
 		Register( "assign_patrol_route",      () => new AssignPatrolRouteHandler() );
 		Register( "create_npc_spawner",       () => new CreateNpcSpawnerHandler() );
 		Register( "simulate_npc_perception",  () => new SimulateNpcPerceptionHandler() );
+
+		// ── Batch 37: Inspection & validation (mined from 27 shipped games) ──
+		Register( "inspect_networked_object", () => new InspectNetworkedObjectHandler() );
+		Register( "networking_lint",          () => new NetworkingLintHandler() );
+		Register( "scene_validate",           () => new SceneValidateHandler() );
+		Register( "save_inspect",             () => new SaveInspectHandler() );
+		Register( "services_query",           () => new ServicesQueryHandler() );
+		Register( "simulate_input",           () => new SimulateInputHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -4071,6 +4079,298 @@ public class GetNetworkStatusHandler : IBridgeHandler
 		{
 			return Task.FromResult<object>( new { error = $"Failed to get network status: {ex.Message}" } );
 		}
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 37 — Inspection & validation (mined from 27 shipped s&box games)
+// The 3 self-contained handlers (networking_lint / scene_validate / save_inspect)
+// are solid; inspect_networked_object / services_query / simulate_input touch
+// drift-prone engine API — verify members via describe_type before relying on them.
+// ═══════════════════════════════════════════════════════════════════
+
+/// <summary>Per-object networking contract: Network.* state + each component's [Sync] fields and current values.</summary>
+public class InspectNetworkedObjectHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = Game.IsPlaying ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+		var id = p.TryGetProperty( "id", out var idEl ) ? idEl.GetString() : null;
+		if ( string.IsNullOrEmpty( id ) )
+			return Task.FromResult<object>( new { error = "id is required" } );
+		var go = ClaudeBridge.ResolveGameObject( scene, id );
+		if ( go == null )
+			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
+		bool allProps = p.TryGetProperty( "allProps", out var ap ) && ap.ValueKind == JsonValueKind.True;
+
+		object net;
+		try
+		{
+			var n = go.Network;
+			net = new
+			{
+				active        = n.Active,
+				isProxy       = n.IsProxy,
+				isOwner       = n.IsOwner,
+				isCreator     = n.IsCreator,
+				ownerId       = n.OwnerId.ToString(),
+				ownerSteamId  = n.Owner?.SteamId.ToString(),
+				ownerTransfer = n.OwnerTransfer.ToString(),
+				orphaned      = n.NetworkOrphaned.ToString(),
+				flags         = n.Flags.ToString()
+			};
+		}
+		catch ( Exception ex ) { net = new { note = $"network state unavailable: {ex.Message}" }; }
+
+		var components = new List<object>();
+		foreach ( var c in go.Components.GetAll() )
+		{
+			var td = Game.TypeLibrary.GetType( c.GetType() );
+			if ( td == null ) continue;
+			var fields = new List<object>();
+			foreach ( var prop in td.Properties )
+			{
+				bool isSync = false; string syncFlags = null;
+				try
+				{
+					var attr = prop.GetCustomAttribute<Sandbox.SyncAttribute>();
+					if ( attr != null ) { isSync = true; try { syncFlags = attr.Flags.ToString(); } catch { } }
+				}
+				catch { }
+				if ( !isSync && !allProps ) continue;
+				object val; try { val = prop.GetValue( c )?.ToString(); } catch { val = "<error>"; }
+				fields.Add( new { name = prop.Name, type = prop.PropertyType?.Name, isSync, syncFlags, value = val } );
+			}
+			if ( fields.Count > 0 )
+				components.Add( new { component = c.GetType().Name, fields } );
+		}
+		return Task.FromResult<object>( new { id = go.Id.ToString(), name = go.Name, network = net, components } );
+	}
+}
+
+/// <summary>Static scan of the project's C# for the highest-frequency networking/authority bugs.</summary>
+public class NetworkingLintHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var root = Project.Current?.GetRootPath();
+		if ( string.IsNullOrEmpty( root ) )
+			return Task.FromResult<object>( new { error = "No current project" } );
+		var sub = p.TryGetProperty( "path", out var sp ) ? sp.GetString() : null;
+		var scanDir = string.IsNullOrEmpty( sub ) ? root : Path.Combine( root, sub );
+		if ( !Directory.Exists( scanDir ) )
+			return Task.FromResult<object>( new { error = $"Path not found: {sub}" } );
+
+		var findings = new List<object>();
+		var files = Directory.GetFiles( scanDir, "*.cs", SearchOption.AllDirectories )
+			.Where( f => f.IndexOf( "\\obj\\", StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "/obj/", StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "Libraries", StringComparison.OrdinalIgnoreCase ) < 0 )
+			.ToList();
+
+		var rxAuthField  = new System.Text.RegularExpressions.Regex( @"\[Sync\]\s*public", System.Text.RegularExpressions.RegexOptions.IgnoreCase );
+		var rxAuthName   = new System.Text.RegularExpressions.Regex( @"\b(money|cash|coins?|balance|wallet|funds|health|score|prestige|gems?|tokens?)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase );
+		var rxCollection = new System.Text.RegularExpressions.Regex( @"\[Sync[^\]]*\]\s*public\s+(List\s*<|Dictionary\s*<)" );
+		var rxNonRepl    = new System.Text.RegularExpressions.Regex( @"\[Sync[^\]]*\]\s*public\s+(Connection|GameObject)\b" );
+
+		foreach ( var file in files )
+		{
+			string[] lines; try { lines = File.ReadAllLines( file ); } catch { continue; }
+			var rel = Path.GetRelativePath( root, file ).Replace( '\\', '/' );
+			for ( int i = 0; i < lines.Length; i++ )
+			{
+				var line = lines[i];
+				if ( rxAuthField.IsMatch( line ) && rxAuthName.IsMatch( line ) )
+					findings.Add( new { file = rel, line = i + 1, rule = "sync-authoritative-field", fix = "Cheat-sensitive field on plain [Sync] — clients can author it. Use [Sync(SyncFlags.FromHost)].", code = line.Trim() } );
+				if ( rxCollection.IsMatch( line ) )
+					findings.Add( new { file = rel, line = i + 1, rule = "sync-collection", fix = "[Sync] List/Dictionary doesn't replicate granularly. Use NetList<>/NetDictionary<>.", code = line.Trim() } );
+				if ( rxNonRepl.IsMatch( line ) )
+					findings.Add( new { file = rel, line = i + 1, rule = "sync-nonreplicable", fix = "Connection/GameObject can't be [Sync]'d (local handle). Sync a Guid and resolve it.", code = line.Trim() } );
+			}
+			var text = string.Join( "\n", lines );
+			foreach ( System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches( text, @"\[Rpc\.Host\]" ) )
+			{
+				var seg = text.Substring( m.Index, Math.Min( 700, text.Length - m.Index ) );
+				if ( !seg.Contains( "Rpc.Caller" ) && !seg.Contains( "HasAccess" ) && !seg.Contains( "IsHost" ) )
+				{
+					int ln = 1; for ( int k = 0; k < m.Index; k++ ) if ( text[k] == '\n' ) ln++;
+					findings.Add( new { file = rel, line = ln, rule = "rpc-host-unchecked", fix = "Re-validate Rpc.Caller / ownership and re-clamp inside the [Rpc.Host] body — forged args bypass NetFlags.", code = "[Rpc.Host]" } );
+				}
+			}
+		}
+		return Task.FromResult<object>( new { scannedFiles = files.Count, findingCount = findings.Count, findings = findings.Take( 200 ).ToList() } );
+	}
+}
+
+/// <summary>Validate the active scene for common setup footguns (no camera, stray root rigidbodies, trigger-vs-trace).</summary>
+public class SceneValidateHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = Game.IsPlaying ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
+		if ( scene == null )
+			return Task.FromResult<object>( new { error = "No active scene" } );
+		var issues = new List<object>();
+		var all = scene.GetAllObjects( true ).ToList();
+
+		try
+		{
+			if ( scene.GetAllComponents<CameraComponent>().FirstOrDefault() == null )
+				issues.Add( new { severity = "high", issue = "No CameraComponent in the scene — nothing renders in play unless a controller spawns one.", fix = "Add a GameObject with a CameraComponent, or a PlayerController that creates one." } );
+		}
+		catch { }
+		try
+		{
+			var rbRoots = all.Where( o => o.Parent == scene && o.Components.Get<Rigidbody>() != null ).ToList();
+			if ( rbRoots.Count > 1 )
+				issues.Add( new { severity = "medium", issue = $"{rbRoots.Count} Rigidbodies at the scene root.", fix = "Give each dynamic body its own GameObject; a child Rigidbody also breaks collider binding to the root." } );
+		}
+		catch { }
+		try
+		{
+			int triggers = scene.GetAllComponents<Collider>().Count( c => { try { return c.IsTrigger; } catch { return false; } } );
+			if ( triggers > 0 )
+				issues.Add( new { severity = "info", issue = $"{triggers} IsTrigger collider(s) — Scene.Trace ignores triggers by default.", fix = "Triggers fire via ITriggerListener, not traces; if a trace must hit them, configure tags/UseHitboxes." } );
+		}
+		catch { }
+
+		return Task.FromResult<object>( new { objectCount = all.Count, issueCount = issues.Count, issues } );
+	}
+}
+
+/// <summary>Inspect FileSystem.Data save files: list / read / diff.</summary>
+public class SaveInspectHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var action = p.TryGetProperty( "action", out var a ) ? a.GetString() : "list";
+		var path   = p.TryGetProperty( "path", out var pp ) ? ( pp.GetString() ?? "" ) : "";
+		try
+		{
+			var fs = Sandbox.FileSystem.Data;
+			if ( action == "list" )
+			{
+				var dir = path;
+				var dirs  = fs.FindDirectory( dir, "*", false ).ToList();
+				var files = fs.FindFile( dir, "*", false ).Select( f =>
+				{
+					var full = string.IsNullOrEmpty( dir ) ? f : ( dir.TrimEnd( '/' ) + "/" + f );
+					long size = 0; try { size = fs.FileSize( full ); } catch { }
+					return new { name = f, path = full, size };
+				} ).ToList();
+				return Task.FromResult<object>( new { path = dir, directories = dirs, files } );
+			}
+			if ( action == "read" )
+			{
+				if ( !fs.FileExists( path ) )
+					return Task.FromResult<object>( new { error = $"Save file not found: {path}" } );
+				var json = fs.ReadAllText( path );
+				return Task.FromResult<object>( new { path, length = json.Length, content = json.Length > 60000 ? json.Substring( 0, 60000 ) + "\n…[truncated]" : json } );
+			}
+			if ( action == "diff" )
+			{
+				var pathB = p.TryGetProperty( "pathB", out var pb ) ? pb.GetString() : null;
+				if ( string.IsNullOrEmpty( pathB ) || !fs.FileExists( path ) || !fs.FileExists( pathB ) )
+					return Task.FromResult<object>( new { error = "Both 'path' and 'pathB' must be existing save files for diff" } );
+				var diffs = new List<object>();
+				try
+				{
+					using var da = System.Text.Json.JsonDocument.Parse( fs.ReadAllText( path ) );
+					using var db = System.Text.Json.JsonDocument.Parse( fs.ReadAllText( pathB ) );
+					DiffJson( "", da.RootElement, db.RootElement, diffs );
+				}
+				catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"diff parse failed: {ex.Message}" } ); }
+				return Task.FromResult<object>( new { a = path, b = pathB, diffCount = diffs.Count, diffs = diffs.Take( 200 ).ToList() } );
+			}
+			return Task.FromResult<object>( new { error = $"Unknown action: {action}" } );
+		}
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"save_inspect failed: {ex.Message}" } ); }
+	}
+
+	static void DiffJson( string prefix, JsonElement a, JsonElement b, List<object> outp )
+	{
+		if ( a.ValueKind == JsonValueKind.Object && b.ValueKind == JsonValueKind.Object )
+		{
+			var keys = new HashSet<string>();
+			foreach ( var pr in a.EnumerateObject() ) keys.Add( pr.Name );
+			foreach ( var pr in b.EnumerateObject() ) keys.Add( pr.Name );
+			foreach ( var k in keys )
+			{
+				bool ha = a.TryGetProperty( k, out var av );
+				bool hb = b.TryGetProperty( k, out var bv );
+				var key = string.IsNullOrEmpty( prefix ) ? k : prefix + "." + k;
+				if ( !ha ) outp.Add( new { key, change = "added", value = bv.ToString() } );
+				else if ( !hb ) outp.Add( new { key, change = "removed", value = av.ToString() } );
+				else DiffJson( key, av, bv, outp );
+			}
+		}
+		else if ( a.ToString() != b.ToString() )
+		{
+			outp.Add( new { key = prefix, change = "changed", a = a.ToString(), b = b.ToString() } );
+		}
+	}
+}
+
+/// <summary>Read Sandbox.Services stats / leaderboards. NOTE: verify the Services API via describe_type before trusting.</summary>
+public class ServicesQueryHandler : IBridgeHandler
+{
+	public async Task<object> Execute( JsonElement p )
+	{
+		var action = p.TryGetProperty( "action", out var a ) ? a.GetString() : "stats";
+		var name   = p.TryGetProperty( "name", out var nm ) ? nm.GetString() : null;
+		int limit  = p.TryGetProperty( "limit", out var l ) ? l.GetInt32() : 10;
+		try
+		{
+			if ( action == "leaderboard" )
+			{
+				if ( string.IsNullOrEmpty( name ) )
+					return new { error = "leaderboard 'name' is required" };
+				var board = Sandbox.Services.Leaderboards.Get( name );
+				board.MaxEntries = limit;
+				await board.Refresh( default );
+				return new { board = name, displayName = board.DisplayName, totalEntries = board.TotalEntries, count = board.Entries?.Length ?? 0, entries = board.Entries?.Take( limit ).ToArray() };
+			}
+			// stats — needs the package ident; build it from the project config
+			var cfg = Project.Current?.Config;
+			var ident = cfg == null ? "" : ( string.IsNullOrEmpty( cfg.Org ) ? cfg.Ident : $"{cfg.Org}.{cfg.Ident}" );
+			var ps = Sandbox.Services.Stats.GetLocalPlayerStats( ident );
+			await ps.Refresh();
+			if ( !string.IsNullOrEmpty( name ) )
+			{
+				var s = ps.Get( name );
+				return new { ident, stat = name, value = s.Value, sum = s.Sum, min = s.Min, max = s.Max, lastValue = s.LastValue, valueString = s.ValueString };
+			}
+			return new { ident, note = "Pass 'name' to read a stat (Value/Sum/Min/Max/LastValue). For a board, action='leaderboard'." };
+		}
+		catch ( Exception ex ) { return new { error = $"services_query failed: {ex.Message}" }; }
+	}
+}
+
+/// <summary>Synthesize player input during play. NOTE: input-injection API must be verified live via describe_type "Sandbox.Input".</summary>
+public class SimulateInputHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		if ( !Game.IsPlaying )
+			return Task.FromResult<object>( new { error = "simulate_input requires play mode" } );
+		var action = p.TryGetProperty( "action", out var a ) ? a.GetString() : null;
+		var state  = p.TryGetProperty( "state", out var s ) ? s.GetString() : "press";
+		if ( string.IsNullOrEmpty( action ) )
+			return Task.FromResult<object>( new { error = "action is required — a named input action like 'jump', 'attack1', 'use'. (Analog move/look injection is not supported by Sandbox.Input.)" } );
+		try
+		{
+			bool down = state != "release";
+			Sandbox.Input.SetAction( action, down );
+			return Task.FromResult<object>( new
+			{
+				action,
+				state = down ? "down" : "up",
+				note = "SetAction sets the action for the current input frame; for a sustained hold call it each tick. Analog (move/look) has no injection API — drive the controller directly or use a real device."
+			} );
+		}
+		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"simulate_input failed: {ex.Message}" } ); }
 	}
 }
 

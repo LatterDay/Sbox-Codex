@@ -6,9 +6,12 @@ This plugin bundles:
 
 | Component | What it does |
 |---|---|
-| **MCP server registration** (`sbox` from npm) | 160+ tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
+| **MCP server registration** (`sbox` from npm) | ~166 tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
 | **Skill: `sbox-build-feature`** | Codifies the screenshot-driven iteration workflow — bridge check, brainstorm gate, API research, hotload verify, screenshot read. Prevents the "guess and check" loop |
 | **Skill: `sbox-api`** | Schema-grounded s&box API knowledge — Unity→s&box translation table, the Ten Rules, and curated component/UI/networking/physics references. Stops Unity-pattern hallucination; repointed to verify signatures via the bridge's live `describe_type`. Adapted from [claude-sbox](https://github.com/gavogavogavo/claude-sbox) (MIT © David Ryan) |
+| **Skill: `sbox-cookbook`** | A master **router** of code-grounded recipes mined from 27 current (2026) open-source s&box games + the modern engine repos — **11 engine**, **15 system**, and **14 genre** references. Ask "how do I build a tycoon / an inventory / a save system?" and it routes to a grounded how-to |
+| **Skill: `sbox-scaffold-game`** | Turns one ask into a playable starter scene (first-person preset) |
+| **Skill: `sbox-setup`** | A ~30-second onboarding wizard — verifies the bridge, detects your installed libraries, recommends a first move |
 | **Agent: `sbox-game-dev`** | Optional specialist for handing off self-contained game-dev tasks |
 
 ## What this plugin does NOT include
@@ -90,7 +93,7 @@ The agent runs the `sbox-build-feature` skill as its default workflow.
 
 ## Version compatibility
 
-- This plugin is **v1.8.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.7.0`) so the addon/server pair can't silently drift. Keep the bridge **addon** at a matching `1.7.x` — `get_bridge_status` warns if the server and addon versions diverge. (The plugin version moves independently of the server pin; v1.8.0 adds the bundled `sbox-api` skill, no server change.)
+- This plugin is **v1.10.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.9.0`) so the addon/server pair can't silently drift. Keep the bridge **addon** at a matching `1.9.x` (`BridgeVersion` `1.9.0`) — `get_bridge_status` warns if the server and addon versions diverge. (The plugin version moves independently of the server pin; v1.10.0 adds the bundled `sbox-cookbook` recipe skill alongside the v1.9.0 server's 6 new inspection/validation tools.)
 - The bridge addon and MCP server are major-version-compatible — a `1.x` addon works with a `1.x` MCP server. If you upgrade one, upgrade both.
 
 ## Troubleshooting
@@ -107,7 +110,7 @@ For deeper issues see the main repo's [TROUBLESHOOTING.md](https://github.com/Lo
 
 ## License
 
-GPL-3.0-or-later. Same as the bridge.
+AGPL-3.0-or-later. Same as the bridge. The code is open under AGPL, but the "s&box Claude Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original — see the repo's [NOTICE](https://github.com/LouSputthole/Sbox-Claude/blob/main/NOTICE).
 
 ## Credits
 

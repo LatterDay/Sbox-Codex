@@ -1,10 +1,10 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **150+ tools** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, self-diagnosis, console/C# execution, live docs search, and type discovery.
+MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **170+ tools** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, self-diagnosis, console/C# execution, live docs search, and type discovery.
 
 ## Fastest install — the Claude Code plugin
 
-If you use Claude Code, the easiest install is the companion plugin. It registers this MCP server automatically, ships a workflow skill, and includes the `sbox-game-dev` specialist agent.
+If you use Claude Code, the easiest install is the companion plugin. It registers this MCP server automatically, ships the workflow + recipe skills (`sbox-build-feature`, `sbox-api`, `sbox-cookbook`, `sbox-scaffold-game`, `sbox-setup`), and includes the `sbox-game-dev` specialist agent.
 
 ```
 /plugin marketplace add LouSputthole/Sbox-Claude
@@ -54,7 +54,7 @@ Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → 
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
 
-## Tools (v1.5.2)
+## Tools (v1.9.0)
 
 `get_bridge_status` reports the `handlerCount` — that's the C# handlers compiled inside the editor. Six tools run **MCP-server-side** and need no editor handler: `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`. They read the log / hotload-eval / fetch docs directly, so they keep working even when the editor has crashed or stalled.
 
@@ -99,6 +99,7 @@ Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP ser
 | **Console / Exec** *(v1.5.0)* | console_run, execute_csharp *(experimental)* |
 | **Object utilities** *(v1.5.0)* | remove_component, get_tags |
 | **Docs search** *(v1.5.0, MCP-server-side)* | search_docs, get_doc_page, list_doc_categories — official `Facepunch/sbox-docs` |
+| **Inspection & validation** *(v1.9.0)* | inspect_networked_object (per-object `Network.*` + every component's `[Sync]` fields/values), networking_lint (static scan for `[Sync]`/RPC footguns), scene_validate (no-camera / stray root Rigidbody / trigger-vs-trace), save_inspect (list/read/diff `FileSystem.Data` saves), services_query (`Sandbox.Services` stats + leaderboards), simulate_input (drive named input actions in play mode) |
 
 ## Working with Claude effectively
 
@@ -126,6 +127,6 @@ The companion plugin's `sbox-build-feature` skill encodes this workflow plus the
 
 ## License
 
-**GPL-3.0** — see [LICENSE](../LICENSE) for details.
+**AGPL-3.0-or-later** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for details. The code is open under AGPL; the "s&box Claude Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
 
 Copyright (c) 2026 [sboxskins.gg](https://sboxskins.gg)

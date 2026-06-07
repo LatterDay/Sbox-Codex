@@ -3,7 +3,7 @@
 > **Build s&box games by talking to Claude Code.** Describe what you want — Claude writes the C#, builds the scenes, wires up components, and iterates until it works.
 
 <p>
-<strong>v1.5.2</strong> · <strong>150+ tools</strong> · <strong>140+ handlers</strong> · GPL-3.0 · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+<strong>v1.9.0</strong> · <strong>170+ tools</strong> · <strong>166 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
 </p>
 
 ```
@@ -50,7 +50,7 @@ Pick the path with the least resistance for you. **Every path needs both halves*
 
 ### A. Claude Code plugin — easiest
 
-The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.5.2`, fetched via `npx` on first use) and ships the workflow skill, the onboarding wizard, and the specialist agent.
+The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.9.0`, fetched via `npx` on first use) and ships the workflow skills, the onboarding wizard, and the specialist agent.
 
 1. **Add the marketplace + install the plugin** (in Claude Code):
    ```
@@ -67,7 +67,7 @@ If you don't use the plugin, register the server yourself.
 
 1. **Register the MCP server** (one-time):
    ```bash
-   claude mcp add sbox -- npx -y sbox-mcp-server@1.5.2
+   claude mcp add sbox -- npx -y sbox-mcp-server@1.9.0
    ```
 2. **Install the editor addon** from the s&box Asset Library (`sboxskinsgg.claudebridge`) into your project — same as path A, step 2.
 3. **Open s&box**, open the **View → Claude Bridge** dock, keep it visible.
@@ -157,6 +157,16 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 | `add_sync_property`, `add_rpc_method` | Annotate a property `[Sync]`; generate an RPC stub *(honest schemas — they do exactly this)* |
 | `create_networked_player`, `create_lobby_manager`, `create_network_events` | Scaffolds for networked play |
 
+### Inspection & validation *(v1.9.0)*
+| Tool | Does |
+|---|---|
+| `inspect_networked_object` | Dump a single object's `Network.*` state plus every component's `[Sync]` fields (flags + live values) — *see exactly what replicates* |
+| `networking_lint` | Static scan for multiplayer footguns: unguarded `[Sync]` mutators, money/health/score as plain `[Sync]`, `List`/`Dictionary` as `[Sync]`, and `[Rpc.Host]` methods that never re-check `Rpc.Caller` |
+| `scene_validate` | Catch scene-setup footguns — no camera, stray root `Rigidbody`s, `IsTrigger`-vs-trace mismatches |
+| `save_inspect` | List / read / diff the project's `FileSystem.Data` save files |
+| `services_query` | Read `Sandbox.Services` stats + leaderboards |
+| `simulate_input` | Drive named input actions in play mode (press/hold a bound action without a keyboard) |
+
 ### Materials & audio
 | Tool | Does |
 |---|---|
@@ -237,7 +247,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 ## Integrations
 
-- **Claude Code plugin** — bundles the MCP server config, the `sbox-build-feature` workflow skill, the `sbox-setup` onboarding wizard, and the `sbox-game-dev` specialist agent. (See the next section.)
+- **Claude Code plugin** — bundles the MCP server config, the `sbox-build-feature` workflow skill, the `sbox-api` schema-grounded API skill, the `sbox-cookbook` recipe router, the `sbox-scaffold-game` starter-scene skill, the `sbox-setup` onboarding wizard, and the `sbox-game-dev` specialist agent. (See the next section.)
 - **The s&box engine** — the file-IPC editor addon runs inside the editor and executes everything on the main thread.
 - **Installed-library detection & leverage** — `list_libraries` reads your project's `Libraries/` and each `.sbproj`, so Claude can discover and *drive what you already have* rather than reinventing it. If you have the **Shrimple Character Controller** (`fish.scc`) or **`facepunch.playercontroller`**, it can wire up player movement via `add_component_with_properties` instead of writing a controller from scratch. The `sbox-setup` wizard surfaces this on first connect.
 - **s&box Cloud assets** — reference cloud models/textures/sounds (note: Cloud-only assets are ephemeral across restarts — prefer local files for anything permanent).
@@ -251,8 +261,11 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 | Piece | What it is |
 |---|---|
-| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.5.2` and fetches it via `npx -y` on first use — no manual registration, no version drift |
+| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.9.0` and fetches it via `npx -y` on first use — no manual registration, no version drift |
 | **Skill: `sbox-build-feature`** | The screenshot-driven build workflow: confirm the bridge is alive → brainstorm non-trivial features → research the API with `describe_type` → bite-sized edits → hotload + scan the log → **screenshot and read it yourself**. Plus a table of s&box gotchas (`MathF` doesn't exist in the sandbox; Cloud assets aren't persistent; Citizen bone names are case-sensitive; `CitizenAnimationHelper.IkRightHand` drives IK at runtime; `Color` properties want `"r, g, b, a"` strings; etc.) |
+| **Skill: `sbox-api`** | Schema-grounded s&box API knowledge — the Unity→s&box translation table, the Ten Rules, and curated component/UI/networking/physics references, so Claude stops hallucinating Unity patterns |
+| **Skill: `sbox-cookbook`** *(v1.9.0)* | A master **router** indexing code-grounded recipes mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** references (networking-authority, architecture, components-lifecycle, player-controller, ui-razor, combat-weapons, input-interaction, physics-traces-movement, worldgen-rendering, performance-threading, data-assets), **15 systems** (inventory, economy-currency, shop-vendor, save-persistence, progression-upgrades, gacha-loot, leaderboards-services, idle-offline, building-placement, crafting, dialogue, round-match, spawning-waves, anti-cheat, level-design), and **14 genre recipes** (tycoon-idle, shopkeeper, document-sim, roleplay, sandbox-voxel, social-hub, platformer-obstacle, deathmatch-arena, card-battler, survival-horror, gacha-crawler, puzzle, vehicles, party-microgame). Ask "how do I build a tycoon / an inventory / a save system?" and it routes you to a grounded how-to |
+| **Skill: `sbox-scaffold-game`** | Turns one ask into a playable starter scene (first-person preset) by orchestrating the scaffold tools |
 | **Skill: `sbox-setup`** | A warm ~30-second onboarding wizard. It greets you on first connect, verifies the bridge, **detects your installed libraries** (`list_libraries`), recommends a concrete first move, and points you to help + feedback |
 | **Agent: `sbox-game-dev`** | A specialist sub-agent for self-contained game-dev tasks; it runs `sbox-build-feature` as its default workflow |
 
@@ -290,9 +303,11 @@ Then ask for the real thing: *"Create a first-person player controller with WASD
 
 ## License
 
-**GPL-3.0** — see [LICENSE](LICENSE).
+**AGPL-3.0-or-later** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-You can freely use the Claude Bridge in your s&box games, free or commercial, and modify it for your own use. If you redistribute a modified version of the bridge itself, keep it open source under GPL-3.0 and credit sboxskins.gg.
+You can freely use the Claude Bridge in your s&box games, free or commercial, and modify it for your own use. If you redistribute a modified version of the bridge itself — or run it as a network/hosted service — keep it open source under AGPL-3.0-or-later, make your modified source available to its users, and credit sboxskins.gg.
+
+> **Branding & trademark.** The code is open under AGPL, but the **"s&box Claude Bridge"** / **"sboxskins.gg"** name and branding are *not* covered by the code license. Don't reuse them to pass a fork off as the original — rename your fork and remove the original branding. See [NOTICE](NOTICE).
 
 Built by **[sboxskins.gg](https://sboxskins.gg)** — the s&box community marketplace. Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp); early bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
 

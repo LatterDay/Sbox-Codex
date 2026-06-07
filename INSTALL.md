@@ -96,7 +96,7 @@ claude mcp add sbox -- npx sbox-mcp-server
 "Check the bridge status."
 ```
 
-You should get back: `connected: true` and a non-zero `handlerCount`. (That's the count of C# handlers inside the editor; the MCP server exposes a few more tools total — a handful, like `read_log` / `get_compile_errors` / the docs-search tools, run MCP-server-side and don't need an editor handler.) Then try:
+You should get back: `connected: true` and a non-zero `handlerCount` (**166** on the current **v1.9.0** addon). (That's the count of C# handlers inside the editor; the MCP server exposes a few more tools total — a handful, like `read_log` / `get_compile_errors` / the docs-search tools, run MCP-server-side and don't need an editor handler.) Then try:
 
 ```
 "What project is open in s&box?"
