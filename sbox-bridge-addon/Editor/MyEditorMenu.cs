@@ -3204,12 +3204,11 @@ public class AddSyncPropertyHandler : IBridgeHandler
 
 		var content = File.ReadAllText( fullPath );
 
-		// Find the property declaration and add [Sync] above it if not already present
-		var propPattern = $"public ";
-		var propIndex   = content.IndexOf( $"public ", StringComparison.Ordinal );
+		// Build the attribute: optional SyncFlags (e.g. "Interpolate") for smoothly-changing values.
+		var syncFlags = p.TryGetProperty( "syncFlags", out var sf ) ? sf.GetString() : null;
+		var syncAttr  = string.IsNullOrWhiteSpace( syncFlags ) ? "[Sync]" : $"[Sync( SyncFlags.{syncFlags} )]";
 
-		// More targeted: find the specific property
-		var searchStr = $"public.*{propertyName}";
+		// Find the property declaration and add the attribute above it if not already present.
 		var lines     = content.Split( '\n' ).ToList();
 		bool modified = false;
 
@@ -3217,13 +3216,13 @@ public class AddSyncPropertyHandler : IBridgeHandler
 		{
 			if ( lines[i].Contains( propertyName ) && lines[i].Contains( "public" ) && lines[i].Contains( "{" ) )
 			{
-				if ( i > 0 && lines[i - 1].TrimStart().StartsWith( "[Sync]" ) )
+				if ( i > 0 && lines[i - 1].TrimStart().StartsWith( "[Sync" ) )
 				{
 					return Task.FromResult<object>( new { error = $"Property '{propertyName}' already has [Sync]" } );
 				}
 
 				var indent = new string( '\t', lines[i].TakeWhile( c => c == '\t' ).Count() );
-				lines.Insert( i, $"{indent}[Sync]" );
+				lines.Insert( i, $"{indent}{syncAttr}" );
 				modified = true;
 				break;
 			}
@@ -3233,7 +3232,7 @@ public class AddSyncPropertyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = $"Property '{propertyName}' not found in file" } );
 
 		File.WriteAllText( fullPath, string.Join( '\n', lines ) );
-		return Task.FromResult<object>( new { added = true, path = filePath, property = propertyName, attribute = "[Sync]" } );
+		return Task.FromResult<object>( new { added = true, path = filePath, property = propertyName, attribute = syncAttr } );
 	}
 }
 
@@ -3263,11 +3262,12 @@ public class AddRpcMethodHandler : IBridgeHandler
 			_        => "[Rpc.Broadcast]"
 		};
 
-		var methodCode = $"\n\t{rpcAttr}\n\tpublic void {methodName}()\n\t{{\n\t\t// TODO: implement RPC\n\t}}\n";
+		var methodParams = p.TryGetProperty( "methodParams", out var mp ) ? ( mp.GetString() ?? "" ) : "";
+		var methodCode = $"\n\t{rpcAttr}\n\tpublic void {methodName}( {methodParams} )\n\t{{\n\t\t// TODO: implement RPC\n\t}}\n";
 		content = content.Insert( lastBrace, methodCode );
 		File.WriteAllText( fullPath, content );
 
-		return Task.FromResult<object>( new { added = true, path = filePath, method = methodName, attribute = rpcAttr } );
+		return Task.FromResult<object>( new { added = true, path = filePath, method = methodName, attribute = rpcAttr, parameters = methodParams } );
 	}
 }
 
@@ -4195,11 +4195,37 @@ public class TriggerHotloadHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		return Task.FromResult<object>( new
+		try
 		{
-			message = "Hotload is automatic in s&box when files change. Save a .cs file to trigger recompilation.",
-			note    = "No manual hotload API is available. Modify a script file to trigger a hotload."
-		} );
+			var root = Project.Current?.GetRootPath();
+			if ( string.IsNullOrEmpty( root ) )
+				return Task.FromResult<object>( new { error = "No current project" } );
+
+			// s&box recompiles when it detects a source change, but it can miss files
+			// edited directly on disk (via write_file/edit_script). Bumping the project's
+			// .csproj timestamps nudges the watcher to re-scan and recompile. Skip
+			// Libraries/ (packages) so we only touch this project's code.
+			var touched = new List<string>();
+			foreach ( var csproj in Directory.GetFiles( root, "*.csproj", SearchOption.AllDirectories ) )
+			{
+				if ( csproj.Replace( '\\', '/' ).Contains( "/Libraries/" ) ) continue;
+				try { File.SetLastWriteTimeUtc( csproj, DateTime.UtcNow ); touched.Add( Path.GetRelativePath( root, csproj ).Replace( '\\', '/' ) ); }
+				catch { }
+			}
+
+			return Task.FromResult<object>( new
+			{
+				triggered = touched.Count > 0,
+				touched,
+				note = touched.Count > 0
+					? "Bumped .csproj timestamps to nudge a recompile. If changes still don't apply, enter+exit play mode or use restart_editor (the reliable path for externally-edited C#)."
+					: "No project .csproj found to touch. Enter+exit play mode or use restart_editor to force a recompile."
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"trigger_hotload failed: {ex.Message}" } );
+		}
 	}
 }
 
@@ -4400,7 +4426,7 @@ internal static class WorldGenHelpers
 				if ( comp.GetType().Name == typeName ) { error = null; return comp; }
 			}
 		}
-		error = $"No component of type '{typeName}' found in scene"; return null;
+		error = $"No '{typeName}' component in the scene. Pass component='YourComponentName' to target a differently-named one, or use invoke_button to call a method by name."; return null;
 	}
 
 	public static Component ResolveComponent( JsonElement p, string defaultType, out string error )

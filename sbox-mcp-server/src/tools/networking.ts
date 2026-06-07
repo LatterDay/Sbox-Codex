@@ -158,7 +158,7 @@ export function registerNetworkingTools(
         .string()
         .optional()
         .describe(
-          "Currently ignored — not yet implemented. The addon emits a plain [Sync] with no SyncFlags"
+          "Optional SyncFlags to emit as [Sync( SyncFlags.X )] — e.g. 'Interpolate' (smooth interpolation), 'Query', 'FromHost'. Omit for a plain [Sync]"
         ),
       defaultValue: z
         .string()
@@ -181,7 +181,7 @@ export function registerNetworkingTools(
   // ── add_rpc_method ────────────────────────────────────────────────
   server.tool(
     "add_rpc_method",
-    "Generate an EMPTY, no-argument RPC method stub in a C# script for you to fill in. The addon inserts the chosen RPC attribute ([Rpc.Broadcast] all clients, [Rpc.Host] host only, [Rpc.Owner] owner only) above a parameterless method with an empty body — it does NOT add parameters or generate body code",
+    "Generate an RPC method stub in a C# script. Inserts the chosen RPC attribute ([Rpc.Broadcast] all clients, [Rpc.Host] host only, [Rpc.Owner] owner only) above a method with an empty body. Pass methodParams to give it a parameter list (e.g. 'Vector3 pos, int damage'); the body is left as a TODO for you to fill in",
     {
       path: z
         .string()
@@ -195,7 +195,7 @@ export function registerNetworkingTools(
         .string()
         .optional()
         .describe(
-          "Currently ignored — not yet implemented. The addon emits a no-argument method; add parameters yourself afterward"
+          "Optional parameter list for the RPC method signature, e.g. 'Vector3 pos, int damage'. Omit for a parameterless method"
         ),
       body: z
         .string()
