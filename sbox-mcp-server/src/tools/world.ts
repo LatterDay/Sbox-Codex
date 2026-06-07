@@ -72,6 +72,10 @@ export function registerWorldTools(
       x: z.number().describe("World X coordinate"),
       y: z.number().describe("World Y coordinate"),
       id: z.string().optional().describe("Optional GameObject GUID for MapBuilder"),
+      component: z
+        .string()
+        .optional()
+        .describe("Override the terrain component type name (default MapBuilder)"),
     },
     async (params) => {
       const res = await bridge.send("raycast_terrain", params);
@@ -91,6 +95,12 @@ export function registerWorldTools(
       height: z.number().default(100).describe("Peak height (negative for depression)"),
       rebuild: z.boolean().default(true).describe("Rebuild terrain after adding (set false to batch)"),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_terrain_hill", params);
@@ -109,6 +119,12 @@ export function registerWorldTools(
       radius: z.number().default(300),
       rebuild: z.boolean().default(true),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_terrain_clearing", params);
@@ -126,6 +142,12 @@ export function registerWorldTools(
       to: z.object({ x: z.number(), y: z.number() }),
       rebuild: z.boolean().default(true),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_terrain_trail", params);
@@ -144,6 +166,12 @@ export function registerWorldTools(
         .default("all"),
       rebuild: z.boolean().default(true),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("clear_terrain_features", params);
@@ -167,6 +195,12 @@ export function registerWorldTools(
         .describe("Optional insert position (default: append to end)"),
       rebuild: z.boolean().default(true),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_cave_waypoint", params);
@@ -181,6 +215,12 @@ export function registerWorldTools(
     "Clear all waypoints in CaveBuilder and remove the cave from the scene.",
     {
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("clear_cave_path", params);
@@ -207,6 +247,12 @@ export function registerWorldTools(
         .default(false)
         .describe("Forest gen is slow (~1s); default false to batch"),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_forest_poi", params);
@@ -224,6 +270,12 @@ export function registerWorldTools(
       to_index: z.number().int(),
       rebuild: z.boolean().default(false),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("add_forest_trail", params);
@@ -240,6 +292,12 @@ export function registerWorldTools(
       seed: z.number().int().default(77),
       rebuild: z.boolean().default(true),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("set_forest_seed", params);
@@ -254,6 +312,12 @@ export function registerWorldTools(
     "Wipe all POIs and trails in ForestGenerator and clear placed forest objects from the scene.",
     {
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("clear_forest_pois", params);
@@ -273,6 +337,12 @@ export function registerWorldTools(
       strength: z.number().default(50).describe("Height delta (units) for raise/lower; ignored for flatten/smooth"),
       mode: z.enum(["raise", "lower", "flatten", "smooth"]).default("raise"),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("sculpt_terrain", params);
@@ -292,6 +362,12 @@ export function registerWorldTools(
       density: z.number().default(1).describe("Density multiplier (0=clear, 1=normal, 2=dense)"),
       rebuild: z.boolean().default(false),
       id: z.string().optional(),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Override the builder component type name — set this if your project's terrain/cave/forest component is named differently than the default (MapBuilder/CaveBuilder/ForestGenerator)"
+        ),
     },
     async (params) => {
       const res = await bridge.send("paint_forest_density", params);

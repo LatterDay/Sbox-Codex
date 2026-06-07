@@ -17,7 +17,7 @@ All notable changes to the s&box Claude Bridge.
 - **`invoke_button`** can call methods that take parameters — pass `args` (count-matched, coerced per parameter type).
 - **`add_sync_property`** honours `syncFlags` → `[Sync( SyncFlags.X )]`; **`add_rpc_method`** honours `methodParams` → a real method signature.
 - **`trigger_hotload`** nudges a recompile of externally-edited C# by bumping project `.csproj` timestamps (falls back to advising play-mode / `restart_editor`).
-- Map/terrain tools give a clearer "component not found" error pointing to the `component=` override and `invoke_button` fallback.
+- Map/terrain/cave/forest tools now expose a `component` override (target a builder named differently than MapBuilder/CaveBuilder/ForestGenerator) and give a clearer "component not found" error pointing to it + the `invoke_button` fallback.
 
 ### Known issues
 - `create_scene` does not yet generate `includeDefaults` content (camera / light / ground) — it writes an empty scene; add those via `create_gameobject` / `add_light` after loading.
