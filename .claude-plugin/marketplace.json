@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "sbox-claude",
-  "description": "Build s&box games by talking to Claude — Claude Bridge MCP server, screenshot-driven game-dev workflow skill, and sbox-game-dev specialist agent.",
+  "description": "Build s&box games by talking to Claude — or any AI. The Claude Bridge: an MCP server (170+ tools / 166 handlers) that drives the s&box editor, plus sbox-cookbook — a code-grounded recipe brain mined from real, shipped open-source s&box games.",
   "owner": {
     "name": "sboxskins.gg",
     "url": "https://sboxskins.gg"
@@ -9,7 +9,9 @@
   "plugins": [
     {
       "name": "sbox-claude",
-      "description": "Connects Claude Code to the s&box editor via the Claude Bridge MCP server — 150+ tools (a handful run server-side) for driving GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, scatter & object utilities, console/C# execution, live docs search, and type discovery. Bundled skill enforces the screenshot-driven iteration workflow that prevents the guess-and-check loop. Optional sbox-game-dev specialist agent for self-contained game features. The s&box-side bridge addon must be installed separately into your project's Libraries folder (see plugin README).",
+      "displayName": "s&box Claude Bridge",
+      "version": "1.10.0",
+      "description": "Connect Claude Code to the s&box game engine and build games by describing them. The Claude Bridge MCP server (170+ tools / 166 handlers) drives GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, navmesh & spatial queries, particles, scatter, console/C# execution, live docs + type reflection — and now networking/scene/save inspection & lint. Bundles five skills: sbox-cookbook (a code-grounded recipe brain — inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, level design, and full genre playbooks, all mined from real shipped s&box games), sbox-api (Unity→s&box translation + API references), sbox-build-feature (the screenshot-driven build/verify workflow), sbox-scaffold-game, and sbox-setup onboarding — plus an optional sbox-game-dev specialist agent. The s&box-side bridge addon installs separately into your project's Libraries folder (see plugin README). AGPL-3.0-or-later.",
       "author": {
         "name": "sboxskins.gg",
         "url": "https://sboxskins.gg"
@@ -22,11 +24,15 @@
         "s&box",
         "game-engine",
         "game-dev",
+        "game-development",
         "source2",
         "ai",
         "mcp",
         "bridge",
-        "claude-bridge"
+        "claude-bridge",
+        "cookbook",
+        "recipes",
+        "networking"
       ]
     }
   ]
