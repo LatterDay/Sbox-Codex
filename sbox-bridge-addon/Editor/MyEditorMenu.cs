@@ -1283,7 +1283,15 @@ public class LoadSceneHandler : IBridgeHandler
 				try
 				{
 					var asset = AssetSystem.FindByPath( assetRel ) ?? AssetSystem.RegisterFile( fullPath );
+					// RegisterFile returns null for some types (e.g. a freshly-written .scene) —
+					// compile it from source text, then re-resolve the now-registered asset.
+					if ( asset == null )
+					{
+						AssetSystem.CompileResource( assetRel, File.ReadAllText( fullPath ) );
+						asset = AssetSystem.FindByPath( assetRel );
+					}
 					sceneFile = asset?.LoadResource( typeof( SceneFile ) ) as SceneFile;
+					sceneFile ??= ResourceLibrary.Get<SceneFile>( assetRel );
 				}
 				catch { /* fall through to the error below */ }
 			}
@@ -1322,20 +1330,41 @@ public class CreateSceneHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
 	{
-		var name     = p.GetProperty( "name" ).GetString();
-		var rootPath = Project.Current.GetRootPath();
-		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Scenes";
+		var assetsPath = Project.Current.GetAssetsPath();
 
-		var fileName = name.EndsWith( ".scene" ) ? name : $"{name}.scene";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
-			return Task.FromResult<object>( new { error = pathErr } );
+		// Accept "path" (preferred — e.g. 'scenes/level_01.scene') or legacy name(+directory).
+		string rel = null;
+		if ( p.TryGetProperty( "path", out var pe ) && !string.IsNullOrWhiteSpace( pe.GetString() ) )
+			rel = pe.GetString();
+		else if ( p.TryGetProperty( "name", out var ne ) && !string.IsNullOrWhiteSpace( ne.GetString() ) )
+		{
+			var subdir = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "scenes";
+			rel = Path.Combine( subdir, ne.GetString() );
+		}
+		if ( string.IsNullOrWhiteSpace( rel ) )
+			return Task.FromResult<object>( new { error = "path is required (e.g. 'scenes/level_01.scene')" } );
+
+		// Normalize: forward slashes, drop a leading 'Assets/', ensure the .scene extension.
+		rel = rel.Replace( '\\', '/' ).TrimStart( '/' );
+		if ( rel.StartsWith( "assets/", StringComparison.OrdinalIgnoreCase ) )
+			rel = rel.Substring( "assets/".Length );
+		if ( !rel.EndsWith( ".scene", StringComparison.OrdinalIgnoreCase ) )
+			rel += ".scene";
+
+		// Scenes MUST live under the project's Assets/ folder to be resolvable by
+		// ResourceLibrary/AssetSystem — root under Assets, NOT the project root.
+		var fullPath = Path.GetFullPath( Path.Combine( assetsPath, rel ) );
+		var assetsBoundary = assetsPath.TrimEnd( '/', '\\' ) + Path.DirectorySeparatorChar;
+		if ( !fullPath.StartsWith( assetsBoundary, StringComparison.OrdinalIgnoreCase ) )
+			return Task.FromResult<object>( new { error = "Scene path must stay inside the project's Assets folder" } );
 
 		if ( File.Exists( fullPath ) )
-			return Task.FromResult<object>( new { error = $"Scene already exists: {subdir}/{fileName}" } );
+			return Task.FromResult<object>( new { error = $"Scene already exists: {rel}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		// Minimal valid s&box scene JSON
+		// Minimal valid s&box scene JSON. (includeDefaults — camera/light/ground — is not
+		// generated here yet; add them via create_gameobject/add_light after loading.)
 		var sceneJson = JsonSerializer.Serialize( new
 		{
 			__version = 0,
@@ -1344,8 +1373,19 @@ public class CreateSceneHandler : IBridgeHandler
 		}, new JsonSerializerOptions { WriteIndented = true } );
 
 		File.WriteAllText( fullPath, sceneJson );
-		var relativePath = Path.GetRelativePath( rootPath, fullPath ).Replace( '\\', '/' );
-		return Task.FromResult<object>( new { created = true, path = relativePath } );
+
+		// Register the new scene with the AssetSystem so load_scene works immediately
+		// (RegisterFile returns null for a fresh .scene, so fall back to CompileResource).
+		bool registered = false;
+		try
+		{
+			var asset = Editor.AssetSystem.RegisterFile( fullPath );
+			if ( asset != null ) { asset.Compile( true ); registered = true; }
+			else registered = Editor.AssetSystem.CompileResource( rel, sceneJson );
+		}
+		catch { /* best-effort — load_scene also self-registers as a fallback */ }
+
+		return Task.FromResult<object>( new { created = true, path = rel, registered } );
 	}
 }
 

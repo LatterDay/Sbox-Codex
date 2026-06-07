@@ -10,6 +10,7 @@ All notable changes to the s&box Claude Bridge.
 - **`set_property` / `add_component_with_properties` value types now actually apply.** Value-type values reach the addon as strings, and `PropertyDescription.SetValue` does NOT auto-parse a string into `Vector3`/`Vector2`/`Color`/`Rotation` — it silently no-op'd (the long-standing "Vector3 reads back default" bug). `CoercePropertyAndSet` now builds the typed value explicitly (new `ExtractFloats` accepts `"x,y,z"`, `[..]`, or `{...}` forms). Verified: `Vector3` + `Color` set and read back correctly.
 - **`set_material_property` auto-creates a `MaterialOverride`** (via `Material.Create`) when none is assigned, instead of erroring "assign a material first." Verified (`autoCreatedMaterial:true`).
 - **Runtime-spawned GameObjects are addressable** — `get_/set_property` (and the `*_runtime_property` variants) fall back to scanning the live scene by runtime `.Id` when the persisted-GUID lookup misses, so objects created during play can be targeted.
+- **`create_scene` now writes under `Assets/` and registers the scene** — it was writing to a project-root `Scenes/` dir (outside `Assets/`, so unloadable) and not registering with AssetSystem, so `load_scene` failed until a manual `recompile_asset`. It now honours the `path` param under `Assets/`, registers/compiles the scene, and returns the assets-relative path — `create_scene` → `load_scene` works directly. `load_scene` also self-compiles an unregistered scene as a fallback.
 
 ### Added / improved
 - **`set_fog`** supports `cubemap` (`CubemapFog`) and `volumetric` (`VolumetricFogVolume`) in addition to `gradient`.
@@ -18,8 +19,8 @@ All notable changes to the s&box Claude Bridge.
 - **`trigger_hotload`** nudges a recompile of externally-edited C# by bumping project `.csproj` timestamps (falls back to advising play-mode / `restart_editor`).
 - Map/terrain tools give a clearer "component not found" error pointing to the `component=` override and `invoke_button` fallback.
 
-### Known issues (found this pass, not yet fixed)
-- `create_scene` writes the scene outside `Assets/` and doesn't register it with AssetSystem, so `load_scene` fails until a `recompile_asset` is run on the new scene.
+### Known issues
+- `create_scene` does not yet generate `includeDefaults` content (camera / light / ground) — it writes an empty scene; add those via `create_gameobject` / `add_light` after loading.
 
 ## [1.7.0] — 2026-06-04
 
