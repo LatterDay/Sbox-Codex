@@ -2,6 +2,25 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.8.0] — 2026-06-06
+
+**Reliability + correctness pass on core authoring tools, verified live in the editor. Additive — no existing tool contract changed.**
+
+### Fixed
+- **`set_property` / `add_component_with_properties` value types now actually apply.** Value-type values reach the addon as strings, and `PropertyDescription.SetValue` does NOT auto-parse a string into `Vector3`/`Vector2`/`Color`/`Rotation` — it silently no-op'd (the long-standing "Vector3 reads back default" bug). `CoercePropertyAndSet` now builds the typed value explicitly (new `ExtractFloats` accepts `"x,y,z"`, `[..]`, or `{...}` forms). Verified: `Vector3` + `Color` set and read back correctly.
+- **`set_material_property` auto-creates a `MaterialOverride`** (via `Material.Create`) when none is assigned, instead of erroring "assign a material first." Verified (`autoCreatedMaterial:true`).
+- **Runtime-spawned GameObjects are addressable** — `get_/set_property` (and the `*_runtime_property` variants) fall back to scanning the live scene by runtime `.Id` when the persisted-GUID lookup misses, so objects created during play can be targeted.
+
+### Added / improved
+- **`set_fog`** supports `cubemap` (`CubemapFog`) and `volumetric` (`VolumetricFogVolume`) in addition to `gradient`.
+- **`invoke_button`** can call methods that take parameters — pass `args` (count-matched, coerced per parameter type).
+- **`add_sync_property`** honours `syncFlags` → `[Sync( SyncFlags.X )]`; **`add_rpc_method`** honours `methodParams` → a real method signature.
+- **`trigger_hotload`** nudges a recompile of externally-edited C# by bumping project `.csproj` timestamps (falls back to advising play-mode / `restart_editor`).
+- Map/terrain tools give a clearer "component not found" error pointing to the `component=` override and `invoke_button` fallback.
+
+### Known issues (found this pass, not yet fixed)
+- `create_scene` writes the scene outside `Assets/` and doesn't register it with AssetSystem, so `load_scene` fails until a `recompile_asset` is run on the new scene.
+
 ## [1.7.0] — 2026-06-04
 
 **Four-wave release: play-mode eyes, reliability, playable-game scaffolds, and NPC brains. 169 tools / 160 handlers.** Built locally and verified against the live editor (including live play-mode capture and compiling generated code). Additive — no existing tool contract changed.
