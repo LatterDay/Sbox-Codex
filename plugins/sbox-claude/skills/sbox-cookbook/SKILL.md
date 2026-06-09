@@ -5,7 +5,7 @@ description: Use when building a whole s&box game or a specific game SYSTEM and 
 
 # s&box Cookbook — Master Router
 
-A library of **code-grounded recipes** mined from **27 current (2026), hand-built open-source s&box games** plus the modern engine repos (Facepunch `sandbox`, `sbox-scenestaging`, `sandbox-plus-plus`, `grubs`, …). Every recipe is **modern GameObject/Component/Scene API** and cites real source you can open.
+A library of **code-grounded recipes** mined from **51 current (2026), hand-built open-source s&box games** (2026-06 refresh re-mined all 51 — added 6 genres + 2 systems below; cross-reference them with `references/CORPUS-INDEX.md`) plus the modern engine repos (Facepunch `sandbox`, `sbox-scenestaging`, `sandbox-plus-plus`, `grubs`, …). Every recipe is **modern GameObject/Component/Scene API** and cites real source you can open. (The original 27 deep-mined games supply the bulk of the genre/system spine; a second batch of 20 — basebuilder, scoops, sneguborka, duck_pond, phenodex, lumberyard, stone_by_stone, newrp, sweeper_otso, wjse, farm_land, garden, suspectra, sandmoney_, minigolf, fill_the_void, chess_otb, nice_putt_idiot, s_sino, sandbox-reforged — adds the host-migration/day-night/buoyancy/genetics/module-loader/sidewalk-NPC variations cited in the references below.)
 
 **This file is an index, not the answer.** Find your system or genre below, then **open that reference** so you load only what you need.
 
@@ -38,6 +38,12 @@ Each `references/genres/<x>.md` gives the **system stack to compose**, a **build
 | Puzzle | `references/genres/puzzle.md` | 15_puzzle_master |
 | Vehicles | `references/genres/vehicles.md` | vehicle_tool_example |
 | Party / microgames | `references/genres/party-microgame.md` | terry_games |
+| Social deduction (hidden roles, vote/eject) | `references/genres/social-deduction.md` | suspectra, murder |
+| Survivor / bullet-heaven roguelite | `references/genres/survivor-roguelite.md` | ss2 |
+| Co-op kitchen / assembly-line (Overcooked) | `references/genres/coop-kitchen.md` | wjse |
+| Board game / turn-based (chess, minesweeper) | `references/genres/board-game.md` | chess_otb, sweeper_otso |
+| Casino / gambling hub (case-opening) | `references/genres/casino-gambling.md` | s_sino, multis_cases |
+| Physics sports (golf, climbing, skater) | `references/genres/physics-sports.md` | minigolf, nice_putt_idiot, ragroll |
 
 ## 🧩 Need one system? → System how-tos
 Each `references/systems/<x>.md` = what it is + the canonical modern approach + variations across games + gotchas + which games to read.
@@ -50,6 +56,7 @@ Each `references/systems/<x>.md` = what it is + the canonical modern approach + 
 | Save / persistence (signed, versioned, `FileSystem.Data`) | `references/systems/save-persistence.md` |
 | Progression / upgrades / prestige (data-driven balance tables) | `references/systems/progression-upgrades.md` |
 | Gacha / loot / cases (weighted tables, recharge) | `references/systems/gacha-loot.md` |
+| Genetics / breeding (heritable genome, Gaussian inheritance, mutations, best-of registry) | `references/systems/genetics-breeding.md` |
 | Leaderboards / services (`Sandbox.Services` stats, HTTP) | `references/systems/leaderboards-services.md` |
 | Idle / offline earnings / round-robin ticks | `references/systems/idle-offline.md` |
 | Building / placement (grid snap, footprint, modular) | `references/systems/building-placement.md` |
@@ -59,6 +66,10 @@ Each `references/systems/<x>.md` = what it is + the canonical modern approach + 
 | Spawning / waves / NPC | `references/systems/spawning-waves.md` |
 | Anti-cheat / validation (clamp, sanitize, sign, provably-fair) | `references/systems/anti-cheat.md` |
 | Level design & mapping (modular sets, lighting, blockout, triggers, spawns) | `references/systems/level-design.md` |
+| AI director / adaptive pacing (telemetry-driven spawn cadence, composed multipliers) | `references/systems/ai-director.md` |
+| Services backend / accounts (JWT auth, optimistic store + reconcile, HTTP) | `references/systems/services-backend.md` |
+
+> **Composing across games?** `references/CORPUS-INDEX.md` cross-references which of the 51 mined games implement each system/genre, with the single best file to read — use it to pull pieces from several games into one system.
 
 ## ⚙️ Engine concern? → Engine references
 (For raw API surface, also open `sbox-api`.)

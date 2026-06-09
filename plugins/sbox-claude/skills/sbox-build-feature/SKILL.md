@@ -144,6 +144,15 @@ The bridge connects to a single running s&box editor. **Multiple agents cannot d
 | Non-positional sound (ambience, heartbeat, UI) plays in 3D / falls off with distance | After `var h = Sound.Play(evt);` set `h.ListenLocal = true; h.SpacialBlend = 0f;` (fully 2D, same on every client — these are client-local, no networking). To **loop a one-shot `.sound`** without a looping asset, re-`Sound.Play` whenever `!h.IsValid() \|\| h.Finished \|\| h.IsStopped`, and push `h.Volume`/`h.Pitch` every frame so `set_property` live-tuning takes effect. |
 | Floating 3D text without a WorldPanel | `go.AddComponent<TextRenderer>()` (`Sandbox.TextRenderer`) renders text as a world quad — set `.Text`/`.Color`/`.FontSize`/`.FontWeight`/`.Scale`. ⚠️ Its `HorizontalAlignment`/`VerticalAlignment` are a **nested enum the bridge's `describe_type` may not resolve by name** — leave alignment at defaults in code (the label still renders, only its anchor differs) and set it in-editor if needed, rather than guessing an enum literal that won't compile. |
 
+## The bridge map (knowledge graph)
+
+The bridge ships a graphify map of itself at **`docs/graph/`** — every tool maps to its C#
+`IBridgeHandler` and to the docs. **Before adding or changing a bridge tool, consult
+`docs/graph/graph.json` or `docs/graph/graph.html` to see what connects to what.** It CAN GO STALE
+(check the date in `GRAPH_REPORT.md`), and **maintainers must regenerate it as part of every
+release** (`scripts/regen-graph.ps1`, or re-run `/graphify` for the full doc-inclusive graph). See
+`docs/graph/README.md`.
+
 ## Project-level CLAUDE.md
 
 If the project you're working on has its own `CLAUDE.md`, **read it first**. It captures project-specific decisions (input bindings, sound files, role assignment, scene layout) that this skill can't know about.

@@ -129,3 +129,45 @@ void LogStatToBackend( ulong steamId, string statName, int amount )
 Verify live: the installed SDK is authoritative — run `describe_type Sandbox.Services.Stats`, `describe_type Sandbox.Services.Leaderboards`, and `search_types Board` to confirm current method names/aggregation signatures before coding; the Services API shifts between SDK versions (e.g. metadata moved to `Board2`/`DataUrl`).
 
 See also: the **sbox-api** skill for resolving exact reflection signatures, and **sbox-build-feature** for the screenshot-driven loop to wire a leaderboard panel and confirm it renders.
+
+## Corpus refresh (2026): more reference implementations
+
+Net-new cross-game patterns not covered above (the four games below were not yet cited):
+
+- **All-static leaderboard state survives host migration / scene reload.** mostudio.sweeper_otso keeps the entire leaderboard model in `static` fields so a mid-round host disconnect or component churn never blanks it. Boot from a disk cache for an *instant* UI, then a throttled fire-and-forget refresh repopulates from the cloud (mostudio.sweeper_otso: `Code/LeaderboardSystem.cs`):
+  ```csharp
+  static List<Row> _wins, _fastest;  static int _version;
+  // load leaderboard_cache.json first → UI renders immediately
+  // RefreshAll() throttled to 10s, fire-and-forget
+  ```
+
+- **Atomic multi-board swap with a single version bump.** Same file: each of the 3 boards is paged in 20-entry chunks (`Offset` up to 100, de-duping SteamIds) into a *temp* list, then all three are swapped in at once and `_version++` fires **once** — so every `LeaderboardPanel` re-renders one time per cycle, not three. Pattern for any "rebuild N lists then show" without UI flicker.
+
+- **Targeted-RPC persistence via `Rpc.FilterInclude` (cleaner than the broadcast+steamId-check above).** Since `Stats.SetValue` is local to the calling Steam user, fluffybagel.chess_otb routes the write to exactly the owning client instead of broadcasting to everyone and filtering. A `GameObjectSystem` can't host RPCs, so a tiny component does (fluffybagel.chess_otb: `Code/Game/Networking/ChessOtbModeRpcs.cs`):
+  ```csharp
+  using ( Rpc.FilterInclude( targetConnection ) ) hub.RpcWriteMyEloStat( newElo, wld );
+  [Rpc.Broadcast] void RpcWriteMyEloStat( int elo, ... ) {
+      if ( !Rpc.Caller.IsHost ) return;           // only host may command a write
+      if ( w + l + d != 1 ) return;               // result deltas must sum to exactly one game
+      Stats.SetValue( ChessOtbStats.Elo(cat), elo ); Stats.Increment( "Otbs_played", 1 );
+  }
+  ```
+
+- **Mirror cloud values into `[Sync(FromHost)]` so the scoreboard never hits the service.** chess_otb hydrates each player's Elo + W/L/D from `Stats` *once on join* (`HostBeginHydrateRatingsFromStats` → async `Stats.Refresh`), then exposes them as host-synced fields on a `PlayerIdentity` component — the live scoreboard reads replicated state, not the (laggy, rate-limited) Services API. It also tracks **session** W/L/D separately from career totals (fluffybagel.chess_otb: `Code/Game/Networking/PlayerIdentity.cs`). `EloMath.UpdatePair` (K=32, clamp 100–4000) is copy-paste-ready (`Code/Game/Rating/EloMath.cs`).
+
+- **Two stores, two authorities, in one callback.** slamdunk.minigolf shows the split cleanly: in a single `OnTriggerEnter` the *local owner* (`!other.IsProxy`) writes its own score to `Stats` (only the owner can write its SteamId), while the *host* (`Networking.IsHost`) mutates the authoritative synced `Scorecard`. Don't conflate "who owns the cloud stat" with "who owns the gameplay truth" (slamdunk.minigolf: `Code/.../HoleTrigger.cs`, `StatManager.cs`):
+  ```csharp
+  if ( !other.IsProxy ) StatManager.LogScore( holeName, strokes ); // owner → its own Stats
+  if ( Networking.IsHost ) scorecard.Record( player, strokes );    // host → synced truth
+  ```
+
+- **Achievement progress for UI bars + unlock-gated content (no currency).** slamdunk pulls live achievement state to drive cosmetic unlocks and progress bars rather than a shop. `Package.FetchAsync(ident)` → `.GetAchievements()` enumerates them; per-achievement `.ProgressionFraction` and `.IsUnlocked` feed the UI directly (slamdunk.minigolf: `StatManager.cs`, `Cosmetics/CosmeticDefinition.cs`):
+  ```csharp
+  [JsonIgnore] public bool  IsUnlocked => RequiresAchievement && Achievement.IsUnlocked;
+  [JsonIgnore] public float Progress   => Achievement.ProgressionFraction * 100f; // live % bar
+  // unlock where earned: Achievements.Unlock( "hole_feedback" );
+  ```
+
+- **Gate the submit on a cheat flag at the source.** simalami.15_puzzle_master supports a debug instant-win, so it sets a `nextSolveIsDebug` flag before solving; on solve, `ClassicProgression.onSolved` early-returns **before** touching the personal record, the leaderboard `SetValue`, *or* the achievement unlock when `cheated` is true. Any game with a god-mode/debug path should flag the win at the source and short-circuit every reward, not just the score (simalami.15_puzzle_master: `ClassicProgression.cs`).
+
+**Read these games for live-services patterns** (in addition to those in "Seen in"): **mostudio.sweeper_otso** (`Code/LeaderboardSystem.cs` — static state + disk cache + atomic versioned swap; `Code/Inventory.cs` anti-cheat watermarks), **fluffybagel.chess_otb** (`ChessOtbModeRpcs.cs` `Rpc.FilterInclude` targeted write, `PlayerIdentity.cs` `[Sync(FromHost)]` mirror + join-hydrate, `EloMath.cs` rating math), **slamdunk.minigolf** (`HoleTrigger.cs` dual-authority callback, `StatManager.cs` + `Cosmetics/CosmeticDefinition.cs` achievement-gated unlocks via `Package.FetchAsync().GetAchievements()`).

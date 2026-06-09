@@ -18,13 +18,21 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * All scene/file-mutating; refused during play mode by the bridge dispatch.
  */
 
+// A 3D vector accepted as EITHER an object {x,y,z} OR a comma string "x,y,z",
+// passed through unchanged. The C# handler parses both forms (source of truth).
+// See the cross-language vector/color contract.
+const Vector3Object = z.object({
+  x: z.number().describe("X coordinate"),
+  y: z.number().describe("Y coordinate"),
+  z: z.number().describe("Z coordinate"),
+});
+
 const Vector3Schema = z
-  .object({
-    x: z.number().describe("X coordinate"),
-    y: z.number().describe("Y coordinate"),
-    z: z.number().describe("Z coordinate"),
-  })
-  .describe("3D vector with x, y, z components");
+  .union([
+    Vector3Object,
+    z.string().describe('Comma string "x,y,z", e.g. "0,0,200"'),
+  ])
+  .describe('3D vector — object {x,y,z} OR comma string "x,y,z"');
 
 const RotationSchema = z
   .object({
@@ -206,6 +214,37 @@ export function registerGameplayTools(
     },
     async (params) => {
       const res = await bridge.send("create_health_system", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── create_economy_wallet ─────────────────────────────────────────
+  server.tool(
+    "create_economy_wallet",
+    "Generate a host-authoritative currency Wallet component: a [Sync(SyncFlags.FromHost)] Money balance (only the host can write it — plain [Sync] money is the classic economy exploit) with AddMoney / TrySpend / SetMoney / CanAfford and an OnMoneyChanged event. Single-player safe. Optionally attached to an existing GameObject by GUID (after a hotload). Pairs with a save system for persistence. Mined from the most-requested currency pattern across 51 games.",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'Wallet'"),
+      directory: z
+        .string()
+        .optional()
+        .describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      startingMoney: z
+        .number()
+        .int()
+        .optional()
+        .describe("Initial balance the host seeds on start. Defaults to 0"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to attach the Wallet to (only attaches if the type is already loaded — hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_economy_wallet", params);
       if (!res.success) {
         return { content: [{ type: "text", text: `Error: ${res.error}` }] };
       }

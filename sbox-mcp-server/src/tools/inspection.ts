@@ -121,9 +121,12 @@ export function registerInspectionTools(
         .default("press")
         .describe("press = one tick (Pressed); hold = held for durationMs; release = clear a held action"),
       analogMove: z
-        .object({ x: z.number(), y: z.number(), z: z.number().default(0) })
+        .union([
+          z.object({ x: z.number(), y: z.number(), z: z.number().default(0) }),
+          z.string().describe('Comma string "x,y,z", e.g. "1,0,0"'),
+        ])
         .optional()
-        .describe("AnalogMove vector to apply (forward/left)"),
+        .describe('AnalogMove vector to apply (forward/left) — object {x,y,z} or comma string "x,y,z"'),
       analogLook: z
         .object({ pitch: z.number(), yaw: z.number(), roll: z.number().default(0) })
         .optional()

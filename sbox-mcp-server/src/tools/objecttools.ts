@@ -9,14 +9,23 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * set_tint/group/etc.
  */
 
+// A colour accepted as EITHER an object {r,g,b,a} OR a comma string "r,g,b,a".
+// The value is passed through to the bridge unchanged; the C# handler parses
+// both forms (C# is the source of truth). See the cross-language vector/color
+// contract.
+const ColorObject = z.object({
+  r: z.number().min(0).describe("Red, 0-1"),
+  g: z.number().min(0).describe("Green, 0-1"),
+  b: z.number().min(0).describe("Blue, 0-1"),
+  a: z.number().min(0).max(1).optional().describe("Alpha, 0-1 (default 1)"),
+});
+
 const ColorSchema = z
-  .object({
-    r: z.number().min(0).describe("Red, 0-1"),
-    g: z.number().min(0).describe("Green, 0-1"),
-    b: z.number().min(0).describe("Blue, 0-1"),
-    a: z.number().min(0).max(1).optional().describe("Alpha, 0-1 (default 1)"),
-  })
-  .describe("RGBA colour as 0-1 floats");
+  .union([
+    ColorObject,
+    z.string().describe('Comma string "r,g,b,a", e.g. "1,0,0,1"'),
+  ])
+  .describe('RGBA colour — object {r,g,b,a} (0-1) OR comma string "r,g,b,a"');
 
 export function registerObjectTools(
   server: McpServer,
@@ -49,14 +58,30 @@ export function registerObjectTools(
   // ── set_tint ───────────────────────────────────────────────────────
   server.tool(
     "set_tint",
-    "Set the renderer tint colour on one object (id) or many (ids) at once. Works on any ModelRenderer/SkinnedModelRenderer.",
+    'Set the renderer tint colour on one object (id) or many (ids) at once. Works on any ModelRenderer/SkinnedModelRenderer. Pass the colour as "tint" (or its alias "color"); each accepts an object {r,g,b,a} OR a comma string "r,g,b,a".',
     {
       id: z.string().optional().describe("Single GameObject GUID"),
       ids: z.array(z.string()).optional().describe("Multiple GameObject GUIDs"),
-      tint: ColorSchema.describe("Tint colour to apply"),
+      tint: ColorSchema.optional().describe("Tint colour to apply (object or comma string)"),
+      color: ColorSchema.optional().describe('Alias for "tint" (object or comma string)'),
     },
     async (params) => {
-      const res = await bridge.send("set_tint", params);
+      // "color" is an accepted alias for "tint"; normalize to "tint" and pass
+      // the value through unchanged (C# parses object-or-string).
+      const { color, tint, ...rest } = params as {
+        color?: unknown;
+        tint?: unknown;
+        [k: string]: unknown;
+      };
+      const tintValue = tint ?? color;
+      if (tintValue === undefined) {
+        return {
+          content: [
+            { type: "text", text: 'Error: provide "tint" (or its alias "color").' },
+          ],
+        };
+      }
+      const res = await bridge.send("set_tint", { ...rest, tint: tintValue });
       if (!res.success) {
         return { content: [{ type: "text", text: `Error: ${res.error}` }] };
       }

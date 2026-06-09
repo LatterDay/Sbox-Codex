@@ -20,13 +20,19 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * bridge.send per tool, JSON.stringify(res.data) on success.
  */
 
+// A world-space Vector3 accepted as EITHER an object {x,y,z} OR a comma string
+// "x,y,z", passed through unchanged. The C# handler parses both forms (source of
+// truth). See the cross-language vector/color contract.
 const Vec3 = z
-  .object({
-    x: z.number().describe("X"),
-    y: z.number().describe("Y"),
-    z: z.number().describe("Z"),
-  })
-  .describe("A world-space Vector3");
+  .union([
+    z.object({
+      x: z.number().describe("X"),
+      y: z.number().describe("Y"),
+      z: z.number().describe("Z"),
+    }),
+    z.string().describe('Comma string "x,y,z", e.g. "0,0,200"'),
+  ])
+  .describe('A world-space Vector3 — object {x,y,z} OR comma string "x,y,z"');
 
 export function registerNpcTools(server: McpServer, bridge: BridgeClient): void {
   // ── create_npc_brain ──────────────────────────────────────────────

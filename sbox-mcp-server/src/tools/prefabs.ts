@@ -44,13 +44,16 @@ export function registerPrefabTools(
           "Path to the .prefab file (e.g. 'prefabs/enemies/grunt.prefab')"
         ),
       position: z
-        .object({
-          x: z.number(),
-          y: z.number(),
-          z: z.number(),
-        })
+        .union([
+          z.object({
+            x: z.number(),
+            y: z.number(),
+            z: z.number(),
+          }),
+          z.string().describe('Comma string "x,y,z", e.g. "0,0,64"'),
+        ])
         .optional()
-        .describe("World position to spawn at. Defaults to origin"),
+        .describe('World position to spawn at — object {x,y,z} or comma string "x,y,z". Defaults to origin'),
       rotation: z
         .object({
           pitch: z.number(),

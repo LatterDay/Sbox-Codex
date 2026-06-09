@@ -8,9 +8,31 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * scene — all verifiable via the editor (screenshot or hierarchy/state).
  */
 
+// Vector / colour accepted as EITHER an object OR a comma string, passed
+// through unchanged. The C# handler parses both forms (source of truth). See
+// the cross-language vector/color contract.
+const Vector3Object = z.object({ x: z.number(), y: z.number(), z: z.number() });
+
 const Vector3Schema = z
-  .object({ x: z.number(), y: z.number(), z: z.number() })
-  .describe("Vector {x,y,z}");
+  .union([
+    Vector3Object,
+    z.string().describe('Comma string "x,y,z", e.g. "100,100,100"'),
+  ])
+  .describe('Vector — object {x,y,z} OR comma string "x,y,z"');
+
+const ColorObject = z.object({
+  r: z.number().min(0),
+  g: z.number().min(0),
+  b: z.number().min(0),
+  a: z.number().min(0).max(1).optional(),
+});
+
+const ColorSchema = z
+  .union([
+    ColorObject,
+    z.string().describe('Comma string "r,g,b,a", e.g. "1,0,0,1"'),
+  ])
+  .describe('RGBA colour — object {r,g,b,a} (0-1) OR comma string "r,g,b,a"');
 
 export function registerLevelTools(
   server: McpServer,
@@ -135,15 +157,9 @@ export function registerLevelTools(
       snapToGround: z.boolean().optional().describe("Raycast each onto the surface below (default true)"),
       scaleMin: z.number().optional().describe("Min uniform scale (default 1)"),
       scaleMax: z.number().optional().describe("Max uniform scale (default 1; set >min for size variation)"),
-      tint: z
-        .object({
-          r: z.number().min(0),
-          g: z.number().min(0),
-          b: z.number().min(0),
-          a: z.number().min(0).max(1).optional(),
-        })
+      tint: ColorSchema
         .optional()
-        .describe("Tint applied to every copy"),
+        .describe('Tint applied to every copy — object {r,g,b,a} or comma string "r,g,b,a"'),
       seed: z.number().int().optional().describe("PRNG seed for a reproducible layout (default 1)"),
       group: z.boolean().optional().describe("Parent all copies under one group object (default true)"),
       name: z.string().optional().describe("Base name for the props/group (default 'Prop')"),

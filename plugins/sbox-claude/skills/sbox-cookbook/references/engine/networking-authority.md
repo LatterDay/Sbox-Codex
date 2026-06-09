@@ -268,6 +268,109 @@ Pattern from sgba (`Code/Networking/NetworkManager.cs:221`). Cheap, robust liven
 
 For death/round-result/role-reveal style events, don't replicate a stateful networked entity per event — serialize the event to JSON/bytes, send through ONE RPC, deserialize back into the same typed event on the client and call `Run()` locally (the host keeps the canonical accumulation; client replay is presentation only). Far cheaper than per-field sync churn (concept verified in ttt-reborn `code/gameevents/base/NetworkableGameEvent.cs:32`; its `ConCmd` transport is legacy, the intent concept is timeless). For large blobs that exceed the per-message cap: `DeflateStream`-compress and write both raw + compressed length so the receiver pre-sizes its buffer, route lossy data over `Unreliable` and must-arrive data over `Reliable`; or fragment into `(payloadHash, index, total, partial)` packets and reassemble by hash (sgba: `Code/Networking/LinkCablePackets.cs:203`).
 
+### 17. Host-migration watchdog: reclaim orphans, reconcile the `[Sync]` registry, sanity-restart
+
+s&box has a known bug where networked GameObjects are **often destroyed during host migration regardless of `NetworkOrphaned` setting**, and the new host inherits stale transient state. Don't try to preserve mid-game state through a migration — detect becoming host, aggressively reconcile, and force a clean restart if anything looks broken. Detect the transition with `isHost && !_wasHost`, then **defer the sanity check ~1s** so in-flight packets that haven't applied yet don't make a healthy board look broken.
+
+```csharp
+protected override void OnUpdate()
+{
+    bool isHost = Networking.IsHost;
+    if ( isHost && !_wasHost ) OnBecameHost();
+    _wasHost = isHost;
+
+    if ( !_settled && _timeSinceBecameHost > 1.0f ) { _settled = true; ValidatePostMigration(); }
+}
+
+void OnBecameHost()
+{
+    _timeSinceBecameHost = 0f; _settled = false;
+    _generator.ForceResetTransientFlags();   // wipe flags the dead host's async tasks would have cleared
+    ReclaimOrphanedFlags();                   // Network.TakeOwnership() each orphan so we can manage/destroy it
+    RebuildFlagMappings();                    // rebuild handle→handle maps by world-position matching
+    ReconcileFlaggedRegistry();               // make the [Sync] list match the visible scene
+}
+```
+
+The four moves, all verbatim from sweeper_otso (`Code/HostWatchdog.cs`): **(1)** `Network.TakeOwnership()` every orphaned object (`:162`) — without authority the new host can't destroy ownerless objects, and they float forever; **(2)** rebuild any handle→handle mapping by matching `WorldPosition.Distance(...) < tol` because object `Id`s don't survive (`:225`); **(3)** reconcile the `[Sync]` registry against what's actually in the scene — drop entries with no visible object, add visible objects missing from the list — because a place/remove broadcast can be lost mid-migration (`:180`); **(4)** the deferred `ValidatePostMigration()` (`:80`) decides intact-vs-broken from the *real scene* (expected-vs-actual child count with a 10% tolerance, plus "is anyone still tagged `playing`?") and calls `ClearBoard()` for a clean round rather than limping along. Pair with the market-recovery variant `RecoverFromHostMigration` (lavagame.sandmoney_ `Code/Core/MarketManager.cs`).
+
+### 18. Vote-kick + temp-ban (host-authoritative, enforced on connect)
+
+Player-moderation in a host-authoritative game: clients `[Rpc.Host]`-request a vote, the host owns the tally and the ban map, and bans are re-checked on every connection.
+
+```csharp
+private Dictionary<long, DateTime> _bans = new();          // host-only: steamId -> expiry
+private const float BanDurationMinutes = 30f;
+
+void EnforceBans()                                         // run on the host each tick / on connect
+{
+    foreach ( var conn in Connection.All )
+        if ( _bans.TryGetValue( conn.SteamId, out var expiry ) && DateTime.UtcNow < expiry )
+            conn.Kick( "You were voted out. Try another server." );
+}
+
+[Rpc.Host]
+public void RequestVoteKick( long targetSteamId )
+{
+    var caller = Rpc.Caller;
+    if ( (long)caller.SteamId == targetSteamId ) return;   // can't kick yourself
+    // ... open a vote, auto-yes the initiator, 20s timer ...
+}
+```
+
+From sweeper_otso `Code/VoteKickSystem.cs`: the ban map is `steamId → DateTime expiry` (`:23`), expired entries are swept each pass (`:46-53`), `conn.Kick(reason)` enforces (`:59`), the threshold is majority `(playerCount / 2) + 1`, and players can change their vote. **The whole tally and ban map are host-only state** — a client never holds them; it only sends the `[Rpc.Host]` request, which (per pattern 4) re-validates the caller.
+
+### 19. Lobby: map-vote with tie-break + per-slot networked character preview
+
+A pre-game lobby that votes on a map and shows each joined player's chosen character. Votes/picks live in `NetDictionary<Guid,…>` (collections can't be plain `[Sync]`), the winning map is chosen with a **random tie-break**, and each slot spawns a clone with `NetworkSpawn(conn)` so everyone sees everyone's avatar — cleaned up on leave.
+
+```csharp
+[Sync] public NetDictionary<Guid, int> MapVotes { get; set; } = new();
+[Sync] public NetDictionary<Guid, int> CharacterPicks { get; set; } = new();
+
+int ResolveWinningMap()
+{
+    var tally = new int[Maps.Count];
+    foreach ( var v in MapVotes.Values ) tally[v]++;
+    int best = tally.Max();
+    var winners = Enumerable.Range( 0, tally.Length ).Where( i => tally[i] == best ).ToList();
+    return winners[Game.Random.Int( winners.Count - 1 )];   // random tie-break, never index 0 bias
+}
+
+void ShowPreviewFor( Connection conn, int characterIndex )
+{
+    var preview = CharacterPrefabs[characterIndex].Clone( SlotTransform( conn ) );
+    preview.NetworkSpawn( conn );                            // everyone sees this player's avatar
+    _previews[conn.Id] = preview;                            // destroy in OnDisconnected
+}
+```
+
+Pattern from wjse `Code/Map and Lobby/LobbyManager.cs` (`NetDictionary` votes/picks, tie-break random, clone + `NetworkSpawn(conn)` per slot, floating Steam nameplates, `BroadcastStartGame` scene load). The cleanup-on-leave is load-bearing — orphaned preview clones accumulate every rejoin otherwise.
+
+### 20. `NetworkMode.Never` for local-only cosmetics + a per-client static registry
+
+For a **purely cosmetic** visual a proxy can recompute locally (a crowd body, a thought-bubble, a held-item prop), don't replicate it — set the child's `NetworkMode = NetworkMode.Never`. On a late-join, a replicated cosmetic spawns a *second* body/bubble alongside the locally-built one; `NetworkMode.Never` keeps it strictly local so there's exactly one. And to reach all instances of a hot component without the per-frame cost of `GetAllComponents`, keep a `static List<T> _all` maintained in `OnEnabled`/`OnDisabled`.
+
+```csharp
+public sealed class CustomerNpc : Component
+{
+    static readonly List<CustomerNpc> _all = new();
+    public static IReadOnlyList<CustomerNpc> All => _all;
+    protected override void OnEnabled()  { if ( !_all.Contains( this ) ) _all.Add( this ); }
+    protected override void OnDisabled() => _all.Remove( this );
+
+    void BuildVisuals()
+    {
+        var body = new GameObject( true, "body" );
+        body.NetworkMode = NetworkMode.Never;       // local-only — no doubled body on late-join
+        body.SetParent( GameObject );
+        // ...bubble + held item also NetworkMode.Never...
+    }
+}
+```
+
+Verbatim from scoops `Code/CustomerNpc.cs` (`_all` registry `:14-18`, `body.NetworkMode = NetworkMode.Never` `:92`, bubble/item `:136,:162`). Use the `_all` registry anywhere a system iterates "every X each frame" (separation/boids, nearest-of, counts) — it turns an O(n) scene scan into a cached list.
+
 ---
 
 ## Gotcha table
@@ -288,6 +391,11 @@ For death/round-result/role-reveal style events, don't replicate a stateful netw
 | Props vanish when their owner disconnects | `Network.SetOrphanedMode(NetworkOrphaned.Host)`; set `channel.CanSpawnObjects = false` to block client spawns |
 | Driving client's input does nothing on a shared object | It must OWN it (`AssignOwnership`); clear the driver/occupant gate in `OnDestroy` |
 | `Network.IsOwner` is null in solo editor playtests | Don't guard solely on `IsOwner`; use `!IsProxy` or `LocalSimulation || Network.IsOwner` |
+| Networked objects vanish on host migration even with `OrphanedMode.Host` | Known s&box bug | On becoming host (`isHost && !_wasHost`): `TakeOwnership` orphans, reconcile the `[Sync]` registry against the scene, **defer the sanity check ~1s**, force a clean restart if broken (sweeper_otso `HostWatchdog.cs`) |
+| Vote-kick tally / ban map trusted from clients | A client could forge the result or self-unban | Keep tally + `steamId→expiry` map host-only; clients only send the `[Rpc.Host]` request; re-check the caller; enforce bans via `conn.Kick` on connect (sweeper_otso `VoteKickSystem.cs`) |
+| Lobby vote/pick stored in a plain `[Sync] Dictionary` | Collections don't replicate as `[Sync]` | Use `NetDictionary<K,V>`; random-tie-break the winning map; destroy per-slot preview clones in `OnDisconnected` (wjse `LobbyManager.cs`) |
+| Cosmetic crowd body/bubble doubles on late-join | A replicated cosmetic spawns a 2nd copy beside the locally-built one | Set the cosmetic child's `NetworkMode = NetworkMode.Never`; recompute it locally on every client (scoops `CustomerNpc.cs:92`) |
+| `GetAllComponents<T>()` every frame stutters | O(scene) scan in a hot loop | Maintain a `static List<T> _all` in `OnEnabled`/`OnDisabled` and iterate that (scoops `CustomerNpc.cs:14`) |
 
 ---
 

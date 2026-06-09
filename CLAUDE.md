@@ -2,13 +2,25 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.9.0 — 166 handlers (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.10.0 — 171 handlers (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-07 (v1.9.0)
+**Last updated:** 2026-06-09 (v1.10.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
-**Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **166 total** as of v1.9.0 (was 160)
+**Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.10.0
+
+**+5 tools → 171 handlers (was 166), 8 authoring-tool fixes, 2 newly auto-detected editor gotchas, a known-issues doc, and a big cookbook expansion (51 games).** Additive — no existing tool contract changed. Functionally verified live via raw IPC.
+
+- **`invoke_method`** — call a component method by name **with arguments** (reflection + coercion, matched by name + arg-count); the args-capable companion to `invoke_button`.
+- **`ensure_input_action`** — add a custom input action to the project `.sbproj` (`Metadata.InputSettings.Actions[]`) so `Input.Pressed("X")` resolves (restart to take effect in play mode).
+- **`drive_player` / `drive_player_status`** (EXPERIMENTAL) — drive the active `PlayerController` directly across play-mode frames (sets `EyeAngles` + analog wish state by reflection + holds a named action down so `Input.Pressed` catches an edge). A *partial* answer to "the bridge can't synthesize gameplay input" — still no substitute for a human playtest (see `docs/BRIDGE_GOTCHAS.md` #1).
+- **`create_economy_wallet`** — scaffold a host-authoritative `[Sync(SyncFlags.FromHost)]` currency component (`AddMoney`/`TrySpend`/`SetMoney`/`CanAfford` + `OnMoneyChanged`). The first of the mining-surfaced scaffolds; generated code compile-verified live. The v1.11.0 queue of ~180 more mined tool ideas is in `docs/TOOL_BACKLOG.md`.
+- **8 fixes:** `set_transform` flexible scale (number / `"x,y,z"` / object); `create_gameobject` `parentId`; `duplicate_gameobject` + `grid_duplicate` in edit mode; `place_along_path` deterministic yaw; `execute_csharp` stale-file sweep + multi-line bodies; `spawn_model` bad-path → `warning` (not false success); widened vector/color coercion; `get_compile_errors` cascade filter.
+- **2 auto-detected gotchas:** "Default Surface not found" on `raycast`/`raycast_terrain` → a clear `{recoverable, recovery:"restart_editor"}` hint; `install_asset`/`trigger_hotload` warn on a new `PackageReference`. New **`docs/BRIDGE_GOTCHAS.md`** documents the engine limits that aren't code-fixable.
+- **Cookbook expansion:** the `sbox-cookbook` brain was re-mined across **51** open-source games (was 47) — **+6 genres** (social-deduction, survivor-roguelite, coop-kitchen, board-game, casino-gambling, physics-sports) + **2 systems** (ai-director, services-backend), high-traffic references enriched with a "Corpus refresh" pass, and a new **`references/CORPUS-INDEX.md`** cross-reference so recipes compose across games. Per-game mining lives in the local `sbox-lessons/mining-v2/`.
 
 ### What's new in v1.9.0
 
@@ -80,6 +92,15 @@ IPC directory: `%TEMP%/sbox-bridge-ipc/` (typically `C:\Users\<user>\AppData\Loc
 Two components:
 1. **MCP Server** (`sbox-mcp-server/`) — TypeScript/Node.js, stdio transport, talks to Claude Code
 2. **Bridge Addon** — C# editor library, lives in the s&box **project's Libraries folder**
+
+### Bridge map (knowledge graph)
+
+A graphify knowledge graph of the bridge lives at **`docs/graph/`** — every tool maps to its C#
+`IBridgeHandler` and to the docs (`IBridgeHandler` is the spine). **Consult `docs/graph/graph.json`
+or `docs/graph/graph.html` to see what connects to what before adding or changing a tool.** It CAN
+GO STALE (check the date in `GRAPH_REPORT.md`). **Maintainers: regenerate it as part of every
+release** — `scripts/regen-graph.ps1` for the deterministic code/AST refresh, or re-run `/graphify`
+for the full doc-inclusive graph. See `docs/graph/README.md`.
 
 ---
 

@@ -13,13 +13,22 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * Vector3 and Rotation parameter validation across multiple tools.
  */
 
+// A 3D vector accepted as EITHER an object {x,y,z} OR a comma string "x,y,z".
+// The value is passed through to the bridge unchanged; the C# handler parses
+// both forms (C# is the source of truth for parsing). See the cross-language
+// vector/color contract.
+const Vector3Object = z.object({
+  x: z.number().describe("X coordinate"),
+  y: z.number().describe("Y coordinate"),
+  z: z.number().describe("Z coordinate"),
+});
+
 const Vector3Schema = z
-  .object({
-    x: z.number().describe("X coordinate"),
-    y: z.number().describe("Y coordinate"),
-    z: z.number().describe("Z coordinate"),
-  })
-  .describe("3D vector with x, y, z components");
+  .union([
+    Vector3Object,
+    z.string().describe('Comma string "x,y,z", e.g. "0,0,200"'),
+  ])
+  .describe('3D vector — object {x,y,z} OR comma string "x,y,z"');
 
 const RotationSchema = z
   .object({
@@ -47,7 +56,7 @@ export function registerGameObjectTools(
       scale: z
         .union([z.number(), Vector3Schema])
         .optional()
-        .describe("Uniform scale (number) or per-axis scale (Vector3)"),
+        .describe('Uniform scale (number) or per-axis scale — object {x,y,z} or comma string "x,y,z"'),
       parent: z
         .string()
         .optional()
@@ -176,7 +185,7 @@ export function registerGameObjectTools(
       scale: z
         .union([z.number(), Vector3Schema])
         .optional()
-        .describe("New scale — uniform number or per-axis Vector3"),
+        .describe('New scale — uniform number, per-axis object {x,y,z}, or comma string "x,y,z"'),
       local: z
         .boolean()
         .optional()

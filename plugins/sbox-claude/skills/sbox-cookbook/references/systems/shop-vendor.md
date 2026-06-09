@@ -154,3 +154,115 @@ Verbatim from elevator (`ShopInteraction.cs:19-27`), gated behind a `ShopConfirm
 The reflected SDK is authoritative — confirm types/signatures before coding: `mcp__sbox__search_types "GameResource"`, `mcp__sbox__describe_type "Sandbox.Services.Stats"`, `mcp__sbox__describe_type "ResourceLibrary"`. API drifts between SDK versions; reflection beats memory.
 
 Cross-links: see the **sbox-api** skill for resolving exact type/member signatures, and the **sbox-build-feature** skill for the screenshot-driven build loop when wiring the kiosk UI.
+
+## Corpus refresh (2026): more reference implementations
+
+A second mining pass (4 new games + deeper re-reads) surfaced shop variations the original recipe didn't cover: a **player-set dynamic-price demand curve**, the **spawn-and-charge world vendor** with a per-player ownership cap, **category-gated unlock walls**, **reason-tagged transactions**, and the **shop-as-scene-unlocker**. All net-new below.
+
+### Player-set price → buy-probability demand curve (supermarket sim)
+
+In a stocking sim the *player* sets the retail price and demand falls out of a tunable curve, instead of a fixed cost per item. `PriceManager` maps the price's position in the product's margin band through a control-point array, so the curve is a data table designers edit. (enifun.shop_manager `Code/Economy/PriceManager.cs`.)
+
+```csharp
+// actualMargin = (price - wholesaleCostPerUnit) / wholesaleCostPerUnit
+// <= MinMargin → 100% buy; >= MaxMargin → 0%; piecewise-lerp between the control points:
+static (float t, float chance)[] BuyChanceCurve =
+    { (0,1f), (0.25f,0.99f), (0.50f,0.98f), (0.75f,0.85f), (1.0f,0.20f) };
+// Rich customers ignore markup (GetRichBuyChance = 100% until the ceiling).
+```
+
+Two more lift-able bits from the same game: a third spend path **`ForceSpend`** that *allows* a negative balance (salaries, loan auto-repay, firing penalties) alongside the gated `SpendMoney`/`CanAfford` (`Code/Economy/ShopFunds.cs`), and broadcasting the whole price table to clients as **one `[Sync] string` of `"id:price,id:price"`** rather than a synced `Dictionary` — non-host edits are optimistic-local then reconciled by an `[Rpc.Host]`.
+
+### Spawn-and-charge world vendor with a per-player cap
+
+The DarkRP market is a `static` class whose `[Rpc.Host] Purchase(itemId)` spawns a physical prop in front of the buyer. The full guard chain — and especially the **per-player ownership cap enforced by counting still-valid spawned objects** — is the reusable recipe. (lowkeynetworks.newrp `Code/content/market/MarketService.cs`.)
+
+```csharp
+[Rpc.Host] public static void Purchase(string itemId) {
+  var player = FindCaller(); var item = ItemRegistry.Get(itemId);
+  if (item == null || !item.Spawnable) return;
+  if (item.Price > 0 && player.Data.Money < item.Price) return;
+  if (item.MaxPerPlayer > 0 && GetOwnedCount(player, item.Id) >= item.MaxPerPlayer) return; // cap
+  if (item.Price > 0 && !player.Data.TakeMoney(item.Price)) return;                          // charge
+  var go = SpawnPurchasedItem(player, item);                                                 // eye-trace 220u
+  if (!go.IsValid()) { if (item.Price > 0) player.Data.AddMoney(item.Price); return; }       // refund on fail
+  Track(player, item.Id, go);                                                                // per-(steam:id) list
+}
+// GetOwnedCount prunes dead refs first — destroyed props free the cap automatically:
+//   list.RemoveAll(x => !x.IsValid()); return list.Count;
+```
+
+Pair it with that game's **clamp-in-the-setter wallet** so money can never go negative from a bug: `public int Money { get => _money; private set => _money = Math.Max(0, value); }`, with `TakeMoney`/`AddMoney` write-through-saving on every mutation (`Code/modules/player/PlayerData.cs`). Note this is a *stronger* per-player-cap pattern than the existing doc's refund discipline — the cap is derived from live world state, never a stored counter that can drift.
+
+### Category-gated unlock wall (own N first) + per-level upgrade ladder
+
+A roguelite meta-shop catalog as a plain `struct` registry, with a zero-extra-state progression wall: an item is locked until you own `RequiredPurchases` items in its category. (facepunch.ss2 `Code/ProgressManager.cs`.)
+
+```csharp
+struct ShopItemDef { string Id; Category Category; int Price; int[] UpgradePrices;
+                     int RequiredPurchases; /* own N in this category to unlock */ ... }
+bool IsItemUnlocked(ShopItemDef d) =>
+    OwnedInCategory(d.Category) >= d.RequiredPurchases;          // soft wall, no new flags
+// Per-level upgrade economy reuses UpgradePrices[] as a cost ladder:
+void UpgradeGem(string id) { int cost = def.UpgradePrices[GemUpgradeLevels[id]];
+    if (TrySpendCoins(cost)) GemUpgradeLevels[id]++; }
+```
+
+The catalog is assembled from several partial-class builders (`BuildGunItems`/`BuildCharmItems`/`BuildGemItems`) and **duplicate-Id-checked at build** (`Log.Error` if two defs share an Id) — a cheap guard against the copy-paste catalog bug. `PrefabPath` is a computed `switch` on `category+id` (convention `prefabs/{guns|charms|gems}/{Id}.prefab`), so items need no per-entry prefab reference.
+
+### Reason-tagged transactions (self-instrumenting economy) + vendor-as-building
+
+A money authority where every spend carries a `reason` string that auto-generates a stat key, so the economy instruments itself for free. (facepunch.fair `Park/ParkManager.cs`.)
+
+```csharp
+public bool TakeMoney( int amount, string reason = "Other" ) {
+    Assert.True( Networking.IsHost );
+    if ( Money < amount ) return false;                                  // affordability gate
+    Stats.Increment( "money_spent", amount );
+    Stats.Increment( $"money_spent.{reason.ToIdentifier()}", amount );   // dynamic per-reason key
+    Money -= amount; return true;
+}
+```
+
+Its **vendor is just a building** — `Shop : Building` holds `List<GameObject> Items`; `OnUse(guest)` clones `Game.Random.FromList(Items)` into the guest's inventory and bumps `Uses` (`Park/Buildings/Shop.cs`). And admission re-checks affordability *at the door* (`GuestManager.RegisterGuest` re-tests the fee, which may have risen while the guest walked in) — a good "re-validate at the point of sale, not at intent" reminder for any priced gate.
+
+### Shop entry that doubles as a scene-object unlocker
+
+A tablet shop where buying flips a scene object on and sets a capability flag — no inventory item, no spawn. Cheapest possible "functional upgrade" wiring. (luckygaming.doner_kiosk `Code/UI/shop/ShopUI.razor`.)
+
+```csharp
+void BuyItem( ShopItem item ) {
+    if ( GameSettings.PlayerMoneyCount < item.Price || item.IsPurchased ) return;
+    GameSettings.PlayerMoneyCount -= item.Price; item.IsPurchased = true;
+    Scene.Directory.FindByName( item.Id ).FirstOrDefault().Enabled = true;   // reveal the prop
+    if ( item.Id == "flashlight" ) Player.ThisPlayer.HaveFlashlight = true;   // flip a capability
+}
+```
+
+Items are an inline `List<ShopItem>` (Id, bilingual Name/Desc, Price, emoji Icon, `IsPurchased`). A neat companion idea: a purchase can **remove a chore step** rather than add a thing — its `auto_grinder` upgrade makes the meat-slicing `DecreaseMeat()` early-return (`if (Player.ThisPlayer.HaveAutoGrinder) return;`), `Code/Game/MeatComponent.cs`.
+
+### In-round powerup store (currency = a gameplay resource, price from ConVar)
+
+A round-game shop where the currency is **clues you collected this round**, the store prefab is `NetworkSpawn`'d per-owner at round start, and the price is read from a server **ConVar at purchase time, not baked into the item** — so an owner re-tunes the economy live. (despawn.murder `Systems/EquipmentShop/EquipmentShopManager.cs`.)
+
+```csharp
+[Rpc.Host] public void PurchaseHost( string itemKey ) {
+    if ( !GameConVars.IsPowerupEnabled(itemKey) ) return;
+    var item = ItemComponentFactory.Create(itemKey);   // "radar" => new Radar{...}  string-key → behavior
+    if ( item == null || caller.Pawn is not {} pawn || !item.CanPurchase(pawn) ) return; // per-item precondition
+    int price = GameConVars.GetPowerupPrice(itemKey, fallback);   // ConVar, re-tunable, clamped 1–5
+    if ( caller.CluesCollected < price ) return;
+    item.OnPurchase(pawn); caller.CluesCollected -= price;        // act, THEN deduct
+}
+```
+
+Two takeaways beyond the existing "ids-not-refs over RPC" rule: (1) the **`item.CanPurchase(pawn)` precondition gate** (don't sell a thing the buyer can't use) layered on top of the affordability check, and (2) **`ItemComponentFactory` string-key → spawned-behavior dispatch** (`Systems/EquipmentShop/ItemComponentFactory.cs`) — each catalog key maps to a small component that subclasses `EquipmentShopPurchasableComponentItem<T>` and just attaches its networked component on purchase.
+
+### Read these games
+
+- **enifun.shop_manager** (`Code/Economy/PriceManager.cs`, `ShopFunds.cs`) — player-set **dynamic-price demand curve** + the `ForceSpend` (negative-allowed) third spend path + price-table-as-`[Sync] string`.
+- **lowkeynetworks.newrp** (`Code/content/market/MarketService.cs`, `modules/player/PlayerData.cs`) — **spawn-and-charge world vendor** with a per-player cap counted from live objects + refund-on-spawn-fail + clamp-in-setter wallet.
+- **facepunch.ss2** (`Code/ProgressManager.cs`) — `ShopItemDef` struct catalog with **category-gated `RequiredPurchases` unlocks** + per-level `UpgradePrices[]` ladder + duplicate-Id build check.
+- **facepunch.fair** (`Park/ParkManager.cs`, `Park/Buildings/Shop.cs`) — **reason-tagged self-instrumenting transactions** + vendor-as-building + re-validate-at-the-door.
+- **luckygaming.doner_kiosk** (`Code/UI/shop/ShopUI.razor`, `Code/Game/MeatComponent.cs`) — **shop entry as a scene-object unlocker** + capability-flag flip + a purchase that removes a chore.
+- **despawn.murder** (`Systems/EquipmentShop/EquipmentShopManager.cs`, `ItemComponentFactory.cs`) — in-round powerup store, **price-from-ConVar**, `CanPurchase` precondition gate, string-key→behavior factory.

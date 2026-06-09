@@ -119,7 +119,9 @@ FileSystem.Data.WriteAllText( Primary, json );
 
 - **Your own HTTP/Supabase backend.** Use `Sandbox.Http.RequestAsync(url, "GET", headers: …)` / `RequestStringAsync` — **never `System.Net.HttpClient`** (whitelist-blocked). Cloud is source of truth, local `.bin` is a fallback (lavagame.multis_cases `Code/Game/Save/SaveCloud.cs:83`, `:104`; namicry.gacha_crawler `Code/GameManager.cs:487`). Non-host clients often have no direct internet — relay through the host (vault77 `Code/game/BackendClient/HttpBackendTransport.cs:27`).
 
-- **Scene-diff "save the world."** `Json.CalculateDifferences(baseline, current, GameObject.DiffObjectDefinitions)` stores only the patch vs the original `SceneFile`, plus a side-channel for ownership/`[Sync]` state; load does `Json.ApplyPatch` then `Game.ChangeScene` (artisan.darkrpog `Code/Save/SaveSystem.cs:128`; apl.sandboxwars `Code/Cleanup/CleanupSystem.cs:14`). Terrain/voxel games store edits as a **diff against the seed-reproducible default** to keep saves tiny (master.digging_simulator `DiggableZone.cs:261`).
+- **Scene-diff "save the world."** `Json.CalculateDifferences(baseline, current, GameObject.DiffObjectDefinitions)` stores only the patch vs the original `SceneFile`, plus a side-channel for ownership/`[Sync]` state; load does `Json.ApplyPatch` then `Game.ChangeScene` (artisan.darkrpog `Code/Save/SaveSystem.cs:128`; apl.sandboxwars `Code/Cleanup/CleanupSystem.cs:14`). Terrain/voxel games store edits as a **diff against the seed-reproducible default** to keep saves tiny (master.digging_simulator `DiggableZone.cs:261`). The cleanest standalone implementation lives in a **`GameObjectSystem<SaveSystem>`** (not a deletable manager Component): it diffs the live scene against the tracked `SceneFile` baseline, and writes a single envelope `{ Version, Patch, SceneProperties, NetworkOwnership, RequiredPackages }` — collecting **network ownership by SteamId** and the **required cloud packages** so a reloaded base re-mounts its addons before applying the patch. Load = mount packages → `Json.ApplyPatch(baseline, patch)` → `BuildPatchedSceneFile` → `Game.ChangeScene`, then restore ownership/`[Sync]` state on the new instance. Version is a hard gate: a mismatched `Version` refuses the file rather than risking a malformed apply (klavs.basebuilder `Code/Save/SaveSystem.cs:10` system decl, `:165` `CalculateDifferences`, `:178` envelope, `:330` `ApplyPatch`→`ChangeScene`; same lineage in dexlab.sandbox-reforged).
+
+- **Storage-API multi-slot save (reconcile scene objects by GUID).** Instead of one JSON blob, use `Storage.CreateEntry("save")` + `entry.SetMeta(...)` for scalars and `entry.Files.WriteJson(name, list)` per collection (inventory / world-objects / tasks), keyed by a slot `index` in the meta. On load, **reconcile the live scene against the saved object list by `GameObject.Id`/GUID**: destroy objects no longer in the save, reposition existing ones, and clone any that are absent — rather than wiping and rebuilding the whole world (bublic.stone_by_stone `Code/SaveSystemComponent.cs`). Good fit for a placeable-world tycoon where most objects already exist in the scene and only a few changed.
 
 - **Durable IDs for runtime-spawned objects.** `GameObject.Id` is **not** stable across restarts — stamp your own `[Sync] Guid PersistentId` and write tombstones on delete (artisan.darkrpog `Code/Persistence/World/PersistentWorldEntity.cs:6`).
 
@@ -147,7 +149,7 @@ FileSystem.Data.WriteAllText( Primary, json );
 
 ## Seen in
 
-vault77.chop_the_forest · clearlyy.s_miner · master.digging_simulator · enifun.shop_manager · emg.everything_must_go · dimmies.terryspapers · artisan.darkrpog · apl.sandboxwars · playbtg.elevator · facepunch.jumper · yellowletter.terrys_crash_course · stepdev.xtrem_road · ataco.sdoomresurrection · khamitech.battledraft · goders.natural_disaster_survival · treehaven.sdiver · namicry.gacha_crawler · lavagame.multis_cases · simalami.15_puzzle_master · facepunch.ss1 · suburbianites.blindloaded (Blind)
+vault77.chop_the_forest · clearlyy.s_miner · master.digging_simulator · enifun.shop_manager · emg.everything_must_go · dimmies.terryspapers · artisan.darkrpog · apl.sandboxwars · playbtg.elevator · facepunch.jumper · yellowletter.terrys_crash_course · stepdev.xtrem_road · ataco.sdoomresurrection · khamitech.battledraft · goders.natural_disaster_survival · treehaven.sdiver · namicry.gacha_crawler · lavagame.multis_cases · simalami.15_puzzle_master · facepunch.ss1 · suburbianites.blindloaded (Blind) · klavs.basebuilder · dexlab.sandbox-reforged · bublic.stone_by_stone · stellawisps.lumberyard · lavagame.sandmoney_ · facepunch.fair · facepunch.ss2 · thefancylads.farm_land · despawn.murder · barrelproto.ragroll
 
 Open the cited file under `C:/Users/cargi/sbox-lessons/zips-code/<game>/` to read the real implementation.
 
@@ -155,3 +157,106 @@ Open the cited file under `C:/Users/cargi/sbox-lessons/zips-code/<game>/` to rea
 **Verify live:** API drifts between SDK versions — confirm signatures against the installed SDK with the bridge's reflection (`describe_type` / `search_types`) before relying on a member, e.g. `describe_type Sandbox.Services.Stats`, `describe_type Sandbox.Http`, `search_types FileSystem`. Reflection is authoritative, not this doc.
 
 **See also:** `sbox-api` (resolve exact type/method signatures) and `sbox-build-feature` (the screenshot-driven build loop to wire one of these recipes into a running game).
+
+---
+
+## Corpus refresh (2026): more reference implementations
+
+Net-new patterns from the latest mining pass (esp. the two Facepunch official sims `facepunch.fair` + `facepunch.ss2`, plus `thefancylads.farm_land`, `lavagame.sandmoney_`, `despawn.murder`, `barrelproto.ragroll`). These do **not** repeat the canonical recipes above — they're alternative architectures and hardening details.
+
+### Interface-discovered, ordered, versioned save (the cleanest "save the whole game" without a scene diff)
+
+`facepunch.fair`'s `PersistenceManager` is the gold-standard alternative to both the single-POCO and the scene-diff approaches. Instead of one hand-maintained DTO, **every system that wants to persist implements `ISaveDataProperty`** and is discovered by reflection — so adding a saver never touches the save loop. `FindProperties()` collects savers **three ways** (scene singleton Components, `GameObjectSystem`s, and plain parameterless-ctor classes via `TypeLibrary.GetTypes<ISaveDataProperty>()` → `type.Create<…>()`), then `DistinctBy(PropertyName).OrderBy(PropertyOrder)`. `PropertyOrder` is load-ordering control (Park money at `-5000` loads *before* Buildings). Each section is wrapped in try/catch so one corrupt block can't nuke the file (`fair/Code/Persistence/ISaveDataProperty.cs`, `PersistenceManager.cs`).
+
+```csharp
+public interface ISaveDataProperty {                      // untyped
+    string PropertyName { get; }  int PropertyOrder => 0;
+    void WriteValue( JsonObject into );  void ReadValue( Scene scene, JsonObject from );
+}
+public interface ISaveDataProperty<T> : ISaveDataProperty {   // typed — implementer only writes a record
+    T GetSaveData();  void LoadSaveData( T data );
+    void ISaveDataProperty.WriteValue( JsonObject o ) => o[PropertyName] = Json.ToNode( GetSaveData(), typeof(T) );
+}
+```
+
+Two layered specializations worth lifting: `Scenario : ISaveDataProperty<ImmutableArray<GoalGroup.SaveData>>` reloads goal-group progress by **name-matching** (resilient to reorder), and `abstract SpawnedPrefabSaveData<TComponent,TSaveData>` saves **every prefab instance** grouped by `PrefabSource` path and destroys+respawns them on load — the one-call answer to "persist all the things the player placed" (`fair/Code/Park/Buildings/Building.Persistence.cs`).
+
+### Versioning gates that are deliberately destructive
+
+`facepunch.fair` keeps versioning brutally simple: a `const int CurrentSaveVersion`, and on mismatch it **deletes the save and returns false** rather than migrating — an explicit "old saves are gone" policy, fine for a sim in active balance churn. Choose this vs the append-only migration ladder (canonical recipe #3) by whether your players expect continuity.
+
+```csharp
+public const int CurrentSaveVersion = 2;
+if ( savedVersion != CurrentSaveVersion ) { FileSystem.Data.DeleteFile( savePath ); return false; }
+```
+
+`facepunch.ss2` takes the middle road in `ProgressManager.cs`: a `ReadJsonSafe<T>(path, fallback)` no-throw load (note this exact helper name — a sibling of the doc's `ReadJsonOrDefault`), an in-load **field rename via null-coalesce** (single `SelectedCharmId` → `SelectedCharmIds` list), and a `StateVersion` int bumped on every mutation that Razor binds to for O(1) change detection (no deep compares). It also **duplicate-ID-checks the shop catalog at build** (`Log.Error` if two `ShopItemDef`s collide) — a cheap content-integrity guard.
+
+### `FileSystem.OrganizationData` — cross-game-instance, per-Steam-org saves
+
+The doc previously named only `FileSystem.Data` (per-machine) and `FileSystem.Mounted` (read-only). `thefancylads.farm_land` writes to **`FileSystem.OrganizationData`** (`farm_land/player.json` + `farm_land/farm.json`) so a player's progress is **shared across every game your org ships and persists across worlds** — a third storage scope to pick from (`farm_land/Code/Persistence/`). Same trust caveat as `FileSystem.Data` (client-local, editable), but org-scoped not game-scoped.
+
+### Polymorphic save handlers + per-entity `JsonElement` discriminator (heterogeneous lists without a union serializer)
+
+`farm_land`'s save loop never grows when you add a buildable. Each building type implements `IGridSaveDataHandler { string Type; … }` and self-registers (`GridSaveHandlerRegistry.Register(new GridFarmPlotSaveHandler())` in `OnAwake`). The common envelope stores type-specific data as an opaque `JsonElement`, deserialized against the right concrete type on restore (`farm_land/Code/Persistence/SaveHandlers/GridSaveHandlers.cs`):
+
+```csharp
+class GridBuildingData {
+    public string BuildingType { get; set; }   // discriminator
+    public Vector2Int GridPosition { get; set; }   public Rotation Rotation { get; set; }
+    public JsonElement BuildingSpecificData { get; set; }   // = JsonSerializer.SerializeToElement(plotData)
+}
+// restore: registry.Get(d.BuildingType).RestoreToGrid( d, d.BuildingSpecificData.Deserialize<GridFarmPlotData>() );
+```
+
+Two more `farm_land` save-design wins: **save-shrinking by deriving on load** — `StatTracker` objectives write `Data = null` and re-derive progress from the canonical `Statistics` store, completed objectives store only `{Type, IsCompleted}`, zero-progress challenges are skipped entirely (smaller saves + migration resilience); and **`PostLoad()` self-healing** — `CropResource.PostLoad()` pads/trims `StageRequirements` to match `GrowthStages` so a designer editing the asset can't desync arrays at load.
+
+> **RPC/`JsonElement` serialization gotcha (net-new):** `farm_land` could not send `GridBuildingData` (with its `JsonElement`) over an RPC — so `GridFarmDataStruct` re-serializes each entry to a `string[]` (`BuildingsJson`/`UpgradesJson`) before the wire and deserializes back on the far side (`FarmData.cs`, with an in-code `// remove this data due to serialisation issues`). If a save DTO must cross an RPC, project it to strings first.
+
+### Tamper-resistant local save: `{ Data, Hash }` envelope, hash-mismatch-**tolerant** load
+
+`lavagame.sandmoney_` is the corpus's best local-save anti-cheat reference for a leaderboard game with no server DB (`sandmoney_/Code/Persistence/`). The envelope is `{ PlayerData, Hash }` where `Hash = FNV-1a( json + localSteamId + pepper )`:
+
+```csharp
+// PlayerSaveHasher — SteamId in the hash means a copied save fails on another account
+string Compute( string json, long steamId ) => Fnv1a( json + steamId + "s&money_core_v1_x89!" );
+```
+
+The subtle, reusable part is the **load policy**: a hash mismatch is *accepted* (so adding a field with a default doesn't wipe everyone's save) but flagged `hashMismatch:true` → the caller schedules an immediate **re-save to re-hash**. Crucially, **parse failure ≠ hash failure**: only a parse failure falls back to the `.bak`; a hash mismatch on a copied file is *not* eligible for `.bak` rescue. There's also a separate daily-reward integrity hash with **versioned peppers** (`PepperV3` with a v2 fallback) — a real story of *removing* an unstable field (display name differs SP vs MP) from the hash to stop false tamper flags while still validating old saves.
+
+> **The silent NaN-kills-save footgun (net-new, high-value).** `Math.Max(0, NaN)` returns `NaN`, and `JsonSerializer` *throws* on `NaN`/`Infinity` — which, inside a fire-and-forget save, **silently kills the write with no error surfaced**. `sandmoney_`'s `Normalize()` sanitizes every float/double before write (`SF`/`SD` helpers) **and** clamps to legal ranges on load, so load-time `Normalize` doubles as input validation / anti-cheat. Guard every credit/debit at the mutation site too (`AddMoney`/`DeductMoney` early-return on `double.IsNaN || IsInfinity`) so one bad multiply can't poison a `[Sync]` and corrupt the save.
+
+### Save-flush state machine — never lose data on quit
+
+`sandmoney_`'s `TrySave(waitForBackend, reason)` (`PlayerTrader`/`Persistence`) is the reference for coalescing concurrent saves and never dropping a critical one:
+
+- A `_isSaving` guard with a **single queued follow-up** (`_saveQueued` + `_saveQueuedCritical`) so concurrent requests collapse into one extra save, not a storm.
+- A 10 s min-interval throttle for routine saves, but `RequestCriticalSave` **bypasses the throttle** for money events (upgrade bought, daily reward, bot purchase) — the canonical recipe's "dirty flag + timer" is fine for the common case, but money-critical mutations must force-save immediately.
+- `OnDestroy` → `ForceFlushOnExitAsync` **force-clears `_isSaving`** ("losing data on quit is worse than saving twice"), settles volatile state (liquidates open positions), saves with a `markDisconnect`, then awaits the leaderboard flush. Also fired from `INetworkListener.OnDisconnected`.
+
+### Host-only sims must be reconstructable from their own `[Sync]` state
+
+When a singleton simulation lives only on the host and **isn't** persisted (e.g. `sandmoney_`'s live market, which is intentionally regenerated each boot and even deletes its legacy `grav_market.json`), a host migration would corrupt it because the new host inherits only the replicated values, not the private fields. The pattern: cache `_wasProxy`, detect the proxy→authority flip in `OnFixedUpdate` (`if (_wasProxy && !IsProxy) RecoverFromHostMigration();`), and have `RecoverFromHostMigration()` **rebuild private state from the `[Sync]` ring buffer/history** then `Network.Refresh()`; also wire `INetworkListener.OnBecameHost` (`sandmoney_/Core/MarketManager.cs`, `WorldEventManager.cs`). This is the persistence-shaped sibling of `despawn.murder`'s host-migration-safe round timer (re-arm `TimeUntil` from `.Relative` against the new host's clock).
+
+### Reconnect-safe player state that outlives a disconnect
+
+`farm_land`'s `GameNetworkManager` recycles a player's state across a reconnect instead of rebuilding it: `GetOrCreateClient` searches for an **orphaned `NetworkClient`** (no owner, matching `SteamId`) to reuse; new clients are `Clone() + BreakFromPrefab() + SetOrphanedMode(NetworkOrphaned.ClearOwner)`, and per-player farms spawn with `SetOrphanedMode(NetworkOrphaned.Host)` so **the host inherits a farm when its owner leaves** rather than destroying it (`farm_land/Code/Common/Network/GameNetworkManager.cs`). The persistence angle: in-session continuity without a disk round-trip on every reconnect.
+
+### Ephemeral host-disk state by SteamId (a third tier, between "no save" and "account backend")
+
+`despawn.murder` keeps its **anti-streak pity tickets** in a server-host-local `FileSystem.Data` JSON keyed by SteamId (`murderer_tickets.json`, try/catch-guarded, load-once flag) — non-account-bound, server-side, ephemeral fairness state (`despawn.murder/Code/Systems/MurdererTickets/MurdererTicketManager.cs`). It's a clean contrast to `MurderDataStore`/`ApiClient` (account-bound backend) in the *same game*: "ephemeral host state on disk" vs "account state in a service." And `barrelproto.ragroll` is the explicit **"no save file at all"** reference — `ProgressController` is an empty stub, all persistence is `Sandbox.Services` (Stats/Achievements/Leaderboards). For a pure session-score game, leaning entirely on Services is a valid architecture, not an omission.
+
+### Deterministic daily content without any save or sync
+
+`farm_land`'s barter vendor derives its daily order from a **day-seeded RNG** so every peer computes the identical rotation with zero networking and zero stored state: `new Random((int)(DateTime.UtcNow - epoch).TotalDays)`, cached per day (`_lastGeneratedDay`). Only the *per-player consumed-stock counter* is saved (resets when `LastRefreshDate.Date < today`). The reusable trick: deterministic-daily content = seed RNG with the day number, persist only what the player *did*, not what was *offered* (`farm_land/Code/Common/Economy/MushroomDealer.cs`).
+
+### Read these games (save-persistence)
+
+- **`facepunch.fair`** — the headline: interface-discovered/ordered/versioned save (`ISaveDataProperty`), prefab-instance persistence (`SpawnedPrefabSaveData<,>`), delete-on-version-mismatch, per-section try/catch isolation. The template if you want "save the whole sim" without a scene diff.
+- **`lavagame.sandmoney_`** — tamper-resistant `{Data,Hash}` envelope (hash+pepper+SteamId), hash-mismatch-tolerant load for schema evolution, the NaN-kills-save footgun + `Normalize()` clamp-on-load, the save-flush coalescing/critical-bypass state machine, host-only-sim recovery from `[Sync]`.
+- **`thefancylads.farm_land`** — `FileSystem.OrganizationData` scope, polymorphic `IGridSaveDataHandler` registry + `JsonElement` discriminator, save-shrinking by deriving from a canonical store, `PostLoad()` self-healing, the RPC `JsonElement`→`string[]` workaround, reconnect-safe orphaned-client recycle.
+- **`facepunch.ss2`** — `ReadJsonSafe<T>`, single-field→list null-coalesce migration, `StateVersion` for O(1) UI reactivity, build-time duplicate-ID catalog check.
+- **`despawn.murder`** — ephemeral host-disk SteamId-keyed state (pity tickets) contrasted with an account backend in the same game; host-migration-safe timer re-arm.
+- **`barrelproto.ragroll`** — the "no save file, lean entirely on `Sandbox.Services`" reference for session-score games.
+
+Open the cited file under `C:/Users/cargi/sbox-lessons/zips-code/<game>/` to read the real implementation.

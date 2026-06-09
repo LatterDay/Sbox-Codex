@@ -189,11 +189,53 @@ Critical ordering: enable `ModelPhysics`, `await GameTask.Delay(...)` one frame,
 
 To let an external script drive a player (vehicle, turret, Wirebox keyboard), don't fight the controller — tag the player (e.g. `lockedposition`), get its locked `MoveMode`, and subscribe `mode.OnInput += handler`. Read `Input.Down(bind)` in the handler, diff each button against its last value before re-emitting, and provide a self-release (`Input.EscapePressed`). On disable, unsubscribe and untag (wirebox: `Code/wirebox/components/WireKeyboardComponent.cs:60`). The subscribe-on-enter / unsubscribe-on-exit + escape-to-release lifecycle is the reusable part.
 
+## Recipe: dress a controller-driven / code-spawned citizen at RUNTIME
+
+Two traps converge when you try to clothe a citizen the built-in `PlayerController` drives, or one you `new`'d in code: **(a)** `Dresser.Randomize()/Apply()` **NREs on a code-built body** (there's no editor avatar to source from), leaving it nude; **(b)** the `PlayerController` **rebuilds the citizen body a frame or two into play**, dropping any editor-applied or too-early clothing (the pawn spawns naked). The robust fix for both: build a `ClothingContainer` in code from verified `.clothing` paths and `Apply` it onto the body's `SkinnedModelRenderer` — and for the *player* specifically, re-apply across a short `TimeUntil` window so the controller's late rebuild can't wipe it.
+
+```csharp
+void DressFromPaths( SkinnedModelRenderer body, IEnumerable<string> clothingPaths )
+{
+    var container = new ClothingContainer();
+    foreach ( var path in clothingPaths )
+    {
+        try
+        {
+            var c = ResourceLibrary.Get<Clothing>( path );        // or Clothing.Load( path )
+            if ( c is not null ) container.Clothing.Add( new ClothingContainer.ClothingEntry( c ) );
+        }
+        catch ( Exception e ) { Log.Warning( $"skip clothing '{path}': {e.Message}" ); } // nude < thrown spawn
+    }
+    container.Apply( body );                                       // synchronous overload, onto the renderer
+}
+
+// PLAYER: re-apply across a window because the controller rebuilds the body late.
+TimeUntil _stopReapplying = 1.5f;
+protected override void OnUpdate()
+{
+    if ( !_stopReapplying )
+    {
+        var body = GetComponent<PlayerController>()?.Renderer       // re-resolve each tick — the old one gets destroyed
+                   ?? GameObject.Root.GetComponentInChildren<SkinnedModelRenderer>();
+        if ( body.IsValid() ) DressFromPaths( body, _outfit );
+    }
+}
+```
+
+Guard EVERY step and wrap each load in try/catch so a missing asset can only log-and-skip — a nude citizen is an acceptable worst case, a thrown spawn is not. For a code-spawned crowd, call `DressFromPaths` once right after building the body (no re-apply window needed — only the *player's* controller does the late rebuild). The base `citizen_clothes` set is a mounted core addon, so its `.clothing` paths are always available. (Pattern proven in the Gravehold build — `World/KeeperOutfit.cs` player re-apply window, `World/VillagerSpawner.cs` code-spawned crowd; the engine-side `ClothingContainer.Apply(body)` idiom also appears in the networking `OnActive` join recipe.)
+
+## Recipe: kinematic limp-drape carry on a built-in controller
+
+You **cannot** `FixedJoint`/weld a ragdoll to the built-in `PlayerController` — it's kinematic and exposes **no shoulder `PhysicsBody`** to anchor a joint on. The reliable move is a **kinematic drape**: on grab, freeze the corpse's ragdoll (poseable, not simulating), `SetParent` it to a shoulder-bone anchor at a slung local rotation (≈ `(80,10,90)` — rolled across the shoulders, head/legs hanging, NOT a stiff horizontal T-pose), then each frame nudge that local rotation with a small **sine sway scaled by the carrier's planar speed** so it jiggles with the gait. Re-enable real ragdoll physics **only on DROP** (unfreeze + unparent). Hold-type is `None` (a slung body doesn't read as a hands-in-front cradle, so no hand-IK on the body — the parent + rotation + sway sell it). Drive the drape **every frame, not just on grab**, because the controller rebuilds the body at runtime (see the dressing recipe above) and would otherwise leave the pose stale. (Gravehold `Player/KeeperGrab.cs`: `AttachDraped`, `ApplyDrapeSway`, `UpdateBodyAnimation`.) For a *physics-held* carry instead (Half-Life gravity-gun: the thing should collide/jostle in-hand), use the network-correct grab/carry/drop recipe in `physics-traces-movement.md` — disable gravity, raise damping, `SmoothMove` the mass-centre toward an eye-forward hold point.
+
 ## Gotcha table
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Movement jittery / frame-rate-dependent | `CharacterController` moved in `OnUpdate` | Move it in `OnFixedUpdate`; only camera/look/anim in `OnUpdate` (sbox-scenestaging: `PlayerController.cs:120`) |
+| Pawn spawns naked despite editor clothing | The `PlayerController` rebuilds the body a frame or two into play and drops it | Build a `ClothingContainer` in code and `Apply` it across a short `TimeUntil` window, re-resolving `PlayerController.Renderer` each tick (Gravehold `KeeperOutfit.cs`) |
+| `Dresser.Randomize()` throws / NREs | No editor avatar to source from on a code-built body | Don't use `Dresser` on code bodies; `ResourceLibrary.Get<Clothing>(path)` → `container.Clothing.Add(...)` → `container.Apply(body)`, each load in try/catch |
+| Carried ragdoll floats / sits in a stiff T-pose | Tried to weld a ragdoll to the kinematic controller (no shoulder body) OR a one-shot pose went stale on body rebuild | Kinematic drape: freeze ragdoll, parent to a shoulder bone at a slung rotation, sway it EVERY frame; re-enable physics only on drop (Gravehold `KeeperGrab.cs`) |
 | Every client drives every pawn | No proxy gate | `if ( IsProxy ) return;` before reading input / mutating synced state |
 | Custom MoveMode invisible to remote clients | `Score()` reads a local-only toggle | Drive `Score()` from a `[Sync]` var (dxrp: `MoveModeNoClip.cs:62`) |
 | Jump stomps horizontal momentum | Set `cc.Velocity` for the jump | Use `cc.Punch( Vector3.Up * f )` (impulse) (sbox-scenestaging: `PlayerController.cs:136`) |

@@ -57,10 +57,13 @@ export function registerTemplateTools(
           "When placeInScene is true, also create a Camera (FP/TP: child at eye/boom offset; top_down: fixed overhead). Defaults to true."
         ),
       spawnPosition: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .union([
+          z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          z.string().describe('Comma string "x,y,z", e.g. "0,0,64"'),
+        ])
         .optional()
         .describe(
-          "When placeInScene is true, the world position to spawn the player rig at. Defaults to the origin."
+          'When placeInScene is true, the world position to spawn the player rig at — object {x,y,z} or comma string "x,y,z". Defaults to the origin.'
         ),
     },
     async (params) => {

@@ -109,9 +109,12 @@ export function registerUITools(
         .optional()
         .describe("Name for the UI GameObject. Defaults to 'World UI'"),
       position: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .union([
+          z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          z.string().describe('Comma string "x,y,z", e.g. "0,0,64"'),
+        ])
         .optional()
-        .describe("World position for the panel"),
+        .describe('World position for the panel — object {x,y,z} or comma string "x,y,z"'),
       rotation: z
         .object({
           pitch: z.number(),

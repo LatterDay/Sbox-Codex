@@ -2,6 +2,51 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.10.0] — 2026-06-09
+
+**Four new tools (call a method with args, define input actions, drive the player in play mode, scaffold a currency wallet), eight authoring-tool fixes, two newly auto-detected editor gotchas, a known-issues doc, and a big cookbook expansion (51 games re-mined, +8 references). 171 handlers (was 166). Additive — no existing tool contract changed.**
+
+### Added — New tools
+
+- **`invoke_method`** — call a component method **by name with arguments** on a live GameObject (reflection + the bridge's value coercion, matched by name + arg-count). The arguments-capable companion to `invoke_button`: drive game state, fire the method behind a UI button, or poke a system from the bridge.
+- **`ensure_input_action`** — add a custom input action to the project's `<project>.sbproj` (`Metadata.InputSettings.Actions[]`) so `Input.Pressed("MyAction")` resolves. Seeds the default action set if missing, and notes that a restart/reload is needed for a new action to take effect in play mode.
+- **`drive_player` / `drive_player_status`** (EXPERIMENTAL) — drive the active `PlayerController` directly across play-mode frames (set `EyeAngles`, feed analog move/wish state by reflection, and hold a named action down every frame so `Input.Pressed` finally catches an edge). A *partial* answer to "the bridge can't synthesize gameplay input" — still no substitute for a human playtest (see `docs/BRIDGE_GOTCHAS.md` #1).
+- **`create_economy_wallet`** — scaffold a host-authoritative `[Sync(SyncFlags.FromHost)]` currency component (`AddMoney`/`TrySpend`/`SetMoney`/`CanAfford` + an `OnMoneyChanged` event). Money is host-written so a client can't author their own balance (the classic economy exploit). The first scaffold mined from the 51-game corpus — its generated code was compile-verified live; ~180 more candidate tools are queued in `docs/TOOL_BACKLOG.md` for v1.11.0.
+
+### Fixed — authoring-tool gotchas
+
+- **`set_transform` scale** now accepts an object `{x,y,z}`, a single number (uniform), an array, or a `"x,y,z"` string (new `ParseVector3Flexible`). Verified all forms.
+- **`create_gameobject`** honours `parent` **or** `parentId` (`SetParent(keepWorldPosition:false)`) — verified the child reports the correct parent.
+- **`duplicate_gameobject` + `grid_duplicate`** work in **edit mode** (wrapped in `using (scene.Push())`) — no more "No Active Scene". Verified.
+- **`place_along_path`** gained `align` + `randomizeYaw` flags; the default is now **deterministic** (no surprise random yaw).
+- **`execute_csharp`** sweeps stale `__Exec_*.cs` temp files on bridge start, and multi-line snippets compile (the body is injected inside the generated method's try-block, not at class scope).
+- **`spawn_model`** with a bad / unmounted path returns a **`warning`** ("resolved to the ERROR placeholder model …") instead of a clean "success" — verified.
+- **Vector / color coercion** widened across `set_tint` (+`color` alias), `add_light` / `set_fog` / `set_skybox`, etc. — they accept object / `"r,g,b,a"` / array forms (the shared `Vector3Schema` / `ColorSchema` are now object|string unions).
+- **`get_compile_errors`** filters the broken-reference cascade so it surfaces the real CS diagnostic.
+
+### Added — Auto-detected editor gotchas
+
+- **"Default Surface not found"** on `raycast` / `raycast_terrain` is now caught and returned as `{ recoverable: true, recovery: "restart_editor" }` with a plain-English message, instead of a cryptic exception.
+- **`install_asset`** returns `restartRecommended: true` and **`trigger_hotload`** includes a `packageNote` — a newly-added `PackageReference` no longer silently fails to resolve. Both marked auto-handled in `docs/BRIDGE_GOTCHAS.md`.
+
+### Added — Known-issues doc
+
+- **`docs/BRIDGE_GOTCHAS.md`** — the engine limits + workflow lessons that are *not* code-fixable (input synthesis, surface registry, package refs, asset-pipeline ERROR mesh, Razor/SCSS quirks, the API whitelist, GPU stalls), each as Symptom → Why → Fix/Workaround.
+
+### Changed — Cookbook (51-game re-mine)
+
+- The **`sbox-cookbook`** skill was re-mined across **51** current open-source s&box games (was 47 — added `facepunch.ss2`, `despawn.murder`, `facepunch.fair`, `barrelproto.ragroll`). **+6 genre references** (social-deduction, survivor-roguelite, coop-kitchen, board-game, casino-gambling, physics-sports) and **+2 system references** (ai-director, services-backend). High-traffic references (economy-currency, save-persistence, round-match, shop-vendor, progression-upgrades, leaderboards-services, building-placement, anti-cheat, tycoon-idle, deathmatch-arena) got a "Corpus refresh" pass with the newly-mined implementations. New **`references/CORPUS-INDEX.md`** cross-references which games implement each system/genre — so a recipe can be composed by pulling pieces from several games. Per-game findings live in the local `sbox-lessons/mining-v2/`.
+
+### Added — Bridge map (knowledge graph)
+
+- **Shipped a graphify knowledge graph of the bridge at `docs/graph/`** (`graph.json`,
+  `graph.html`, `GRAPH_REPORT.md`, `README.md`). Every tool maps to its C# `IBridgeHandler`
+  and to the docs — `IBridgeHandler` is the spine (top god node), and `MyEditorMenu.cs` is
+  flagged as a large monolith to split. Browse it with `graph.html`, or query it with
+  `graphify query "…" --graph docs/graph/graph.json`. It can go stale — `scripts/regen-graph.ps1`
+  does a deterministic code/AST refresh, and re-running the `/graphify` skill rebuilds the full
+  doc-inclusive graph. Maintainers should regenerate it as part of every release.
+
 ## [1.9.0] — 2026-06-07
 
 **6 new inspection & validation tools — see what replicates, lint your networking, catch scene footguns, read saves/services, drive input. 166 handlers (was 160). Plus a new `sbox-cookbook` recipe skill and an AGPL relicense.** Verified live against the SDK. New TS module `tools/inspection.ts`; the C# handlers are **"Batch 37"** in the addon. Additive — no existing tool contract changed.

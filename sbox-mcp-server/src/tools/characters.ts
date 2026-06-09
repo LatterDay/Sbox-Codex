@@ -13,18 +13,31 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * runtime, but poses preview in-editor via PlayAnimationsInEditorScene.
  */
 
+// Colour / vector accepted as EITHER an object OR a comma string, passed
+// through unchanged. The C# handler parses both forms (source of truth). See
+// the cross-language vector/color contract.
+const ColorObject = z.object({
+  r: z.number().min(0).describe("Red, 0-1"),
+  g: z.number().min(0).describe("Green, 0-1"),
+  b: z.number().min(0).describe("Blue, 0-1"),
+  a: z.number().min(0).max(1).optional().describe("Alpha, 0-1 (default 1)"),
+});
+
 const ColorSchema = z
-  .object({
-    r: z.number().min(0).describe("Red, 0-1"),
-    g: z.number().min(0).describe("Green, 0-1"),
-    b: z.number().min(0).describe("Blue, 0-1"),
-    a: z.number().min(0).max(1).optional().describe("Alpha, 0-1 (default 1)"),
-  })
-  .describe("RGBA colour as 0-1 floats (model tint)");
+  .union([
+    ColorObject,
+    z.string().describe('Comma string "r,g,b,a", e.g. "1,0,0,1"'),
+  ])
+  .describe('RGBA colour — object {r,g,b,a} (0-1) OR comma string "r,g,b,a" (model tint)');
+
+const Vector3Object = z.object({ x: z.number(), y: z.number(), z: z.number() });
 
 const Vector3Schema = z
-  .object({ x: z.number(), y: z.number(), z: z.number() })
-  .describe("World position {x,y,z}");
+  .union([
+    Vector3Object,
+    z.string().describe('Comma string "x,y,z", e.g. "0,0,200"'),
+  ])
+  .describe('World vector — object {x,y,z} OR comma string "x,y,z"');
 
 const RotationSchema = z
   .object({ pitch: z.number(), yaw: z.number(), roll: z.number() })
@@ -320,8 +333,9 @@ export function registerCharacterTools(
           z.number(),
           z.boolean(),
           z.object({ x: z.number(), y: z.number(), z: z.number() }),
+          z.string().describe('Vector as a comma string "x,y,z"'),
         ])
-        .describe("Value: number (float), boolean, or {x,y,z} vector"),
+        .describe('Value: number (float), boolean, or a vector as {x,y,z} OR a comma string "x,y,z"'),
       type: z
         .enum(["float", "int", "bool", "vector"])
         .optional()

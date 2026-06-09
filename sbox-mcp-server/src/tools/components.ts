@@ -105,4 +105,37 @@ export function registerComponentTools(
       };
     }
   );
+
+  // ── invoke_method ────────────────────────────────────────────────
+  server.tool(
+    "invoke_method",
+    "Call a public method BY NAME on a component of a live scene GameObject, passing ARGUMENTS. The with-args sibling of invoke_button (which only calls parameterless [Button]/methods on a scene component). Finds a public method matching name + arg-count, coerces each JSON arg to the parameter type (primitives/enums; Color/Vector3 as comma strings '1,0,0,1'; asset refs as a path; GameObject/Component refs as a target GUID), invokes it, and returns the method's return value as a string (null for void). Returns success=false with a clear error on resolve/coerce/throw",
+    {
+      id: z.string().describe("GUID of the GameObject"),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Component type name to target (e.g. 'Health', 'PlayerController'). Omit to search all components on the object for a method matching name + arg-count"
+        ),
+      method: z
+        .string()
+        .describe("Name of the public method to call (e.g. 'TakeDamage', 'AddGold')"),
+      args: z
+        .array(z.unknown())
+        .optional()
+        .describe(
+          "Ordered arguments, each coerced to the matching parameter's type. Numbers/bools/strings pass through; Color/Vector3/Rotation as comma strings '1,0,0,1'; enum member names; ASSET refs as a path ('models/dev/box.vmdl'); GameObject/Component refs as a target GUID. Omit (or []) for a no-arg method"
+        ),
+    },
+    async (params) => {
+      const res = await bridge.send("invoke_method", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

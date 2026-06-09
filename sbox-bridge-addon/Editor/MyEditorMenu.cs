@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.9.0";
+	private const string BridgeVersion = "1.10.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -122,6 +122,14 @@ public static class ClaudeBridge
 			WriteStatus( true );
 			_lastHeartbeatUtc = DateTime.UtcNow;
 
+			// execute_csharp writes a temp Editor/__Exec_*.cs, hotloads, runs, then deletes it.
+			// If that snippet fails to COMPILE, the whole editor assembly (local.<project>.editor —
+			// including this bridge) breaks, so the bridge can't service the delete_script cleanup
+			// and the bad file leaks, poisoning every subsequent compile. Sweep any leftovers on
+			// startup (the bridge only reaches here once the assembly compiled clean again) so a
+			// prior failure can't keep the project broken. (Fix 5)
+			SweepStaleExecFiles();
+
 			// Use a Timer only to read request files from disk (IO is thread-safe)
 			// But queue the actual processing for the main thread
 			_pollTimer = new Timer( ReadRequestFiles, null, 500, 50 );
@@ -132,6 +140,32 @@ public static class ClaudeBridge
 		catch ( Exception ex )
 		{
 			Log.Warning( $"[SboxBridge] Failed to start: {ex.Message}" );
+		}
+	}
+
+	/// <summary>
+	/// Delete any leftover execute_csharp temp files (Editor/__Exec_*.cs) from the project's
+	/// Editor folder. These are written by execute_csharp and normally deleted after the run,
+	/// but a compile failure can take the bridge down mid-cleanup and leave the file behind —
+	/// where it breaks local.&lt;project&gt;.editor on every subsequent compile. Best-effort: a
+	/// file we can't delete (locked/perms) is logged once and skipped, never throws. (Fix 5)
+	/// </summary>
+	internal static void SweepStaleExecFiles()
+	{
+		try
+		{
+			var editorDir = Path.Combine( Project.Current.GetRootPath(), "Editor" );
+			if ( !Directory.Exists( editorDir ) ) return;
+
+			foreach ( var f in Directory.GetFiles( editorDir, "__Exec_*.cs" ) )
+			{
+				try { File.Delete( f ); Log.Info( $"[SboxBridge] Swept stale exec temp file: {Path.GetFileName( f )}" ); }
+				catch ( Exception ex ) { Log.Warning( $"[SboxBridge] Could not delete stale exec file '{Path.GetFileName( f )}': {ex.Message}" ); }
+			}
+		}
+		catch ( Exception ex )
+		{
+			Log.Warning( $"[SboxBridge] Exec-temp sweep failed: {ex.Message}" );
 		}
 	}
 
@@ -255,6 +289,7 @@ public static class ClaudeBridge
 		// ── Batch 15: Terrain / Map building ────────────────────────────
 		Register( "build_terrain_mesh",       () => new BuildTerrainMeshHandler() );
 		Register( "invoke_button",            () => new InvokeButtonHandler() );
+		Register( "invoke_method",            () => new InvokeMethodHandler() );
 		Register( "list_component_buttons",   () => new ListComponentButtonsHandler() );
 		Register( "raycast_terrain",          () => new RaycastTerrainHandler() );
 		Register( "add_terrain_hill",         () => new AddTerrainHillHandler() );
@@ -369,6 +404,7 @@ public static class ClaudeBridge
 		Register( "create_objective_system",     () => new CreateObjectiveSystemHandler() );
 		Register( "create_health_system",        () => new CreateHealthSystemHandler() );
 		Register( "create_pickup",               () => new CreatePickupHandler() );
+		Register( "create_economy_wallet",       () => new CreateEconomyWalletHandler() );
 
 		// ── Batch 36: NPC brains ────────────────────────────────────────
 		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
@@ -385,6 +421,13 @@ public static class ClaudeBridge
 		Register( "services_query",           () => new ServicesQueryHandler() );
 		Register( "simulate_input",           () => new SimulateInputHandler() );
 
+		// ── Batch 38: Input actions (project config) ────────────────────
+		Register( "ensure_input_action",      () => new EnsureInputActionHandler() );
+
+		// ── Batch 39: Play-mode input driver (sustained / analog) ───────
+		Register( "drive_player",             () => new DrivePlayerHandler() );
+		Register( "drive_player_status",      () => new DrivePlayerStatusHandler() );
+
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
 
@@ -399,7 +442,7 @@ public static class ClaudeBridge
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
 		"set_component_reference", "add_component_to_new_object",
-		"create_objective_system", "create_health_system", "create_pickup",
+		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet",
 		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
@@ -426,6 +469,7 @@ public static class ClaudeBridge
 		"paint_forest_density", "place_along_path",
 		"undo", "redo",
 		"set_project_config", "set_project_thumbnail",
+		"ensure_input_action",
 	};
 
 	internal static bool IsSceneMutating( string command ) => _sceneMutatingCommands.Contains( command );
@@ -717,6 +761,51 @@ public static class ClaudeBridge
 		float y = e.TryGetProperty( "y", out var ey ) ? ey.GetSingle() : 0f;
 		float z = e.TryGetProperty( "z", out var ez ) ? ez.GetSingle() : 0f;
 		return new Vector3( x, y, z );
+	}
+
+	/// <summary>
+	/// Flexible Vector3 parse for the cross-language contract: a vector value may arrive as
+	///   • an object  {"x":..,"y":..,"z":..}   (the canonical form — same as ParseVector3)
+	///   • a single number  5                  → uniform Vector3(5,5,5)  (mainly for scale)
+	///   • an array   [x,y,z]                   → component-wise
+	///   • a comma string  "x,y,z"             → component-wise
+	/// C# is the source of truth for parsing (the TS schema accepts the union and passes the
+	/// value through unchanged). Missing components default to <paramref name="uniformFallback"/>'s
+	/// behaviour: an object missing a key falls back to 0 (matches ParseVector3); a single
+	/// number fills all three axes. Used by set_transform / create_gameobject scale so a bare
+	/// number or a string no longer silently fails the way ParseVector3 alone did.
+	/// </summary>
+	internal static Vector3 ParseVector3Flexible( JsonElement e )
+	{
+		switch ( e.ValueKind )
+		{
+			case JsonValueKind.Object:
+				return ParseVector3( e );
+
+			case JsonValueKind.Number:
+			{
+				// A single number means uniform scale on every axis.
+				var u = e.GetSingle();
+				return new Vector3( u, u, u );
+			}
+
+			case JsonValueKind.Array:
+			{
+				var f = ExtractFloats( e.GetRawText() );
+				if ( f.Length == 1 ) return new Vector3( f[0], f[0], f[0] ); // [5] => uniform
+				return new Vector3( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f, f.Length > 2 ? f[2] : 0f );
+			}
+
+			case JsonValueKind.String:
+			{
+				var f = ExtractFloats( e.GetString() );
+				if ( f.Length == 1 ) return new Vector3( f[0], f[0], f[0] ); // "5" => uniform
+				return new Vector3( f.Length > 0 ? f[0] : 0f, f.Length > 1 ? f[1] : 0f, f.Length > 2 ? f[2] : 0f );
+			}
+
+			default:
+				return Vector3.Zero;
+		}
 	}
 
 	/// <summary>
@@ -1421,13 +1510,21 @@ public class CreateGameObjectHandler : IBridgeHandler
 			go.WorldRotation = ClaudeBridge.ParseRotation( rot );
 
 		if ( p.TryGetProperty( "scale", out var scl ) )
-			go.WorldScale = ClaudeBridge.ParseVector3( scl );
+			go.WorldScale = ClaudeBridge.ParseVector3Flexible( scl ); // object / number(uniform) / string (Fix 1/7)
 
-		if ( p.TryGetProperty( "parentId", out var pid ) && Guid.TryParse( pid.GetString(), out var parentGuid ) )
+		// Honor the parent id so the new object can be created directly under a parent instead
+		// of always landing at the scene root. keepWorldPosition:false → the object adopts the
+		// parent's local space (the position/rotation/scale params above are treated as the
+		// world transform pre-parent, then re-based into the parent). Accept either "parentId"
+		// (the set_parent idiom) or "parent" (what the TS create_gameobject schema sends). (Fix 2)
+		JsonElement pidEl = default;
+		bool havePid = ( p.TryGetProperty( "parentId", out pidEl ) || p.TryGetProperty( "parent", out pidEl ) )
+			&& pidEl.ValueKind == JsonValueKind.String;
+		if ( havePid && Guid.TryParse( pidEl.GetString(), out var parentGuid ) )
 		{
 			var parent = scene.Directory.FindByGuid( parentGuid );
 			if ( parent != null )
-				go.SetParent( parent, keepWorldPosition: true );
+				go.SetParent( parent, keepWorldPosition: false );
 		}
 
 		if ( p.TryGetProperty( "tags", out var tags ) && tags.ValueKind == JsonValueKind.Array )
@@ -1478,7 +1575,15 @@ public class DuplicateGameObjectHandler : IBridgeHandler
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
-		var clone = go.Clone();
+		// go.Clone() resolves its destination from the AMBIENT active scene (Game.ActiveScene),
+		// which is null in edit mode — so a bare Clone() throws "No Active Scene" even though the
+		// editor scene exists. Push the editor scene as the active scope for the clone so it lands
+		// in the same scene add_component/set_property mutate. (Fix 3)
+		GameObject clone;
+		using ( scene.Push() )
+		{
+			clone = go.Clone();
+		}
 
 		if ( p.TryGetProperty( "offset", out var off ) )
 			clone.WorldPosition = go.WorldPosition + ClaudeBridge.ParseVector3( off );
@@ -1603,8 +1708,11 @@ public class SetTransformHandler : IBridgeHandler
 
 		if ( p.TryGetProperty( "scale", out var scl ) )
 		{
-			if ( local ) go.LocalScale = ClaudeBridge.ParseVector3( scl );
-			else         go.WorldScale  = ClaudeBridge.ParseVector3( scl );
+			// Scale accepts an object {x,y,z}, a comma string "x,y,z", an array, OR a single
+			// number (uniform). The old ParseVector3 only read object keys, so a bare number
+			// or a "1,1,1" string silently became (0,0,0) and collapsed the object. (Fix 1/7)
+			if ( local ) go.LocalScale = ClaudeBridge.ParseVector3Flexible( scl );
+			else         go.WorldScale  = ClaudeBridge.ParseVector3Flexible( scl );
 		}
 
 		return Task.FromResult<object>( new { transformed = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
@@ -2712,6 +2820,21 @@ public class RaycastHandler : IBridgeHandler
 		}
 		catch ( Exception ex )
 		{
+			var emsg = ex.Message ?? string.Empty;
+			// "Default Surface not found" (and kin) = the surface registry isn't loaded into
+			// this editor session yet (a known transient after certain state changes). A trace
+			// can't rebuild it in-place, so surface a clear, actionable recovery hint instead of
+			// a cryptic failure. (v1.10.0 auto-handled: detected + a restart recommendation.)
+			if ( emsg.IndexOf( "Default Surface", StringComparison.OrdinalIgnoreCase ) >= 0
+			  || ( emsg.IndexOf( "surface", StringComparison.OrdinalIgnoreCase ) >= 0
+			    && emsg.IndexOf( "not found", StringComparison.OrdinalIgnoreCase ) >= 0 ) )
+			{
+				return Task.FromResult<object>( new {
+					error       = "Scene trace failed: the surface registry isn't loaded (\"Default Surface not found\") — a known transient editor state. Call restart_editor to rebuild it, then retry the trace.",
+					recoverable = true,
+					recovery    = "restart_editor"
+				} );
+			}
 			return Task.FromResult<object>( new { error = $"Raycast failed: {ex.Message}" } );
 		}
 	}
@@ -4466,7 +4589,12 @@ public class InstallAssetHandler : IBridgeHandler
 				ident,
 				name          = asset.Name,
 				path          = asset.Path,
-				relativePath  = asset.RelativePath
+				relativePath  = asset.RelativePath,
+				// A freshly-installed CODE library adds a PackageReference the running editor
+				// hasn't compiled — trigger_hotload will NOT surface its types. (v1.10.0
+				// auto-handled: the install path now tells the caller to restart.)
+				restartRecommended = true,
+				note = "If this installed a code LIBRARY (new PackageReference), trigger_hotload will NOT make its types available — call restart_editor so the new package compiles into the project."
 			};
 		}
 		catch ( Exception ex )
@@ -4559,7 +4687,8 @@ public class TriggerHotloadHandler : IBridgeHandler
 				touched,
 				note = touched.Count > 0
 					? "Bumped .csproj timestamps to nudge a recompile. If changes still don't apply, enter+exit play mode or use restart_editor (the reliable path for externally-edited C#)."
-					: "No project .csproj found to touch. Enter+exit play mode or use restart_editor to force a recompile."
+					: "No project .csproj found to touch. Enter+exit play mode or use restart_editor to force a recompile.",
+				packageNote = "A newly-added PackageReference (installed library dependency) is NEVER resolved by hotload — use restart_editor for new package dependencies."
 			} );
 		}
 		catch ( Exception ex )
@@ -5023,6 +5152,21 @@ public class RaycastTerrainHandler : IBridgeHandler
 		}
 		catch ( Exception ex )
 		{
+			var emsg = ex.Message ?? string.Empty;
+			// "Default Surface not found" (and kin) = the surface registry isn't loaded into
+			// this editor session yet (a known transient after certain state changes). A trace
+			// can't rebuild it in-place, so surface a clear, actionable recovery hint instead of
+			// a cryptic failure. (v1.10.0 auto-handled: detected + a restart recommendation.)
+			if ( emsg.IndexOf( "Default Surface", StringComparison.OrdinalIgnoreCase ) >= 0
+			  || ( emsg.IndexOf( "surface", StringComparison.OrdinalIgnoreCase ) >= 0
+			    && emsg.IndexOf( "not found", StringComparison.OrdinalIgnoreCase ) >= 0 ) )
+			{
+				return Task.FromResult<object>( new {
+					error       = "Scene trace failed: the surface registry isn't loaded (\"Default Surface not found\") — a known transient editor state. Call restart_editor to rebuild it, then retry the trace.",
+					recoverable = true,
+					recovery    = "restart_editor"
+				} );
+			}
 			return Task.FromResult<object>( new { error = $"Raycast failed: {ex.Message}" } );
 		}
 	}
@@ -5363,6 +5507,14 @@ public class PlaceAlongPathHandler : IBridgeHandler
 		var seed = p.TryGetProperty( "seed", out var sdp ) ? sdp.GetInt32() : 42;
 		var name = p.TryGetProperty( "name", out var np ) ? np.GetString() : "PathItem";
 
+		// Yaw control (Fix 4): previously yaw was ALWAYS randomized, so a fence/lamppost line
+		// came out crooked even when the caller wanted a clean run.
+		//   align == true        → orient each piece to face along the path direction.
+		//   randomizeYaw == true → jitter yaw randomly (only honored when NOT aligning).
+		//   both false (default) → deterministic identity yaw (no randomization).
+		var align       = p.TryGetProperty( "align", out var alEl ) && alEl.ValueKind == JsonValueKind.True;
+		var randomizeYaw = p.TryGetProperty( "randomizeYaw", out var ryEl ) && ryEl.ValueKind == JsonValueKind.True;
+
 		if ( !p.TryGetProperty( "points", out var pointsEl ) || pointsEl.ValueKind != JsonValueKind.Array )
 			return Task.FromResult<object>( new { error = "points must be an array of {x,y,z}" } );
 
@@ -5406,7 +5558,13 @@ public class PlaceAlongPathHandler : IBridgeHandler
 				go.Name = $"{name} {++placed}";
 				go.SetParent( folder );
 				go.WorldPosition = pos;
-				go.WorldRotation = Rotation.FromYaw( (float)(rng.NextDouble() * 360.0) );
+				// Deterministic by default; only spin the yaw when explicitly asked. (Fix 4)
+				if ( align )
+					go.WorldRotation = Rotation.LookAt( dir, Vector3.Up );
+				else if ( randomizeYaw )
+					go.WorldRotation = Rotation.FromYaw( (float)(rng.NextDouble() * 360.0) );
+				else
+					go.WorldRotation = Rotation.Identity;
 				var scale = MathX.Lerp( minScale, maxScale, (float)rng.NextDouble() );
 				go.WorldScale = new Vector3( scale );
 
@@ -5793,15 +5951,42 @@ public class SetFogHandler : IBridgeHandler
 // ───────── Batch 17 shared helpers ────────────────────────────────────────
 public static class VisualHelpers
 {
-	/// <summary>Parse a {r,g,b,a?} colour object (0-1 floats) or return the fallback.</summary>
+	/// <summary>
+	/// Parse a colour per the cross-language contract: accept EITHER an object
+	/// {"r":..,"g":..,"b":..,"a"?:..} OR a comma string "r,g,b,a" OR an array [r,g,b,a]
+	/// (0-1 floats). Falls back to <paramref name="fallback"/> for an unparseable/empty value.
+	/// C# is the source of truth for parsing; the TS schema accepts the union and passes
+	/// the value through unchanged. (Fix 7)
+	/// </summary>
 	public static Color ParseColorElement( JsonElement c, Color fallback )
 	{
-		if ( c.ValueKind != JsonValueKind.Object ) return fallback;
-		float r = c.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
-		float g = c.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
-		float b = c.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
-		float a = c.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
-		return new Color( r, g, b, a );
+		switch ( c.ValueKind )
+		{
+			case JsonValueKind.Object:
+			{
+				float r = c.TryGetProperty( "r", out var rv ) ? rv.GetSingle() : fallback.r;
+				float g = c.TryGetProperty( "g", out var gv ) ? gv.GetSingle() : fallback.g;
+				float b = c.TryGetProperty( "b", out var bv ) ? bv.GetSingle() : fallback.b;
+				float a = c.TryGetProperty( "a", out var av ) ? av.GetSingle() : 1f;
+				return new Color( r, g, b, a );
+			}
+
+			case JsonValueKind.String:
+			case JsonValueKind.Array:
+			{
+				var s = c.ValueKind == JsonValueKind.String ? c.GetString() : c.GetRawText();
+				var f = ClaudeBridge.ExtractFloats( s );
+				if ( f.Length == 0 ) return fallback;
+				return new Color(
+					f.Length > 0 ? f[0] : fallback.r,
+					f.Length > 1 ? f[1] : fallback.g,
+					f.Length > 2 ? f[2] : fallback.b,
+					f.Length > 3 ? f[3] : 1f );
+			}
+
+			default:
+				return fallback;
+		}
 	}
 
 	/// <summary>Wrap a plain float as a constant ParticleFloat (the s&box particle curve type).</summary>
@@ -6344,6 +6529,12 @@ public class SpawnModelHandler : IBridgeHandler
 		if ( model == null )
 			return Task.FromResult<object>( new { error = $"Model not found: {modelPath}. Cloud assets must be installed first (install_asset)." } );
 
+		// Model.Load NEVER returns null for an unmounted/missing path — it returns the engine
+		// ERROR placeholder (the giant checkered box), which then renders as a "success". Detect
+		// that (Model.IsError) and surface a warning instead of a clean success so the caller
+		// knows the path didn't resolve (likely a Cloud asset that needs install_asset). (Fix 6)
+		bool isErrorModel = model.IsError;
+
 		var go = scene.CreateObject( true );
 		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Model";
 		CharacterHelpers.ApplyTransform( go, p );
@@ -6354,6 +6545,20 @@ public class SpawnModelHandler : IBridgeHandler
 			r.Tint = VisualHelpers.ParseColorElement( t, Color.White );
 
 		CharacterHelpers.ApplyParent( go, scene, p );
+
+		if ( isErrorModel )
+		{
+			return Task.FromResult<object>( new
+			{
+				created = true,
+				model = modelPath,
+				warning = $"'{modelPath}' resolved to the ERROR placeholder model (path not mounted). " +
+					"The object spawned but renders as the giant checkered ERROR box. " +
+					"If this is a Cloud asset, install it first with install_asset.",
+				gameObject = ClaudeBridge.SerializeGo( go )
+			} );
+		}
+
 		return Task.FromResult<object>( new { created = true, model = modelPath, gameObject = ClaudeBridge.SerializeGo( go ) } );
 	}
 }
@@ -6812,16 +7017,22 @@ public class GridDuplicateHandler : IBridgeHandler
 
 		var basePos = go.WorldPosition;
 		var created = new List<string>();
-		for ( int ix = 0; ix < countX; ix++ )
-			for ( int iy = 0; iy < countY; iy++ )
-				for ( int iz = 0; iz < countZ; iz++ )
-				{
-					if ( ix == 0 && iy == 0 && iz == 0 ) continue; // keep the original in place
-					if ( created.Count >= 500 ) break;             // safety cap
-					var clone = go.Clone();
-					clone.WorldPosition = basePos + new Vector3( ix * spacing.x, iy * spacing.y, iz * spacing.z );
-					created.Add( clone.Id.ToString() );
-				}
+		// go.Clone() resolves its destination from the ambient active scene, which is null in
+		// edit mode → "No Active Scene". Push the editor scene as the active scope so every
+		// clone lands in it, the same way add_component/set_property mutate it. (Fix 3)
+		using ( scene.Push() )
+		{
+			for ( int ix = 0; ix < countX; ix++ )
+				for ( int iy = 0; iy < countY; iy++ )
+					for ( int iz = 0; iz < countZ; iz++ )
+					{
+						if ( ix == 0 && iy == 0 && iz == 0 ) continue; // keep the original in place
+						if ( created.Count >= 500 ) break;             // safety cap
+						var clone = go.Clone();
+						clone.WorldPosition = basePos + new Vector3( ix * spacing.x, iy * spacing.y, iz * spacing.z );
+						created.Add( clone.Id.ToString() );
+					}
+		}
 		return Task.FromResult<object>( new { duplicated = created.Count, grid = new { countX, countY, countZ }, ids = created } );
 	}
 }

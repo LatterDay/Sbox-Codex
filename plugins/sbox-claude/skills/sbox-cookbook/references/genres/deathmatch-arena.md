@@ -193,3 +193,128 @@ A `[Sync]` enum FSM owned by the host (`if (IsProxy) return;`) walking `WaitingF
 API surfaces drift between SDK versions — confirm before relying on a signature. Use `describe_type` / `search_types` reflection against the installed SDK as authoritative for: `DamageInfo` (`FromBullet`/`UsingTraceResult`/`WithAttacker`/`WithWeapon`), `Scene.Trace.Ray`/`Scene.Trace.Box` (`.WithAnyTags`/`.IgnoreGameObjectHierarchy`/`.Size`/`.Run`), `SceneTraceResult` (`Hit`/`Normal`/`Fraction`/`EndPosition`/`StartedSolid`), `Component.ITriggerListener` (`OnTriggerEnter`/`Exit`), `[Sync]`/`SyncFlags`/`IsProxy`/`[Rpc.Owner]`/`[Rpc.Host]`, `FindMode.EverythingInSelfAndParent`, `Components.GetAll<T>(FindMode)`, `PlayerController`, `Input.Pressed`/`AnalogMove`, and `BBox`/`Rotation.FromYaw`/`FromPitch`.
 
 Cross-links: see the `sbox-api` skill for authoritative type lookups, and the `sbox-build-feature` skill for the screenshot-driven build/iterate loop.
+
+## Corpus refresh (2026): more reference implementations
+
+Five more mined games push the genre past the original two. The headline combat lessons that are net-new here: a **component-per-phase round FSM that survives host migration**, **identity-keyed combat state** (don't network the upgrade objects), **whitelist-synced stats** (don't sync all 250), the **owner-gated shared-trigger** idiom every multiplayer pickup gets wrong, a **killfeed + match-timeline ("hero of the round")**, **per-recipient wallhack outlines**, and **runtime-added prop health** so a build phase's props become destructible in battle. Pull the round/leaderboard/director scaffolds from these even when you keep Doom's combat or Aethercore's melee.
+
+### Round FSM as component-per-phase (alternative to one enum switch)
+`despawn.murder` and `barrelproto.ragroll` both improve on the single-enum FSM in idiom #1: each phase is its **own `Component`** with `Begin()/Tick()/Finish()` + `OnTimeUp`, and a manager ticks the active one host-only. Murder adds the crucial wrinkle — the manager raises round-start/end **locally on host AND via a host-only broadcast RPC**, so client-side systems (HUD, audio, kill feed) react to the exact same events without each one re-deriving state from `[Sync]`.
+
+```csharp
+// despawn.murder: Systems/Rounds/RoundManager.cs — transition + mirror so clients re-raise
+public void TransitionTo<T>( Action<T> init ) where T : RoundState {
+    State?.Finish();
+    State = States.OfType<T>().First(); init( (T)State ); State.Begin();
+    IRoundStateEvents.Post( x => x.OnRoundStateBegin( State ) );        // host-local
+    BroadcastStateBegin( StateIndex );                                  // [Rpc.Broadcast(HostOnly)] → clients re-raise
+}
+```
+(despawn.murder: Systems/Rounds/RoundManager.cs `TransitionNext`/`TransitionTo`; Systems/Rounds/RoundState.cs the `Begin/Tick/Finish/OnTimeUp` base with `[Sync(SyncFlags.FromHost)] TimeUntil TimeLeft`. barrelproto.ragroll: Code/mode/RollMode.cs `IGameMode` + `[Sync,Change] RagRollState` + `CanMove => state != Prepare` gating input from the FSM.) See `references/systems/round-match.md` for the generic skeleton; this is the **multi-phase, multi-system-react** upgrade to it.
+
+### Host-migration-safe round timer (re-arm TimeUntil on the new host)
+A `[Sync] TimeUntil` stores an *absolute* time off the **old** host's clock; after migration it points at the wrong instant. Fix: on becoming host, read the remaining seconds (`.Relative`) and re-arm against the new clock. Pairs with storing fighters/actors as `[Sync] GameObject` (existing pitfall).
+
+```csharp
+// despawn.murder: Systems/Rounds/RoundManager.cs::ValidateStateAfterMigration
+var remaining = MathF.Max( State.TimeLeft.Relative, 0f );   // seconds left, old-host-relative
+State.TimeLeft = remaining;                                  // re-arm on the new host's clock
+```
+(despawn.murder: RoundManager.cs `ValidateStateAfterMigration` — also resets a stale `State` ref to index -1 and skips a mid-PostRound migration to a fresh round.) For a *continuously* synced clock instead, `barrelproto.ragroll` Code/mode/networking/HostClock.cs broadcasts `[Sync] _hostTimestamp` every 0.4s, adds `Connection.Host.Ping*0.001f`, and only snaps if drift > 0.1s — a smooth shared clock for visible timers.
+
+### Identity-keyed combat state — never network the upgrade objects
+`facepunch.ss2` (a 300+-perk bullet-heaven) keeps every perk/weapon modifier as a **host-side `Dictionary<int,Perk>`** and syncs only `NetDictionary<int,int>` (typeIdentity→level). For the choice UI, the **host pre-renders** name/description/icon into parallel `[Sync] NetList<string>` so clients never run perk logic. `TypeDescription.Identity` ↔ `TypeLibrary.GetTypeByIdent` is the wire format. A client that only knows a type by identity has never run its static ctor, so call `TypeLibrary.GetType(t).Create<Perk>()` once purely to populate static display tables.
+
+```csharp
+// facepunch.ss2: Player.Perks.cs — sync identities + host-rendered strings, not objects
+[Sync] public NetDictionary<int,int> SyncPerks { get; set; }           // typeIdentity → level
+[Sync] public NetList<string> SyncCurrentPerkChoiceDisplayNames { get; set; }
+public static int  TypeToIdentity( Type t ) => TypeLibrary.GetType(t).Identity;
+public static Type IdentityToType( int id ) => TypeLibrary.GetTypeByIdent(id)?.TargetType;
+```
+(facepunch.ss2: Player.Perks.cs, PerkManager.cs, perks/Perk.cs `EnsureRegistered`.) Use this whenever loadouts/buffs/abilities are dozens of small classes — networking the *effect classes* is the trap.
+
+### Whitelist-synced stats — don't replicate the whole stat table
+Of ~250 `PlayerStat`s, ss2 mirrors only a hand-curated `_syncedStats` list to proxies via `[Sync] NetDictionary<PlayerStat,float>`; everything else stays host-authoritative and never goes on the wire. The UI reads `IsProxy ? GetSyncStat(s) : Stats[s]`.
+
+```csharp
+// facepunch.ss2: Player.Stats.cs — explicit bandwidth control
+static readonly PlayerStat[] _syncedStats = { PlayerStat.Health, PlayerStat.MaxHp, /* …only what the HUD shows */ };
+public float GetUiStat( PlayerStat s ) => IsProxy ? GetSyncStat(s) : Stats[s];
+```
+(facepunch.ss2: Player.Stats.cs.) Most s&box combat games sync far more than the HUD needs; pick the list deliberately.
+
+### Owner-gated shared trigger — the multiplayer pickup idiom most code gets wrong
+All player bodies overlap the same trigger/zone, so an `OnTriggerEnter` fires N times. `barrelproto.ragroll` resolves the entering collider up to its owning player and **bails unless it's the local owner**, so a collectible/score-zone registers once, for the right player. (This is the networked counterpart to the existing single-player "guard with `IsValid()`/`Destroy()`" note.)
+
+```csharp
+// barrelproto.ragroll: Code/.../Collectible.cs (and MovementTrigger) — shared trigger, local-only effect
+void OnTriggerEnter( Collider other ) {
+    var skate = other.GameObject.Root.GetComponent<PlayerRagdoll>()?.SkateOwner;
+    if ( skate is null || !skate.Network.IsOwner ) return;   // only my body counts this overlap
+    /* award / fire event locally */
+}
+```
+Same game also guards combat integrity two more ways worth copying: a `[Sync]` score whose **setter early-returns unless `Owner.IsLocal()`** (clients only write their own score), and a **corrupted-connection guard** — `OnPlayerJoined`/`OnStart` try/catch reading `Network.Owner.DisplayName`, check `SteamId == default`, and host-destroy the half-joined object. (barrelproto.ragroll: Code/mode/RollMode.cs, NetworkPlayer.cs.)
+
+### Killfeed + match-timeline → "hero of the round" / killcam
+`despawn.murder` records every kill/clue/objective into a `RoundTimeline`, marks the **final kill**, and computes an MVP at round end; the post-round screen replays it. Critical sequencing: **copy the timeline out before `OnFinish()` destroys the phase component**, then ship it in the next state via `NetDictionary`/`NetList`. For the kill feed itself, both `despawn.murder` and `apl.sandboxwars` route deaths through an `IKillSource`-style event so HUD + scoring + obituary all subscribe.
+
+```csharp
+// despawn.murder: RoundManager.PreparePostRoundData — snapshot BEFORE Finish() nukes the component
+var data = PreparePostRoundData( inProgress );   // copies timeline + roles out
+TransitionTo<PostRoundState>( x => ApplyPostRoundData( x, data ) );
+```
+(despawn.murder: Systems/Rounds/RoundManager.cs, RoundTimeline.cs, `CalculateHeroPlayer`.) This is the generic "end-of-match summary + killcam feed" the original recipe lacked.
+
+### Per-recipient wallhack outline (radar / spotted) via ghost clone
+To highlight a target **only to certain players** (a radar buyer, spectators, your team), don't recolor the real renderer. Clone the target's `SkinnedModelRenderer` + bone-merged clothing into a tagged "Outline" ghost, add a `HighlightOutline`, and create it under `Rpc.FilterInclude(allowedConnections)` so only those clients spawn/see it; fade by alpha and clean up by tag.
+
+```csharp
+// despawn.murder: Systems/EquipmentShop/Items/Radar.cs::RadarOutlineFactory (sketch)
+using ( Rpc.FilterInclude( buyer, spectators ) ) {                 // only these clients build the ghost
+    var ghost = target.Clone(); ghost.Tags.Add("outline");
+    ghost.GetComponent<SkinnedModelRenderer>(); ghost.AddComponent<HighlightOutline>();
+}
+```
+(despawn.murder: Radar.cs.) Reusable for "spotted" markers, spectator ESP, ability highlights — any deathmatch where visibility is per-player.
+
+### Data-key → spawned-behavior shop (in-round powerups)
+`despawn.murder`'s equipment shop is a clean **string-key → component** dispatch: `[Rpc.Host] PurchaseHost(itemKey)` re-validates host-side (powerup enabled? caller has a pawn? `item.CanPurchase`?), runs `item.OnPurchase(pawn)`, then deducts the currency — and the **price comes from a ConVar, not the item**, so a server owner re-tunes the economy live. Many items are just `EquipmentShopPurchasableComponentItem<TComponent>` (attach a networked component).
+
+```csharp
+// despawn.murder: Systems/EquipmentShop/ItemComponentFactory.cs
+static ShopItem Make( string key ) => key switch {
+    "radar"  => new Radar(),  "swapper" => new Swapper(),
+    "knife"  => new UpgradedMelee(), _ => null };
+// EquipmentShopManager: [Rpc.Host] PurchaseHost re-validates, OnPurchase, then CluesCollected -= price
+```
+(despawn.murder: ItemComponentFactory.cs, EquipmentShopManager.cs, Items/*.cs; price via GameConVars.GetPowerupPrice.) See `references/systems/shop-vendor.md`; the deathmatch-specific bit is the **host-revalidated, currency-after-effect, per-owner-spawned** store.
+
+### Runtime-added prop health — make build-phase props destructible in battle
+`apl.sandboxwars` (a GMod-style build→battle) lets players freely spawn props during a Build phase, then on the Battle transition a host loop tags every `Rigidbody` that isn't a player/NPC/weapon with a `PropHealth` component — **so everything becomes destructible without touching the spawn path**. The same manager **heals all players to full** on phase change (a deliberate over-damage to force respawn) and **forces players off build tools** onto a real weapon.
+
+```csharp
+// apl.sandboxwars: Code/MiniGameManager.cs (host, every 2s) — universal prop destructibility
+foreach ( var rb in Scene.GetAllComponents<Rigidbody>() ) {
+    var go = rb.GameObject;
+    if ( go.Tags.HasAny("player","npc","weapon") || go.GetComponent<PropHealth>() != null ) continue;
+    go.AddComponent<PropHealth>();                       // now it takes DamageInfo + breaks
+}
+// ApplyBuildPhaseState heals to full; ApplyBattlePhaseState ForcePlayersOffTools()
+```
+(apl.sandboxwars: Code/MiniGameManager.cs `AddPropHealthToNewObjects`/`ApplyBuildPhaseState`/`ApplyBattlePhaseState`; deaths ragdoll + report via `IKillSource`.) Also a tidy **ragdoll-on-death** recipe: clone renderer + bone-merged clothing into a `ModelPhysics` object, apply the attacker's velocity, self-destruct after ~30s.
+
+### Data-driven spawn director (alternative to scripted waves)
+For horde/arena pressure, `facepunch.ss2` replaces scripted waves with a per-tick **weighted distribution**: each enemy has an `EnemySpawnConfig` (progress-curve weight + population cap + early-spawn/catch-up/late-game/threat multipliers, all per-difficulty arrays), hot-reloadable via `[ConCmd]`. `despawn.murder`'s Director paces *clue* spawns by **multiplying a base interval by N independent ~1.0 factors** (player-count, kill-inactivity, time-pressure, discovery-rate), clamped, then a per-map penalty. Either gives "handcrafted-feeling" pacing without authoring waves. (facepunch.ss2: Manager.Spawning.cs `EnemySpawnConfig`; despawn.murder: Systems/Rounds/RoundDirector/. See `references/systems/spawning-waves.md`.)
+
+### Leaderboard score encoding for win/partial/loss on one board
+`facepunch.ss2` packs three outcome types into **one numeric stat** so a single board sorts correctly: victory → `VICTORY_OFFSET(2_000_000) - elapsedTime` (faster = higher), boss-reached loss → `BOSS_DEFEAT_OFFSET + bossDamage%`, early death → raw `elapsedTime`; the UI decodes by range. The leaderboard version is **baked into the stat name** (`LEADERBOARD_VERSION=8`) so a balance change starts a fresh board. `barrelproto.ragroll` Code/mode/GlobalScores.cs is the matching read side: `Services.Leaderboards.GetFromStat(pkg, stat).FilterByWeek()`, 60s async refresh, `Texture.LoadAvatar(SteamId,32)` per entry, submit wrapped in `#if !DEBUG`. (facepunch.ss2: Manager.Stats.cs; barrelproto.ragroll: GlobalScores.cs, ModeScore.cs.) See `references/systems/leaderboards-services.md`.
+
+### Read these games (in the corpus) for deathmatch/arena
+- **`ataco.sdoomresurrection`** — hitscan, carriable weapons, hand-rolled swept-BBox movement, IEnumerator monster AI, the `IDamageable`+`DamageInfo` contract (covered in detail above).
+- **`aethercore.versus`** — networked 1v1 melee: `[Sync]` round FSM, animation-gated hitbox windows, trade-bug-hardened victim-owner hit resolution (covered above).
+- **`despawn.murder`** — combat round game done right: component-per-phase FSM + mirror RPC, host-migration-safe timer, killfeed/match-timeline/MVP, per-recipient wallhack outlines, host-revalidated in-round shop, pity-ticket role selection.
+- **`facepunch.ss2`** — large-scale combat composition: identity-keyed networked state, whitelist-synced stats, data-driven spawn director, single-board multi-outcome score encoding, lifecycle event-bus fan-out for on-kill/on-hurt reactions.
+- **`barrelproto.ragroll`** — multiplayer correctness primitives: owner-gated shared triggers, owner-gated score writes, corrupted-connection guard, ping-corrected `HostClock`, in-room scoreboard from `PlayerList`, swappable `IGameMode` + orphan-clear host migration.
+- **`apl.sandboxwars`** — build→battle hybrid: runtime-added prop health for universal destructibility, heal-to-full + force-off-tools phase transitions, ragdoll-on-death, `IKillSource` kill feed.

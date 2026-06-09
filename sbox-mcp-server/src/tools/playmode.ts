@@ -185,4 +185,111 @@ export function registerPlayModeTools(
       };
     }
   );
+
+  // ── drive_player (EXPERIMENTAL) ──────────────────────────────────
+  server.tool(
+    "drive_player",
+    "EXPERIMENTAL — Drive the active PlayerController DURING PLAY MODE across multiple frames: synthesize sustained look (EyeAngles), analog movement (wish velocity), and/or hold a named action down long enough that Input.Pressed fires its rising edge. This is the reliable alternative to simulate_input, which only sets an action for ONE frame and so MISSES edge-triggered controls (Input.Pressed) and cannot inject analog move/look at all. Requires start_play first. Runs ASYNC across editor frames and returns immediately — the job keeps applying for `frames` (or `durationMs`) frames. After it runs, confirm with drive_player_status, then verify the actual effect with capture_view / get_runtime_property. Provide at least one of look / lookDelta / move / action.",
+    {
+      id: z
+        .string()
+        .optional()
+        .describe(
+          "GUID of the GameObject holding the controller. Omit to auto-resolve the first PlayerController (or *Controller with EyeAngles/WishVelocity) in the play scene"
+        ),
+      component: z
+        .string()
+        .optional()
+        .describe(
+          "Controller component type name to target (e.g. 'PlayerController'). Omit to auto-detect"
+        ),
+      frames: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "How many editor frames to drive for (1–1800, ~60/sec). Default 30 (~0.5s). Takes precedence over durationMs"
+        ),
+      durationMs: z
+        .number()
+        .int()
+        .optional()
+        .describe("Duration in ms, converted at ~60fps (ignored if `frames` is given). Default ~500ms"),
+      look: z
+        .union([
+          z.object({
+            pitch: z.number().default(0),
+            yaw: z.number().default(0),
+            roll: z.number().default(0),
+          }),
+          z.array(z.number()),
+          z.string(),
+        ])
+        .optional()
+        .describe(
+          "Absolute EyeAngles target {pitch,yaw,roll} held for the whole duration (aim the camera/body). Object, [pitch,yaw,roll], or 'pitch,yaw,roll'. pitch is clamped to ±89"
+        ),
+      lookDelta: z
+        .union([
+          z.object({
+            pitch: z.number().default(0),
+            yaw: z.number().default(0),
+            roll: z.number().default(0),
+          }),
+          z.array(z.number()),
+          z.string(),
+        ])
+        .optional()
+        .describe(
+          "Per-frame EyeAngles delta added each frame (turn/pan over time, e.g. {yaw:2} to sweep right). Combine with `frames` to control total rotation"
+        ),
+      move: z
+        .union([
+          z.object({ x: z.number().default(0), y: z.number().default(0) }),
+          z.array(z.number()),
+          z.string(),
+        ])
+        .optional()
+        .describe(
+          "Analog movement in the controller's facing frame: x = forward(+)/back(-), y = left(+)/right(-). Magnitude clamped to 1. e.g. {x:1} walks forward for the whole duration"
+        ),
+      moveSpeed: z
+        .number()
+        .optional()
+        .describe(
+          "Units/sec used when synthesizing WishVelocity from `move` (default 160). Ignored if the controller exposes its own AnalogMove field"
+        ),
+      action: z
+        .string()
+        .optional()
+        .describe(
+          "A named input action ('jump','use','attack1',…) HELD DOWN every frame for the whole duration, so Input.Pressed catches the edge single-frame simulate_input misses. Auto-released on the final frame"
+        ),
+    },
+    async (params) => {
+      const res = await bridge.send("drive_player", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
+
+  // ── drive_player_status (EXPERIMENTAL) ───────────────────────────
+  server.tool(
+    "drive_player_status",
+    "EXPERIMENTAL — Read the result of the most recently FINISHED drive_player job: which controller members were actually written (EyeAngles / WishVelocity / AnalogMove…), how many frames applied, and why it ended. Because drive_player runs across frames and returns immediately, this is how you confirm it took effect. Returns lastResult=null if no job has finished yet.",
+    {},
+    async () => {
+      const res = await bridge.send("drive_player_status");
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }

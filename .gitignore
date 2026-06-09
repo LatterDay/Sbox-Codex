@@ -16,3 +16,6 @@ Thumbs.db
 # s&box build output
 sbox-bridge-addon/bin/
 sbox-bridge-addon/obj/
+
+# graphify build working dir — the curated graph copy lives in docs/graph/
+graphify-out/

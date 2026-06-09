@@ -218,6 +218,36 @@ public abstract class LocalComponent<T> : Component, IHotloadManaged
 
 Assign `Local` in `OnStart` AFTER an `!IsProxy` check, or a client will claim another player's `Local` on a proxy object.
 
+## Pattern: dependency-sorted module loader (topological boot + fault isolation)
+
+For a big framework game (RP, life-sim) where features are independent subsystems (economy, jobs, doors, inventory, chat, admin), boot them through a **module loader** instead of a hand-ordered list of `OnStart`s. Each module declares its `Dependencies`; the loader **topological-sorts** them (so a module's deps boot first), runs staged lifecycle phases across the whole set, and **isolates faults** so one broken module is marked `Failed` and boot continues.
+
+```csharp
+public static IReadOnlyList<GameModule> BootOrder => _bootOrder ??= GetSorted();
+public static bool ContinueOnModuleFailure { get; set; } = true;   // safer default for a modular framework
+
+public static void Boot()
+{
+    Run( "PreInitialize", m => m.PreInitializeInternal() );        // staged phases over the sorted set
+    Run( "Initialize",    m => m.InitializeInternal() );
+    Run( "PostInitialize",m => m.PostInitializeInternal() );
+    Run( "Start",         m => m.StartInternal() );
+    Run( "PostStart",     m => m.PostStartInternal() );
+}
+
+static void Run( string stage, Action<GameModule> action )
+{
+    foreach ( var module in BootOrder )
+    {
+        if ( module.HasFailed || HasFailedDependency( module ) ) { module.MarkFailed(...); continue; }
+        try { action( module ); }
+        catch ( Exception ex ) { module.MarkFailed( ex ); if ( !ContinueOnModuleFailure ) throw; }
+    }
+}
+```
+
+The DFS sort throws a clear **`Module dependency cycle detected: A -> B -> A`** on a back-edge (permanent/temporary visited sets + a stack to print the path), and `Shutdown()` runs the boot order **in reverse**. Verified against lowkeynetworks.newrp `Code/framework/modules/ModuleManager.cs`: factory registration locked after `BuildModules` (`:31`), `GetSorted`/`Visit` topological sort with cycle detection (`:249-293`), staged `Run` with per-module try/catch + dependency-failure skip (`:202-236`), reverse-order shutdown (`:156`). Pair it with a typed static **EventBus** so modules talk without naming each other — `Subscribe<T>(Action<T>)` / `Publish<T>(T)`, dup-guarded, with each handler dispatched inside its own try/catch so one throwing subscriber can't break the publish loop (newrp `Code/framework/events/EventBus.cs:57-84`). This is the "module loader + DI + EventBus" backbone for a walkable-town-with-jobs game; the `GameObjectSystem<T>` pattern above is the lighter choice when you have one authoritative loop rather than many pluggable subsystems.
+
 ## Pattern: separate identity (Role) from win-condition (Team)
 
 Don't conflate cosmetic/economy identity with who-beats-whom. A `Role` carries color/credits/shop/selectability; a `Team` owns the `Members` list and `CheckWin`. Delegate evaluation down the chain `Player.CheckWin() -> Role.CheckWin() -> Team.CheckWin()` so each faction's win logic lives in one place and multiple roles can share one condition. Tag both with library attributes and instantiate by name through the reflection registry, never a hardcoded enum (ttt-reborn: `code/roles/Role.cs:76`, `code/teams/Team.cs:41`).

@@ -154,6 +154,8 @@ public bool TryAddFurni( Vector2Int gridPos, FurniResource res, Direction dir, o
 - **Bounds-derived grids.** emg.everything_must_go derives a stocking grid from the renderer's model `Bounds` (columns × rows) rather than a fixed world grid — items snap into the first free cell (`Code/Shelving/Shelf.cs:66`).
 - **Ident-string spawn router.** Sandbox-style games (artisan.darkrpog, apl.sandboxwars) abstract placement behind `ISpawner` (`DrawPreview`, `Task<bool> Loading`, `Spawn(transform, player)`) and route an ident like `prop:path` through a switch, tracing from the eyes with surface-normal alignment (`Code/Spawner/ISpawner.cs:5`, `Code/GameLoop/GameManager.cs:1042`).
 - **Front-clearance / spacing rules.** enifun adds a second "arrow" raycast so a shelf's customer-access front also lands on valid floor, plus min-distance-between-registers (`ShopBuilder.cs:320`).
+- **Physgun grab/spin/snap (free-floating, not surface-stamped).** A Garry's-Mod-style hold-and-place where the carried object floats at a scroll-adjustable distance from the eyes, spins with the mouse (hold `use`), and snaps its rotation to 45°/15° increments (run/walk). The whole hold/release is host-authoritative: the client sends `Request*` RPCs, the host owns a synced `GrabState` struct (target + grab distance + rotation). Pull-from-distance grabs a far object toward you; scroll (faster while ducking) changes hold distance. Verified against klavs.basebuilder `Code/BaseBuilder/BaseBuilderPlacementTool.cs` (synced `GrabState`, mouse spin with `use`, snap-to-grid rotation, scroll grab-distance, host-auth hold/release via client `Request*` RPCs); same lineage in dexlab.sandbox-reforged. Choose this over surface-stamping when the player should freely position/rotate a physics prop in mid-air (sandbox builds, decorating) rather than snap it flat to a floor cell.
+- **Support-based modular building (foundation → wall/floor/pillar, snap-to-existing).** Grid-free structure building where each piece type carries a `Size` + `GroundOnly` spec and snaps to a nearby existing piece per a `CanUseSupportType` table: foundations chain edge-to-edge on the ground, walls/floors/pillars require a valid support and snap to its edges/corners/top within a `VerticalSnapTolerance`. Validation gates on build distance, terrain flatness/steepness (multi-sample ground trace + normal-dot), **footprint overlap** (with a deliberate exception for perpendicular wall corner joints), and solid-obstacle traces; the single tinted ghost shows green-valid / blue-snapped / red-invalid plus a *reason* string. Place/delete are `[Rpc.Host]` request → authority validates → `[Rpc.Owner]` confirm-with-message. Use for bases/fences/cemetery walls where pieces must connect *logically* rather than fill a fixed grid (vault77.chop_the_forest `Building/ModularBuildingTool.cs` + `ModularBuildingPiece.cs`).
 
 ## Gotchas
 
@@ -174,5 +176,104 @@ public bool TryAddFurni( Vector2Int gridPos, FurniResource res, Direction dir, o
 - **emg.everything_must_go** — `Code/Shelving/Shelf.cs` (bounds-derived snap grid, host-authoritative `[Sync(FromHost)]` state).
 - **artisan.darkrpog** — `Code/Spawner/ISpawner.cs`, `Code/GameLoop/GameManager.cs` (ISpawner + ident-string router, eye-trace placement).
 - **apl.sandboxwars** — `sandbox/Code/Spawner/ISpawner.cs`, `GameManager.Spawn.cs` (ISpawner strategy + broadcast spawn dispatch).
+- **klavs.basebuilder** / **dexlab.sandbox-reforged** — `Code/BaseBuilder/BaseBuilderPlacementTool.cs` (physgun grab/spin/45°-snap, scroll distance, host-auth hold/release).
+- **vault77.chop_the_forest** — `Building/ModularBuildingTool.cs` + `ModularBuildingPiece.cs` (support-based foundation→wall/floor/pillar snap with reason-string ghost, host-auth place/delete).
+- **stellawisps.lumberyard** — `Code/Tycoon/TycoonMain.cs` (claimable-plot tycoon: grid build + BBox overlap + JSON relative-transform save), `BuyTycoonButton.cs` (claim plot via `Network.TakeOwnership`).
+- **meteorlab.garden** — `Code/Simple/BasePlacer.cs` (translucent ghost + OOBBox zone-containment + hold-to-place ActionRing). **thefancylads.farm_land** — `Code/Common/Building/BuildingPlacer.cs` (grid-snap host-auth with phantom valid/invalid tint + move/destroy + ownership toasts).
 
 Verify live: the placement API surface changes between SDK builds — confirm signatures against the installed SDK with the bridge's `describe_type` / `search_types` reflection (e.g. `describe_type Scene.Trace`, `GameObject`, `CloneConfig`, `NetworkMode`, `NetDictionary`) before relying on a method shape. See also the **sbox-api** skill (authoritative type/method lookup) and **sbox-build-feature** skill (the screenshot-driven place-it-and-look iteration loop).
+
+## Corpus refresh (2026): more reference implementations
+
+Net-new variations from the latest mining pass. (The 4 newest games — facepunch.ss2, despawn.murder, barrelproto.ragroll plus facepunch.fair — were all checked; only **facepunch.fair** has building-placement material. The other gold here is from **dexlab.sandbox-reforged**, **apl.sandboxwars**, and **bublic.stone_by_stone**.)
+
+### Shader-attribute ghost instead of tint-swap (facepunch.fair)
+
+The cleanest tycoon in the corpus drives the ghost's validity color through a **single shader attribute** on the `SceneObject`, not by re-tinting every renderer. One channel value = valid/invalid/none; the material reads it. Also stops the preview batching so it renders distinctly (`Park/Buildings/BuildingPlacer.cs`, same idiom in `Rides/TrackRides/TrackBuilder.cs`):
+
+```csharp
+foreach ( var so in ghost.Components.GetAll<ModelRenderer>().Select( r => r.SceneObject ) )
+{
+    so.Attributes.Set( "Ghost", canPlace ? 1 : 2 );   // 0=off, 1=green/valid, 2=red/invalid
+    so.Batchable = false;                              // preview shouldn't merge into the static batch
+}
+```
+
+Cheaper than `r.Tint = color` across a deep hierarchy and the material author controls the exact look (fresnel, scanlines). Pair it with placement juice keyed off the surface: a `place_dustcloud` particle whose `ParticleRingEmitter.Radius` is set at runtime, and a sound switched by an `ObjectMaterial` enum (`place_object_wood_1`, …).
+
+### Polymorphic commit + auto-rotate-to-neighbour (facepunch.fair)
+
+`BuildingPlacer` (client) owns the ghost and runs `CanPlace()` locally; the host re-validates and spends money in `[Rpc.Host]` methods dispatched over `switch (ObjectToPlace)` — `Building | Animal | PathFurniture | Decoration` each route to `PlaceBuilding/PlaceDecoration/…`. The net-new placement nicety is **auto-rotate**: before committing, snap a shop's entrance toward the adjacent path so guests can actually reach it (`TryAutoRotate`). Refunds use `SnapToGrid(10)` rounding and `Math.Min(cost*3/4, cost)` — round the world but clamp the money. Same `if (Networking.IsHost)` re-check spine as the rest of this doc; the value is the *single ghost, many object kinds via one switch* shape.
+
+### Track / spline builder: a "ghost" that is a live-remeshed mesh, not a clone (facepunch.fair)
+
+For builders where the placed thing is procedural geometry (coaster track, fence run, pipe), the preview can't be a prefab clone. `Rides/TrackRides/TrackBuilder.cs` keeps a `NotNetworked | NotSaved` preview `TrackSection`+`TrackMesh` and **re-meshes it only when the inputs change** (`HashCode.Combine(elementCount, Money)`), tinted by the same `"Ghost"` attribute. Build cost = `length*BaseTrackCost + elevationTotal*ElevationCost` (sample the spline per tile); `CalculateBuildCost` returns `null` (un-buildable) if it would go underground, exceed `MaxElevation`, or collide. Two obstruction passes sample the spline every 16 units (`HasGridObstructions` vs grid, `HasTrackObstructions` vs other sections, ignoring shared end nodes). Build/Demolish are `[Rpc.Host]` taking a network-safe **`TrackElement.RpcSafe` struct** — the reusable pattern of an `RpcSafe` companion projection when the real type won't round-trip on the wire (the doc already warns "never send `GameResource` over RPC"; this is the structural answer for complex elements).
+
+### Surface-aligned transform from the trace normal (apl.sandboxwars)
+
+Free-placement on arbitrary surfaces (walls, ramps) needs the object oriented to the surface, not just dropped at the hit point. `GameManager.Spawn` derives a full basis from the trace normal with cross-products rather than only setting position (`Code/GameLoop/GameManager.Spawn.cs`):
+
+```csharp
+var up = trace.Normal;
+var forward = Vector3.Cross( up, Vector3.Right ).Normal;     // any non-parallel ref axis
+if ( forward.Length < 0.01f ) forward = Vector3.Cross( up, Vector3.Forward ).Normal;
+var rot = Rotation.LookAt( forward, up );                    // object's +Z hugs the surface
+var t = new Transform( trace.HitPosition, rot );
+```
+
+The same file also shows the **broadcast-spawn-with-caller-bail** shape: `[Rpc.Broadcast] Spawn(ident)` where the calling client plays local SFX + a `Sandbox.Services.Stats.Increment("spawn",…)` then `return`s, and only the host actually clones/`NetworkSpawn`s — one method, client juice + host authority.
+
+### Blueprint placement: spawn a saved contraption, not one prefab (apl.sandboxwars / dexlab.sandbox-reforged)
+
+The "dupe" path is placement of a *serialized subtree* under the ghost transform — useful for any "stamp a prefabbed group" feature. `DuplicatorSpawner.Spawn` deep-clones the blueprint JSON, **re-uniquifies the GUIDs**, and deserializes each object with a transform override inside a batch group, then stamps ownership + spawns (`Code/Spawner/DuplicatorSpawner.cs`):
+
+```csharp
+SceneUtility.MakeIdGuidsUnique( json );                       // critical: else the paste collides with the original
+using ( Scene.BatchGroup() )
+foreach ( var objNode in objects )
+{
+    var go = new GameObject();
+    go.Deserialize( objNode, new GameObject.DeserializeOptions { TransformOverride = world } );
+    go.GetOrAddComponent<Ownable>().Set( player );
+    go.NetworkSpawn();
+}
+```
+
+`MakeIdGuidsUnique` is the gotcha — paste without it and you get duplicate-GUID corruption. Cloud-referenced models are `await Package.MountAsync`'d before the deserialize so workshop props resolve on another machine.
+
+### Toolgun-style mode framework for placement tools (dexlab.sandbox-reforged / apl.sandboxwars)
+
+When a builder has *several* placement actions (place, weld, remove, rotate) rather than one, the GMod toolgun shape beats a giant `OnUpdate` if/else. `ToolMode : Component` is the base each tool subclasses; it registers **declarative actions** with lambda labels (so HUD hints reflect tool state), auto-dispatches them through cancellable scene events, and persists per-tool settings (`Code/Weapons/ToolGun/ToolMode.cs`, `ToolAction.cs`, `ToolMode.Cookies.cs`):
+
+```csharp
+RegisterAction( ToolInput.Primary, () => $"Place {ItemName}", DoPlace, InputMode.Pressed );
+// DispatchActions(): on Input.Pressed/Down → fire IToolActionEvents.OnToolAction (cancellable
+//   → governance/limits veto here), invoke callback, then OnPostToolAction(Track()'d new objects).
+protected override void OnEnabled()  => LoadCookies();   // per-tool persisted settings (Network.IsOwner)
+protected override void OnDisabled() => SaveCookies();
+```
+
+Sibling tools live as components on the gun, exactly one enabled, switched via `[Rpc.Host] SetToolMode(name)`. Two extra placement aids worth lifting: a **snap grid** (`ToolMode.SnapGrid.cs`) and, in apl.sandboxwars, a **snap-grid aim-lock** — hold `use` to lock the camera onto the nearest snap corner (`Rotation.LookAt(snapPos - eye)` fed back through `ref angles`), opt-out per tool via `ShouldDisplaySnapGrid`. Constraint tools there are a **two-stage state machine** (pick Point1 → Point2 → create) whose creation `[Rpc.Host(NetFlags.OwnerOnly)]` **re-runs validity on the host** before building — the constraint analogue of "client validity is advisory."
+
+### "Placement" as pre-placed models toggled by purchase — no runtime spawn (bublic.stone_by_stone)
+
+A single-player, save-friendly alternative to ghost→clone→spawn: author every building tier as pre-placed (disabled) GameObjects in the scene, and "place" by **enabling the right one** when the upgrade is bought. Each `UpdateItem` owns a `List<Models>` (GameObject refs); for single-tier categories only the highest purchased tier's models are on (`Code/Ui/Update.razor` `ApplyModelsFromPurchased`):
+
+```csharp
+var top = items.Where( i => i.IsBuy ).MaxBy( i => i.Level );        // highest purchased tier
+foreach ( var it in items )
+foreach ( var m in it.Models ) m.Enabled = ( it == top );          // multi-model garden keeps all on
+```
+
+No `Clone`, no `NetworkSpawn`, no occupancy map — and persistence is trivial (save the purchase flags, call `ApplyModelsFromPurchased()` on load). Reach for this when the build space is fixed and the player picks *tiers*, not *positions* (tycoon upgrade buildings, base-room fit-outs) — it sidesteps every networking/ghost gotcha in this doc at the cost of free positioning.
+
+### Buy-land chunks gate the build zone (facepunch.fair)
+
+Where the player must *own ground* before placing on it, `Park/BuildingZone.cs` models the buildable area as 32×32 owned chunks bought adjacently at distance-scaled cost (`GetChunkCost = 10000 * round(dist/zoneLen)`); `PathBuilder.PlacePath` checks `BuildingZone.Instance.IsOwned(pos)` **twice** (client + host) before laying. Net-new shipping detail: the owned-chunk set rides as a raw `ByteStream` via `Component.INetworkSnapshot` (not `[Sync]`), and the zone traces the **perimeter of owned tiles with a right-hand wall-follow** to place fence/pillar props + a `LineRenderer` boundary. A composable "validate placement against an owned-region mask" layer on top of the surface/overlap checks already in this doc.
+
+### Updated "read these games" pointer
+
+- **facepunch.fair** — `Park/Buildings/BuildingPlacer.cs` (shader-attribute ghost, `CanPlace()` + polymorphic `[Rpc.Host]` over `switch(ObjectToPlace)`, `TryAutoRotate`), `Rides/TrackRides/TrackBuilder.cs` (live-remeshed `NotNetworked` track ghost, elevation costing, `RpcSafe` struct), `Park/Paths/PathBuilder.cs` (drag-lay paths, host cursor-continuation RPC), `Park/BuildingZone.cs` (buy-land chunks + `INetworkSnapshot` + perimeter fence). The most architecturally mature builder in the corpus.
+- **apl.sandboxwars** — `Code/GameLoop/GameManager.Spawn.cs` (surface-aligned transform from trace normal, broadcast-spawn-with-caller-bail), `Code/Spawner/DuplicatorSpawner.cs` (blueprint paste with `MakeIdGuidsUnique` + `Deserialize(TransformOverride)`), `Code/Weapons/ToolGun/Modes/BaseConstraintToolMode.cs` (two-stage host-revalidated constraint placement), `Code/Weapons/ToolGun/ToolMode.SnapGrid.cs` (snap-grid aim-lock).
+- **dexlab.sandbox-reforged** — `Code/Weapons/ToolGun/ToolMode.cs` + `ToolAction.cs` + `ToolMode.Cookies.cs` + `ToolMode.SnapGrid.cs` (the toolgun mode framework: declarative cancellable actions, per-tool cookies, snap grid). Same physgun lineage already noted above.
+- **bublic.stone_by_stone** — `Code/Ui/Update.razor` + `Code/Ui/House.razor` (`ApplyModelsFromPurchased`: pre-placed-models-toggled-by-purchase, the no-spawn save-friendly "placement" variant for single-player tier builders).

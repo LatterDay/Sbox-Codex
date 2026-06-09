@@ -138,6 +138,68 @@ Verified against `wirebox/Code/wirebox/components/WireLightBridgeComponent.cs:9-
 
 ---
 
+## Pattern 4 — `[Sync]` day/night cycle with smoothstep twilight + sunrise/sunset events
+
+A driven sun + sky from a single normalized `[Sync] float TimeOfDay` (0 = midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset). **Only the host advances it**; every client calls `Apply()` each frame so visuals stay in lock-step. The day↔night colour/intensity cross-fade is a **cubic smoothstep over a `±TwilightHalfWidth` window** around the sunrise/sunset thresholds — time-driven, so it works identically whether the sun pose is static (pinned to match a baked cubemap sun disk) or rotating (sin-pitch + 360° yaw).
+
+```csharp
+[Sync, Property, Range( 0f, 1f )] public float TimeOfDay { get; set; } = 0.5f;   // host owns the clock
+
+protected override void OnUpdate()
+{
+    var isAuthoritative = !Network.Active || !IsProxy;   // host in MP; anybody solo/editor
+    if ( isAuthoritative && AutoProgress && Config.CycleSeconds > 0f )
+    {
+        var prev = TimeOfDay;
+        TimeOfDay += Time.Delta / Config.CycleSeconds;
+        if ( TimeOfDay >= 1f ) TimeOfDay -= 1f;
+        CheckPhaseCrossing( prev, TimeOfDay );           // fire OnSunrise/OnSunset on threshold cross
+    }
+    Apply();                                             // EVERY client every frame
+}
+
+void Apply()                                            // signed distance to nearest day/night boundary
+{
+    float dist = /* +inside day window, −inside night */;
+    var u = ( ( dist + hw ) / ( 2f * hw ) ).Clamp( 0f, 1f );
+    var dayness = u * u * ( 3f - 2f * u );               // cubic smoothstep
+    Sun.LightColor = Color.Lerp( dayLit, nightLit, 1f - dayness );   // HDR RGB×intensity (no Brightness prop)
+    Sun.SkyColor   = Color.Lerp( Config.DaySkyColor, Config.NightSkyColor, 1f - dayness );
+    if ( Sky is not null && desired is not null && Sky.SkyMaterial != desired ) Sky.SkyMaterial = desired; // twilight swap
+}
+```
+
+Verified against intercrusstudio.sneguborka `Code/World/DayNightManager.cs`: `[Sync] TimeOfDay` host-advance (`:57,:91-99`), the smoothstep `dayness = clamped*clamped*(3 - 2*clamped)` (`:149-151`), HDR colour-multiply for intensity (`:155-165`), optional `SkyMaterial` swap at twilight (`:169-176`), and the `OnSunrise`/`OnSunset` events fired only on an ascending threshold crossing (`:179-199`). **Authority nuance worth copying:** it gates on `!Network.Active || !IsProxy`, NOT a strict `Networking.IsHost` — the stricter check returns false on the first frame before the lobby finishes creating and would freeze the cycle in editor Play. **Subscriber contract:** the events fire host-only and every external `+=` MUST be paired with a `-=` in the subscriber's `OnDestroy`. A 5-state day/night + weather *director* (lighting/post/fog/waves) is the richer variant (stepdev.xtrem_road; thefancylads.restaurant_dev `Code/Common/World/DayNightController.cs:40` for the new-day-event flavour).
+
+---
+
+## Pattern 5 — Self-instanced scatter field (GPU `DrawModelInstanced` + frustum cull + async respawn)
+
+To cover a large area with thousands of props (grass, rocks, trees, gravestones) without a GameObject per blade, render them through a single `SceneCustomObject.RenderOverride` that calls `Graphics.DrawModelInstanced` over a transform list, **frustum-culled** each frame, with **async respawn** of harvested resources. Placement is a min-distance radius scatter (N attempts, reject within `MinDistanceBetweenResources`), ground-aligned by a down-trace, with "clear collider" exclusion zones.
+
+```csharp
+SceneCustomObject _instancedRenderer;
+
+protected override void OnStart()
+{
+    _instancedRenderer = new SceneCustomObject( Scene.SceneWorld ) { RenderOverride = RenderInstanced };
+}
+
+void RenderInstanced( SceneObject so )
+{
+    var frustum = Camera.Main.GetFrustum( ... );
+    foreach ( var batch in _batches )                          // one batch per model
+    {
+        var visible = batch.Transforms.Where( t => frustum.IsInside( t.Position, padding ) );
+        Graphics.DrawModelInstanced( batch.Model, visible.ToList() );   // ONE draw call per model
+    }
+}
+```
+
+Verified against bublic.stone_by_stone `Code/RecourcesGeneratorComponent.cs`: `MinDistanceBetweenResources` radius scatter (`:18`), camera-frustum cull toggle + padding (`:31-33`), `new SceneCustomObject(Scene.SceneWorld){ RenderOverride = RenderInstanced }` (`:54-56`), and async `RespawnResourceAsync` with jittered delay + a generation guard so a hotload/teardown cancels in-flight respawns (`:334`, `:346`). The respawn uses a `_spawnGeneration` int bumped on regen so a stale `await` can't resurrect a destroyed field. Engine-repo siblings: vault77.chop_the_forest's chunk-streaming instanced grass with LOD + biomes (`Code/GrassField/GrassFieldStreamer.cs:1224`) and the drop-in `GrassField` with shader-attribute player trample.
+
+---
+
 ## Gotcha table
 
 | Gotcha | Why it bites | Fix | Source |
@@ -154,6 +216,11 @@ Verified against `wirebox/Code/wirebox/components/WireLightBridgeComponent.cs:9-
 | `IsOwner` guard dead solo | No lobby in solo editor playtest → `Network.IsOwner` is false; whole systems silently off | Combine with a `LocalSimulation` property: `ShouldSimulate => LocalSimulation \|\| Network.IsOwner` | crossCutting |
 | `async void` in lifecycle | Continuations outlive the GameObject/scene, aren't cancelled on disable/hotload, swallow exceptions | Prefer `TimeUntil`/`TimeSince` + `Destroy`; own a CTS for real loops; `await` background tasks | crossCutting |
 | API drift | `Sdf2DWorld` / `VertexMeshBuilder` signatures change between SDK builds; training data is stale | `describe_type` / `get_method_signature` before writing; `try/catch` + safe fallback for volatile calls | crossCutting |
+| Day/night frozen on first frame of editor Play | Strict `Networking.IsHost` is false until the lobby finishes creating | Gate on `!Network.Active \|\| !IsProxy` instead; only the host advances, ALL clients `Apply()` | sneguborka `DayNightManager.cs:91` |
+| Sun "Brightness" not applied | s&box `DirectionalLight` has no Brightness; intensity is baked into the HDR colour | Multiply `LightColor.rgb * Intensity` into the `Color` before `Lerp` | sneguborka `:155-165` |
+| Day/night subscribers leak | `OnSunrise`/`OnSunset` are host-side C# events; a missed `-=` keeps a dead object alive | Pair every `+=` with a `-=` in the subscriber's `OnDestroy` | sneguborka `:35-38` |
+| Async respawn resurrects a destroyed field | An in-flight `await` completes after a hotload/regen | Bump a `_spawnGeneration` int on regen; the continuation bails if `generation != _spawnGeneration` | stone_by_stone `:346` |
+| Thousands of scatter props tank FPS | One GameObject + ModelRenderer per prop | `SceneCustomObject.RenderOverride` → `Graphics.DrawModelInstanced` per model, frustum-culled | stone_by_stone `:54` |
 
 ---
 

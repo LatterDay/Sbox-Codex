@@ -216,6 +216,60 @@ Read `tr.Surface.SoundCollection` for material-specific footsteps/impact audio o
 
 ---
 
+## Pattern: multi-point spring-damper buoyancy (floating boats/props)
+
+Float a Rigidbody on a water surface with a **grid of sample points over the hull**, each contributing a Hooke's-law spring (force ∝ depth below the wave surface) plus a damper (opposes that point's vertical velocity, kills oscillation). Sampling at several offset points — not one centre point — is what gives roll/pitch and a stable, non-bouncy float. Run it in `OnFixedUpdate`, gated `if (IsProxy) return;` (host/owner-authoritative physics).
+
+```csharp
+void ApplyBuoyancy()
+{
+    var ext = m_Collider.LocalBounds.Extents;
+    float sx = ext.x * HullSpread, sy = ext.y * HullSpread;
+    // 9 points: centre + 4 edges + 4 corners
+    Vector3[] pts = { center, center+new Vector3(sx,0,0), center+new Vector3(-sx,0,0), /* …8… */ };
+
+    float mass = m_Collider.Rigidbody.Mass;
+    var angularVel = m_Collider.Rigidbody.AngularVelocity;
+    foreach ( var local in pts )
+    {
+        var world = WorldTransform.PointToWorld( local );
+        float depth = ( WaterManager.GetWaterHeightAt( world ) + SurfaceOffset ) - world.z;
+        if ( depth <= 0f ) continue;                                  // point is above the surface
+
+        float spring = depth * SpringStiffness * mass * AirVolume / pts.Length;   // scaled by remaining air
+        var pointVel = m_Collider.Rigidbody.Velocity + Vector3.Cross( angularVel, world - WorldPosition );
+        float damper = -pointVel.z * Damping * mass / pts.Length;     // per-point vertical damper
+        m_Collider.Rigidbody.ApplyForceAt( world, Vector3.Up * (spring + damper) );
+    }
+}
+```
+
+Verified against pldr.duck_pond `Code/Water/Buoyancy/Buoyancy.cs`: the 9-point hull sample (`:149-172`), per-point `spring = depth * Stiffness * mass * AirVolume / pointCount` + velocity damper applied with `ApplyForceAt` (`:195-201`), quadratic **water resistance** `-0.5·ρ·v²·Cd·A·dir·submersion` (`:111-130`), submersion-scaled **angular drag** (`:134-145`), and **wave-transport** that nudges the hull along the wave's horizontal displacement (`:207-216`). The `[Sync] AirVolume` (`:25`) drains while submerged so a holed boat slowly **sinks** (`:99-107`). Global surface queries `WaterManager.GetWaterHeightAt` / `GetWaveDisplacementAt` are the seam any water system should expose (`Code/Water/WaterManager.cs`). The same 9-point design appears in treehaven.sdiver and stepdev.xtrem_road.
+
+---
+
+## Pattern: conveyor — scroll a material from `Collider.SurfaceVelocity`
+
+A moving-belt look without animating geometry: set a `BoxCollider.SurfaceVelocity` (physics actually carries props along it), then drive the belt material's scroll attribute from that same velocity so the texture visibly matches the push.
+
+```csharp
+public sealed class Conveyor : Component
+{
+    [RequireComponent] private BoxCollider Collider { get; set; }
+    [Property] private ModelRenderer Renderer { get; set; }
+
+    protected override void OnFixedUpdate()
+    {
+        if ( Renderer.IsValid() && Renderer.SceneObject.IsValid() )
+            Renderer.SceneObject.Attributes.Set( "TimeScale", Collider.SurfaceVelocity.x / 65f );
+    }
+}
+```
+
+Verbatim from stellawisps.lumberyard `Code/Tycoon/Conveyor.cs:14`. One source of truth (`SurfaceVelocity`) drives both the physics carry and the visual scroll, so they can never disagree. The belt material reads its `TimeScale` attribute to pan its UVs. Pair with trigger-zone "suckers" (a `BoxCollider` trigger that pulls items toward a sell/buy point) for a full belt economy (lumberyard `ItemSucker.cs`/`SellSucker.cs`).
+
+---
+
 ## Gotcha table
 
 | Gotcha | Why it bites | Fix |
@@ -232,6 +286,9 @@ Read `tr.Surface.SoundCollection` for material-specific footsteps/impact audio o
 | `force * Body.Mass` makes heavy props float | Mass cancellation applied unconditionally | Multiply by `Body.Mass` only for intentional mass-independent response |
 | Movement jitters / `Time.Delta` is 0 | Moving in `OnUpdate` (frame-rate dependent), or game time-scaled to 0 | Move in `OnFixedUpdate`; guard `if (dt <= 0f) return;` and use `RealTime` for time-scaled motion |
 | Mutating synced state silently rolls back | Wrote on a proxy/client | Gate mutators behind `if (IsProxy) return;` (owner-auth) or `if (!Networking.IsHost) return;` (host-auth) |
+| Single-point buoyancy bobs/flips | One sample force gives no roll/pitch and oscillates | Sample a grid of hull points; add a per-point vertical **damper** alongside the spring (duck_pond `Buoyancy.cs:149`) |
+| Boat oscillates forever | Spring with no damping | Per-point `-pointVel.z * Damping * mass / count`; scale resistance/angular-drag by submersion (duck_pond `:195`,`:134`) |
+| Conveyor texture doesn't match the push | Visual scroll and physics carry computed separately | Drive both from one `Collider.SurfaceVelocity` — material `TimeScale` attribute + the collider's surface velocity (lumberyard `Conveyor.cs:14`) |
 
 Verify live: reflection is authoritative for the installed SDK — confirm volatile members (`Body.MotionEnabled`, `CharacterController.ReleaseFromGround`, `SceneTraceResult` fields, `Rigidbody.ApplyForceAt`) with `describe_type` / `search_types` / `get_method_signature` before relying on a name, and wrap genuinely version-volatile calls in try/catch with a one-shot warning.
 

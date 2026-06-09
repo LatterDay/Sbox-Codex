@@ -46,6 +46,7 @@ import { registerSelfTestTools } from "./tools/selftest.js";
 import { registerGameplayTools } from "./tools/gameplay.js";
 import { registerNpcTools } from "./tools/npc.js";
 import { registerInspectionTools } from "./tools/inspection.js";
+import { registerInputTools } from "./tools/inputs.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -207,6 +208,7 @@ registerSelfTestTools(server, bridge);
 registerGameplayTools(server, bridge);
 registerNpcTools(server, bridge);
 registerInspectionTools(server, bridge);
+registerInputTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {

@@ -946,3 +946,133 @@ public sealed class {className} : Component, Component.ITriggerListener
 ";
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// H. create_economy_wallet — a host-authoritative currency component.
+//    The #1 economy exploit is plain [Sync] money a client can author, so Money
+//    here is [Sync(SyncFlags.FromHost)] (the Ten Laws of the cookbook). Add /
+//    TrySpend / SetMoney / CanAfford + an OnMoneyChanged event. Mirrors the
+//    CreateHealthSystem scaffold pattern. (Mined from 51 games — currency was the
+//    most-requested scaffold with no existing tool; pairs with create_save_system
+//    [v1.11.0] for persistence.)
+// ═══════════════════════════════════════════════════════════════════════════
+public class CreateEconomyWalletHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "Wallet", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			long start = p.TryGetProperty( "startingMoney", out var smv ) && smv.TryGetInt64( out var sm ) ? sm : 0L;
+
+			var code = BuildCode( className, start );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			// Optional placement on an existing GameObject (only if the type is already
+			// in the TypeLibrary, i.e. after a hotload — same contract as create_health_system).
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_economy_wallet failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, long startingMoney )
+	{
+		return $@"using Sandbox;
+using System;
+
+/// <summary>
+/// {className} — a host-authoritative currency wallet for any GameObject.
+///
+/// Money is [Sync(SyncFlags.FromHost)] so only the host writes it — a client can't
+/// author their own balance (plain [Sync] money is the classic economy exploit).
+/// Clients that want to spend should call a [Rpc.Host] on their own component that
+/// re-validates and calls TrySpend host-side. Single-player safe (IsProxy is false
+/// with no networking active).
+///
+/// Usage:
+///   GetComponent<{className}>()?.AddMoney( 100 );
+///   if ( GetComponent<{className}>().TrySpend( 50 ) ) {{ /* grant the thing */ }}
+///   bool ok = GetComponent<{className}>().CanAfford( 50 );
+/// Hook OnMoneyChanged to drive a HUD label.
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public long StartingMoney {{ get; set; }} = {startingMoney}L;
+
+	// Host-authoritative balance.
+	[Sync( SyncFlags.FromHost )] public long Money {{ get; set; }}
+
+	// Fired (on the writing machine) whenever the balance changes — bind a HUD here.
+	public Action<long> OnMoneyChanged {{ get; set; }}
+
+	protected override void OnStart()
+	{{
+		if ( IsProxy ) return;            // only the authority seeds the balance
+		Money = StartingMoney;
+		OnMoneyChanged?.Invoke( Money );
+	}}
+
+	/// <summary>Add money (host-authoritative). Non-positive amounts are ignored.</summary>
+	public void AddMoney( long amount )
+	{{
+		if ( IsProxy || amount <= 0 ) return;
+		Money += amount;
+		Changed();
+	}}
+
+	/// <summary>Spend if affordable; returns false and changes nothing if not.</summary>
+	public bool TrySpend( long amount )
+	{{
+		if ( IsProxy || amount <= 0 ) return false;
+		if ( Money < amount ) return false;
+		Money -= amount;
+		Changed();
+		return true;
+	}}
+
+	/// <summary>Set the balance directly (host-authoritative), clamped to >= 0.</summary>
+	public void SetMoney( long amount )
+	{{
+		if ( IsProxy ) return;
+		Money = amount < 0 ? 0 : amount;
+		Changed();
+	}}
+
+	public bool CanAfford( long amount ) => Money >= amount;
+
+	private void Changed()
+	{{
+		if ( Money < 0 ) Money = 0;
+		OnMoneyChanged?.Invoke( Money );
+	}}
+}}
+";
+	}
+}

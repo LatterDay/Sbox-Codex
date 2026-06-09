@@ -100,6 +100,16 @@ function tailLines(text: string, n: number): string[] {
   return lines.slice(Math.max(0, lines.length - n));
 }
 
+// A 3D point accepted as EITHER an object {x,y,z} OR a comma string "x,y,z",
+// passed through unchanged. The C# handler parses both forms (source of truth).
+// See the cross-language vector/color contract.
+const Vector3Schema = z
+  .union([
+    z.object({ x: z.number(), y: z.number(), z: z.number() }),
+    z.string().describe('Comma string "x,y,z", e.g. "0,0,200"'),
+  ])
+  .describe('World point — object {x,y,z} OR comma string "x,y,z"');
+
 export function registerDiagnosticTools(
   server: McpServer,
   bridge: BridgeClient
@@ -157,7 +167,7 @@ export function registerDiagnosticTools(
   // ── get_compile_errors ─────────────────────────────────────────────
   server.tool(
     "get_compile_errors",
-    "Scan the recent s&box log for compile errors and exceptions — the fast way for Claude to confirm whether its last script/addon edit actually compiled. Reads sbox-dev.log directly (works even if the editor is mid-crash). Returns the matching lines, or an all-clear.",
+    "Scan the recent s&box log for compile errors and exceptions — the fast way for Claude to confirm whether its last script/addon edit actually compiled. Reads sbox-dev.log directly (works even if the editor is mid-crash). Filters out the noisy 'Broken Reference: package.local.* (the compiler failed)' cascade (which masks the real cause) and surfaces the underlying '[Generic] Error | ...CSxxxx... file:line' diagnostics. Returns the real error lines, or an all-clear.",
     {
       lines: z
         .number()
@@ -189,10 +199,46 @@ export function registerDiagnosticTools(
         };
       }
       const recent = tailLines(text, n);
-      const re =
-        /(error CS\d+|Compile of .* Failed|Exception|Couldn't add project|Broken Reference|StackTrace|^\s*at Sandbox\.)/i;
-      const hits = recent.filter((l) => re.test(l));
-      if (hits.length === 0) {
+
+      // The cascade: when a project's code fails to compile, every dependent
+      // package (including the bridge's own editor assembly) emits a
+      //   "Broken Reference: package.local.<x> (the compiler failed)"
+      // line. There can be dozens of these and they MASK the real diagnostic —
+      // so we drop them and surface the actual CSxxxx / [Generic] Error lines.
+      const cascadeRe = /Broken Reference:.*\(the compiler failed\)/i;
+
+      // Real compile diagnostics. We accept:
+      //  - any line carrying a C# error code (error CS#### or "CS#### | file:line")
+      //  - the "[Generic] Error | ..." diagnostic lines s&box emits
+      //  - genuine compile-failure / exception markers
+      // Whitelist (always surface, even with NO file path), e.g. a bare
+      // location like "- :352,1" that s&box prints for project-level errors.
+      const realErrorRe =
+        /(error CS\d+|\bCS\d{3,5}\b|\[Generic\]\s*Error|Compile of .* Failed|Couldn't add project|Unhandled [Ee]xception|^\s*at Sandbox\.|StackTrace)/;
+      const noFileWhitelistRe = /^\s*-\s*:\d+,\d+/; // e.g. "- :352,1"
+
+      const cascadeLines = recent.filter((l) => cascadeRe.test(l));
+      const realHits = recent.filter(
+        (l) => !cascadeRe.test(l) && (realErrorRe.test(l) || noFileWhitelistRe.test(l))
+      );
+
+      if (realHits.length === 0) {
+        if (cascadeLines.length > 0) {
+          // We saw the masking cascade but none of the underlying diagnostics
+          // fell within the scanned window — point Claude at the fuller log.
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `Saw ${cascadeLines.length} "Broken Reference: package.local.* (the compiler failed)" cascade line(s), ` +
+                  `but the real compile error isn't in the last ${n} lines (the cascade masks it). ` +
+                  `The underlying CSxxxx / [Generic] Error line is likely just above — call read_log ` +
+                  `with more lines (e.g. lines: 1000) to find it, or get_compile_errors with a larger 'lines'.\n(${path})`,
+              },
+            ],
+          };
+        }
         return {
           content: [
             {
@@ -202,11 +248,16 @@ export function registerDiagnosticTools(
           ],
         };
       }
+
+      const suffix =
+        cascadeLines.length > 0
+          ? `\n\n(Filtered out ${cascadeLines.length} "Broken Reference … (the compiler failed)" cascade line(s) that mask the real cause.)`
+          : "";
       return {
         content: [
           {
             type: "text",
-            text: `Found ${hits.length} error/exception line(s) in the last ${n} log lines:\n\n${hits.join("\n")}`,
+            text: `Found ${realHits.length} real error line(s) in the last ${n} log lines:\n\n${realHits.join("\n")}${suffix}`,
           },
         ],
       };
@@ -219,10 +270,9 @@ export function registerDiagnosticTools(
     "Aim the s&box EDITOR viewport camera at a GameObject (by id) or a world point (position + optional radius), then call take_screenshot to capture that view. This is how Claude points its own screenshots at what it's working on — frame a spawned object, then screenshot to verify it actually looks right.",
     {
       id: z.string().optional().describe("GUID of a GameObject to frame on"),
-      position: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+      position: Vector3Schema
         .optional()
-        .describe("World point to frame on (use instead of id)"),
+        .describe('World point to frame on (use instead of id) — object {x,y,z} or comma string "x,y,z"'),
       radius: z
         .number()
         .optional()
@@ -245,14 +295,12 @@ export function registerDiagnosticTools(
     "Take a screenshot from a chosen angle. take_screenshot is locked to the scene's main camera; this temporarily moves that camera to frame your target, captures, then restores it — so Claude can finally AIM its own screenshots. Pass id (frame an object) OR position {x,y,z} with optional lookAt {x,y,z} or rotation {pitch,yaw,roll}. After it returns, read the newest PNG in the editor's screenshots folder.",
     {
       id: z.string().optional().describe("GUID of a GameObject to frame"),
-      position: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+      position: Vector3Schema
         .optional()
-        .describe("Camera world position (use instead of id)"),
-      lookAt: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .describe('Camera world position (use instead of id) — object {x,y,z} or comma string "x,y,z"'),
+      lookAt: Vector3Schema
         .optional()
-        .describe("World point to look at (pair with position)"),
+        .describe('World point to look at (pair with position) — object {x,y,z} or comma string "x,y,z"'),
       rotation: z
         .object({ pitch: z.number(), yaw: z.number(), roll: z.number() })
         .optional()
@@ -514,14 +562,12 @@ export function registerDiagnosticTools(
     "Capture a PNG of the scene from a camera — and crucially this WORKS IN PLAY MODE, capturing the RUNNING game (via CameraComponent.RenderToBitmap, unlike take_screenshot/screenshot_from which are edit-only). With no args it renders the live main camera = the player's POV (incl. HUD). Pass position {x,y,z} (+ lookAt or rotation) or id (a GameObject to frame) to capture from a temporary camera that never disturbs the game's own camera. Returns the saved PNG's absolute 'path' — READ it to see the result.",
     {
       id: z.string().optional().describe("GUID of a GameObject to frame (uses a temp camera)"),
-      position: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+      position: Vector3Schema
         .optional()
-        .describe("Camera world position (temp camera; use instead of id)"),
-      lookAt: z
-        .object({ x: z.number(), y: z.number(), z: z.number() })
+        .describe('Camera world position (temp camera; use instead of id) — object {x,y,z} or comma string "x,y,z"'),
+      lookAt: Vector3Schema
         .optional()
-        .describe("World point to look at (pair with position)"),
+        .describe('World point to look at (pair with position) — object {x,y,z} or comma string "x,y,z"'),
       rotation: z
         .object({ pitch: z.number(), yaw: z.number(), roll: z.number() })
         .optional()
