@@ -134,3 +134,110 @@ Open the cited file under `C:/Users/cargi/sbox-lessons/zips-code/<game>/` to rea
 **Verify live:** this system is plain C# (`struct`, `System.Random`, `HashCode.Combine`, `System.Math`) with almost no engine surface, so it's the most SDK-stable recipe here. The source uses **`System.Math`** (`Math.Max`/`Abs`/`Clamp`/`Sqrt`/`Log`/`Cos`) — note **`System.MathF` does NOT exist** in the s&box sandbox, so prefer `System.Math` or `MathX` for any extra helpers. Confirm `Color.Lerp` against the installed SDK (`describe_type Color`, `search_types MathX`). Reflection over memory.
 
 **See also:** `progression-upgrades.md` (data-driven balance tables for the stat ranges), `gacha-loot.md` (weighted rolls when variation is non-heritable), and `anti-cheat.md` (seeded/provably-fair RNG + host-side validation of a submitted genome).
+
+## Corpus refresh (2026): more reference implementations
+
+### thefancylads.farm_land — interface-based mutation registry with buff-scaled chance
+
+The existing "Seen in" entry for farm_land understates what's there. `Common/Farming/Mutations/` defines a full **open/closed mutation registry** built on an interface rather than an abstract class. Each mutation is a self-contained object that knows how to calculate its own chance, provide its harvest item, and supply its yield multiplier. The registry is a plain static list; adding a mutation = add one class + one list entry.
+
+```csharp
+// Code/Common/Farming/Mutations/ — ICropMutation.cs + CropMutationRegistry.cs
+public interface ICropMutation
+{
+    string Id { get; }
+    string Name { get; }
+    float BaseChance { get; }                            // e.g. 0.05 for 5%
+    float CalculateChance( Crop crop, FarmPlot plot );   // can read soil quality, plot buffs
+    ItemWithModifier GetHarvestItem( Crop crop );
+    float GetYieldMultiplier( Crop crop );
+    string GetIconOverride();                            // model child name to enable ("gold"/"giant")
+}
+
+public static class CropMutationRegistry
+{
+    public static IReadOnlyList<ICropMutation> All { get; } =
+        new List<ICropMutation> { new GoldMutation(), new GiantMutation() };
+}
+
+// In Crop.TryMutate() — called on reaching final growth stage:
+public static ICropMutation? ComputeCropMutation( Crop crop, FarmPlot plot )
+{
+    var shuffled = CropMutationRegistry.All.OrderBy( _ => Random.Shared.Float() ).ToList();
+    float chanceMult = BuffManager.Instance.GetModifier( "farming.mutation.chance" );  // player buff
+    foreach ( var mut in shuffled )
+    {
+        if ( Random.Shared.Float() <= mut.CalculateChance( crop, plot ) * chanceMult )
+            return mut;
+    }
+    return null;
+}
+```
+
+Key differences from the phenodex approach:
+- **Shuffle then roll** (not a single rare-mutation branch). Shuffling before iterating means no mutation has ordering priority; the first one that passes wins. This prevents the "always check Gold first" bias you'd get with a fixed list.
+- **Buff-scaled chance.** `BuffManager.GetModifier("farming.mutation.chance")` multiplies the base chance so a player who grinded the right challenges gets genuinely better mutation odds — it wires into the stat-modifier engine (`progression-upgrades.md`).
+- **Visual swap via `[Sync, Change]`.** The resulting mutation id is `[Sync, Change("OnMutationUpdated")]` on `Crop`, so the model child switch (enabling the `"gold"` or `"giant"` child GameObject) fires on every client without a separate RPC.
+
+Anti-pattern to avoid: farm_land's `TryMutate` is called from an `[Rpc.Owner]` path (owner-authoritative). For a competitive leaderboard, move mutation rolls to the host and validate the submitted item/yield against the stored genome, as noted in the Gotchas section above.
+
+Source: `thefancylads.farm_land` — `Code/Common/Farming/Mutations/ICropMutation.cs`, `CropMutationRegistry.cs`, `MutationModel.cs`; mutation sync in `Crop.cs`.
+
+---
+
+### meteorlab.garden — Strategy-pattern trait modifiers as applied Components (closest thing to genetics without a genome)
+
+garden has no genome struct or cross function, but its **fertilizer effect system** is the closest thing to heritable trait modification and it shows a different shape worth knowing: instead of a data struct holding floats, trait modifications are **Components applied to an entity at runtime**, each self-describing with an icon and description used directly in the shop UI.
+
+```csharp
+// garden/Code/Garden/Fertilizer/FertilizerEffect.cs
+public abstract class FertilizerEffect : Component
+{
+    public virtual string Icon { get; }          // emoji shown in shop stat row
+    public virtual string Description { get; }   // human label e.g. "2x Growth Speed"
+    public abstract void Apply( Plant plant );
+    public virtual void Reset( Plant plant ) { }
+}
+
+// Concrete effects (each is a Component on the fertilizer prefab):
+// GrowthSpeedEffect:  plant.GrowthSpeedMultiplier /= Multiplier;
+// HarvestBoostEffect: plant.HarvestRewardMultiplier *= Multiplier;
+// ExtraCyclesEffect:  plant.MaxCycles += ExtraCycles;
+// InfiniteCyclesEffect: plant.MaxCycles = int.MaxValue;
+// ExtraSlotsEffect:   plant.MaxFertilizerUses += ExtraSlots;
+
+// Application — Plant.Fertilize():
+foreach ( var effect in fertilizer.Components.GetAll<FertilizerEffect>() )
+    effect.Apply( this );
+// All mutated stats are [Save] so a buffed plant survives server restart
+```
+
+The key technique: **effects are Components on the fertilizer prefab, not entries in a data table**. This means the shop can surface fertilizer stats by reflecting over the prefab's `FertilizerEffect` children — no separate tooltip data file. `PlantableShopItem.GetStats()` does exactly this.
+
+Stacking rules live on the plant (`Plant.CanFertilize`): not faded, under `MaxFertilizerUses`, under per-fertilizer `MaxUsesPerPlant` (counts `AppliedFertilizers` by fertilizer name). This prevents infinite stacking without a separate rule engine.
+
+This is the right shape when your "traits" are a short, fixed catalog of named modifiers applied once per event (fertilize/breed/level-up), not a continuous genome that you want to cross and mutate — reach for it when the player is *choosing* a modifier rather than *discovering* one through crossing.
+
+Source: `meteorlab.garden` — `Code/Garden/Fertilizer/FertilizerEffect.cs` and subclasses, `Code/Garden/Plant.cs` (`CanFertilize`, `Fertilize`), `Code/Shop/PlantableShopItem.cs` (`GetStats`).
+
+---
+
+### facepunch.fair — animal trait persistence stub (ready-to-wire pattern)
+
+The fair game's zoo animals carry an explicit `GetPersistentMetadata`/`SetPersistentMetadata` stub (`AI/Animals/Animal.Persistence.cs`) with TODO hooks for traits/genetics. While not implemented, the hook placement is instructive: the metadata is gated behind the `escaped`/`tranquilized` state machine so a future genetics layer would attach here, not on the AI controller. If you are building an animal-enclosure or zoo tycoon game and want to add heritable traits, this is the correct seam: persist traits as a blob on `GetPersistentMetadata`, run the cross in the `TranquilizedAction` completion handler (after successful recapture = "contained, ready to breed"), and store the result before `SetPersistentMetadata`. Nothing net-new on the crossing algorithm; useful only for placement guidance.
+
+Source: `facepunch.fair` — `AI/Animals/Animal.Persistence.cs`.
+
+---
+
+### facepunch.ss2, despawn.murder, barrelproto.ragroll
+
+None of these three games contain genetics, breeding, mutation inheritance, or genome systems. No new patterns to add from them for this topic.
+
+---
+
+**Read these games** for genetics/breeding patterns (updated list):
+- `klibatocorp.phenodex` — canonical: full genome struct + Gaussian cross + variance schedule + hash registry
+- `thefancylads.farm_land` — interface registry + shuffle-roll + buff-scaled chance + `[Sync, Change]` visual swap
+- `meteorlab.garden` — Strategy-pattern component effects as a lightweight alternative when a full genome isn't needed
+- `facepunch.fair` — seam-placement guidance for future animal-trait persistence (stub only)

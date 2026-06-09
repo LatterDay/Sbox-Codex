@@ -182,3 +182,119 @@ Pattern: spawn shared/unowned, claim-on-press, drop-on-exit. `NetworkOrphaned.Cl
 API shifts between SDK builds — reflection is the source of truth, not this doc. Before coding, confirm signatures with the bridge: `describe_type` / `search_types` on `Rigidbody` (`ApplyImpulseAt`/`ApplyForceAt`/`ApplyForce`/`ApplyTorque`), `Sandbox.SceneTrace` (`.Cylinder`/`.Rotated`/`.FromTo`/`.Run`), `Component.IPressable`, `Component.INetworkListener`, `IScenePhysicsEvents`, `Curve`, `LineRenderer`, and the networking surface (`GameObject.NetworkSpawn`, `Network.SetOrphanedMode`/`SetOwnerTransfer`/`TakeOwnership`, `NetworkOrphaned`, `OwnerTransfer`, `[Rpc.Host]`/`[Rpc.Broadcast]`).
 
 Cross-links: pair this with **sbox-api** (look up exact type signatures via reflection before writing) and **sbox-build-feature** (the screenshot-driven iteration loop to build and verify the car in-editor).
+
+## Corpus refresh (2026): more reference implementations
+
+Four additional mined games supply net-new vehicle patterns not in the sections above.
+
+---
+
+### 1. Generic "possess any contraption" seat-drive — dexlab.sandbox-reforged
+
+`Code/Game/ControlSystem/ControlSystem.cs` + `IPlayerControllable.cs` (dexlab.sandbox-reforged)
+
+The existing recipe hard-codes the vehicle hierarchy. Sandbox Reforged instead has a `GameObjectSystem` that walks a **joint/collider graph** to find everything attached to a chair and then feeds the seated player's input into it — so any jointed contraption becomes drivable without writing per-vehicle code.
+
+```csharp
+// ControlSystem.OnFixedUpdate (Stage.StartFixedUpdate, host-only)
+foreach ( var chair in Scene.GetAll<BaseChair>().Where( c => c.IsOccupied ) )
+{
+    if ( driven.Contains( chair ) ) continue; // earlier occupant owns this contraption
+    var parts = LinkedGameObjectBuilder.AddConnected( chair.GameObject ); // joint/collider walk
+    using var scope = ClientInput.PushScope( chair.OccupyingPlayer );     // feed their input in
+    foreach ( var c in parts.OfType<IPlayerControllable>() )
+        c.OnControl();           // any wheel, thruster, winch in the graph reads Input.*
+    driven.Add( chair );
+}
+```
+
+**Anti-pattern caught:** two `BaseChair`s on the same contraption produce two `OnControl` calls for the same part. The fix is the `driven` HashSet — skip a contraption once it's claimed by the earliest-occupant seat.
+
+Seat arbitration: chairs sort by `RealTimeSince` occupied (earliest first) so the driver, not the passenger, wins control.
+
+**Composable lesson:** `IPlayerControllable + ClientInput.PushScope` is the seam. Any component on the graph just reads `Input.Forward/Strafe/Pressed("brake")` during `OnControl` — zero coupling to the seat system.
+
+---
+
+### 2. Buoyant boat: `IPressable + ISitTarget`, force driving, self-righting torque — pldr.duck_pond
+
+`Code/Miscellaneous/BoatController.cs` (pldr.duck_pond)
+
+A minimal but complete water-vehicle recipe. Notable differences from the raycast-wheel car:
+
+- **`ISitTarget.UpdatePlayerAnimator`** sets the Citizen sit pose so the driver looks seated without separate animation wiring.
+- **Mount = disable player physics + reparent to seat** — no network ownership transfer; the player's `Body` and `ColliderObject` are disabled and the transform is snapped to the seat anchor.
+- **Decoupled camera** (`CalculateEyeTransform` uses player eye angles in world space) — the boat's pitch/roll do NOT tilt the view. Critical for water/flight to avoid simulator sickness.
+- **Conditional driving gate**: forces only apply when `Buoyancy.IsTouchingWater` — no ghost driving while airborne.
+- **Self-righting torque** prevents capsizing. One line, no special-casing:
+
+```csharp
+// OnFixedUpdate — keep the hull upright on open water
+Body.ApplyTorque( Vector3.Cross( WorldRotation.Up, Vector3.Up ) * Stability );
+
+// Terminal-speed limiter — blend force down as you approach max speed
+float speedFactor = MathX.Clamp( 1f - Speed / (TerminalSpeed + 0.001f), 0f, 1f );
+Body.ApplyForceAt( BowPoint, WorldRotation.Forward * Thrust * speedFactor );
+
+// Speed-dependent drag: heavier drag at high speed, lighter at idle
+Body.LinearDamping = MathX.Lerp( LowSpeedDamping, HighSpeedDamping, Speed / TerminalSpeed );
+```
+
+**Anti-pattern:** using `MathF.Min` — `MathF` does not exist in the s&box sandbox. Use `MathX.Clamp` / `MathX.Lerp` instead (the source game uses these correctly).
+
+Turn force is applied at the bow via `ApplyForceAt` (not `ApplyTorque`) so the boat pivots naturally around its center of mass rather than spinning in place.
+
+---
+
+### 3. Multi-point spring-damper buoyancy (wave-transport, flooding) — treehaven.sdiver
+
+`Code/Water/Buoyancy.cs`, namespace `RedSnail.WaterTool` (treehaven.sdiver; also shipped in pldr.duck_pond)
+
+The most complete buoyancy recipe in the corpus. Complement it with a water-height provider (`WaterManager.GetWaterHeightAt`).
+
+```csharp
+// OnFixedUpdate — host only, runs before the normal physics step
+[SkipHotload] static readonly Vector3[] HullOffsets = {
+    Vector3.Zero,                                              // center
+    Vector3.Forward*0.4f, Vector3.Backward*0.4f,              // fore/aft
+    Vector3.Left*0.4f,    Vector3.Right*0.4f,                 // beam
+    new( 0.3f, 0.3f, 0), new(-0.3f, 0.3f,0),                 // corners
+    new( 0.3f,-0.3f, 0), new(-0.3f,-0.3f,0) };
+
+foreach ( var offset in HullOffsets )
+{
+    var worldPt = WorldPosition + WorldRotation * (offset * HullExtent);
+    float depth  = WaterManager.GetWaterHeightAt( worldPt ) - worldPt.z;
+    if ( depth <= 0 ) continue;
+    float spring = BuoyancyStrength * depth * AirVolume;  // scale by remaining air (flooding)
+    float damp   = -Body.GetVelocityAtPoint( worldPt ).z * Damping;
+    Body.ApplyImpulseAt( worldPt, Vector3.Up * (spring + damp) * Time.Delta );
+}
+// Wave-transport: push hull along the horizontal wave displacement vector
+Body.ApplyForce( WaterManager.GetWaveVelocityAt( WorldPosition ) * WaveTransport );
+```
+
+Key techniques:
+- **9 hull points** (center + 4 cardinals + 4 corners) give realistic pitch/roll without any per-vertex cost.
+- **`AirVolume` as flooding gate** — decrease it (water pouring in) and buoyancy weakens, the hull sinks. A complete "sinking boat" mechanic from one float field.
+- **Wave-transport force** makes the boat drift with wave flow, not just bob in place.
+- `if ( IsProxy ) return;` — host-only, `[Sync] WaterHeight`/`IsTouchingWater` replicated to clients.
+
+The `WaterManager.GetWaterHeightAt` / `GetWaveVelocityAt` static API (same library) evaluates the same Gerstner sum the water shader uses on the GPU, so physics matches the visual surface exactly — the hardest correctness problem in water games.
+
+---
+
+### 4. vault77.chop_the_forest vehicles note
+
+The `vault77.chop_the_forest` game lists "vehicles (expedition harvesting)" as a genre tag but the mined source does not expose a standalone vehicle component. Its vehicle content is integrated inside `PlayerProgression.cs` (5 083 lines) as expedition-unlock state, not as a composable physics module. **No net-new vehicle physics technique was extractable from this game.** For tycoon-style "unlock a truck that auto-harvests," see how `PlayerProgression` uses a dual-path economy with `BackendPaid` variants, documented in `references/genres/tycoon.md`.
+
+---
+
+### Updated "read these games" pointer
+
+For vehicle work, read in this order:
+
+1. **`meteorlab.vehicle_tool_example`** — the primary reference: raycast-wheel sim, Pacejka tires, recursive powertrain, ownership-transfer multiplayer.
+2. **`pldr.duck_pond`** (`Code/Miscellaneous/BoatController.cs`) — minimal IPressable/ISitTarget boat, self-righting torque, decoupled camera, water-only force gate.
+3. **`treehaven.sdiver`** (`Code/Water/Buoyancy.cs`) — production 9-point spring-damper buoyancy, flooding `AirVolume` mechanic, wave-transport force, CPU/GPU shared Gerstner field.
+4. **`dexlab.sandbox-reforged`** (`Code/Game/ControlSystem/ControlSystem.cs`) — generic "possess any jointed contraption" pattern via `IPlayerControllable + ClientInput.PushScope`; the right pattern when the vehicle is player-assembled at runtime.

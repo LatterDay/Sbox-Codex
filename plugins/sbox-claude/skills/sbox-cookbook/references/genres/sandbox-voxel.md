@@ -255,3 +255,254 @@ For a **2D / sprite** sandbox variant (bullet-heaven), the survivors-like recipe
 **Verify live:** API names drift between SDK builds. Confirm the exact members before coding — `describe_type GameObjectSystem` / `search_types Spawner` / `describe_type ConVarAttribute` / `describe_type NetDictionary` against the *installed* SDK (reflection is authoritative, not this doc or training data). Check `[Rpc.Host]`/`[Rpc.Broadcast]`/`[Sync(SyncFlags.FromHost)]` signatures with `describe_type` before relying on them.
 
 **Cross-links:** use **sbox-api** to resolve any unfamiliar type via reflection, and **sbox-build-feature** for the screenshot-driven build/verify loop and the player-spawn recipe that this stack assumes.
+
+## Corpus refresh (2026): more reference implementations
+
+Four additional sandbox/construction games mined from the s&box open-source corpus add net-new techniques on top of the base recipe above. Sources: `apl.sandboxwars` (already the base), `dexlab.sandbox-reforged`, `klavs.basebuilder`. (`facepunch.ss1` is a 2D bullet-heaven with no sandbox-construction material; `facepunch.ss2`/`despawn.murder`/`facepunch.fair`/`barrelproto.ragroll` are unrelated genres — nothing net-new for this topic.)
+
+---
+
+### 1. Scene-diff save (net-new vs "serialize my structs")
+
+Both `dexlab.sandbox-reforged` (`Code/Save/SaveSystem.cs`) and `apl.sandboxwars` (`Code/Save/SaveSystem.cs`) implement *the same canonical pattern* independently: save = diff the live scene against the on-disk `SceneFile` baseline; load = apply the patch to a freshly-resolved baseline and `Game.ChangeScene`. This is categorically different from the struct-serialization saves covered elsewhere — it produces tiny saves that automatically pick up later map edits.
+
+```csharp
+// Host-only. Both games use this shape.
+var baseline = BuildCompositeBaseline();          // merge all loaded SceneFiles under a fake root
+var current  = BuildCurrentSceneJson( Scene );    // serialize live scene to the same shape
+var patch    = Json.CalculateDifferences( baseline, current, GameObject.DiffObjectDefinitions );
+var save = new JsonObject {
+    ["Version"] = 2,                              // version-gate: Load() hard-rejects mismatches
+    ["Patch"]   = Json.ToNode( patch ),
+    ["NetworkOwnership"] = CollectNetworkOwnership( Scene ),  // go.Id → owner.SteamId
+    ["SyncState"]        = CollectSyncState( Scene ),         // [Sync]-not-[Property] values
+    ["RequiredPackages"] = CollectRequiredPackages( ... ),    // cloud idents to remount on load
+};
+```
+
+Key supplementary details not in the base recipe:
+
+- **Cheap metadata peek**: `GetFileMetadata(path)` parses only the `Metadata` JSON element with `JsonDocument` (no full load) — used to show titles/timestamps in the save browser without deserializing the whole file.
+- **Saving `[Sync]` state the diff misses**: `CollectSyncState` captures values marked `[Sync]` but not `[Property]` (those are already in the diff). Uses **JSON-first, BytePack base64 fallback** (`Game.TypeLibrary.ToBytes` into `{"__bytepack": base64}`) for types that don't JSON-serialize. **Restore sync state before ownership** so ownership-change callbacks see populated fields.
+- **Ownership restore**: on load, `RestoreNetworkOwnership` re-maps saved `SteamId → live Connection`, then calls `NetworkSpawn(target)` or `Network.AssignOwnership(target)` inside a `scene.BatchGroup()`.
+- **Cloud deps travel with the save**: `MountRequiredPackages` does `await Package.MountAsync(...)` for every referenced cloud ident *before* the scene loads so workshop props resolve. (`dexlab.sandbox-reforged: Code/Save/SaveSystem.cs`; `apl.sandboxwars: Code/Save/SaveSystem.cs`.)
+
+Anti-pattern: storing the whole-scene JSON instead of the diff → saves are large and map patches break old saves.
+
+---
+
+### 2. DPP — full per-player prop governance (beyond simple `Ownable`)
+
+`dexlab.sandbox-reforged` (`Code/DPP/DppSystem.cs`) builds a fuller prop-protection system on top of `Ownable` — a direct model for any multiplayer sandbox needing social moderation:
+
+```csharp
+// Per player: persisted via LocalData + replicated to all clients so allowlist checks are local.
+public class DppPlayerSettings {
+    public bool ProtectionDisabled;      // owner opts out of their own protection
+    public HashSet<ulong> Allowlist;     // specific steam IDs that may touch your props
+}
+
+// Host: player changes settings → host persists → broadcast
+[Rpc.Host] void RpcApplyClientSettings( DppPlayerSettings s ) {
+    LocalData.Save( $"dpp_{Rpc.Caller.SteamId}", s );
+    using ( Rpc.FilterAll() ) BroadcastPlayerSettings( Rpc.Caller.SteamId, s );
+}
+
+// Auto-add world-protection to every baseline (map-original) object at scene load:
+void ISceneLoadingEvents.AfterLoad( Scene _ ) {
+    foreach ( var go in _baseline )
+        if ( !go.GetComponent<DppWorldProtection>().IsValid() )
+            go.AddComponent<DppWorldProtection>();
+}
+```
+
+The `HasAccess` path is: host/admin → ProtectionDisabled → Allowlist → default deny. Disconnected-player cleanup: `RpcCleanupDisconnectedProps` reaps every `Ownable` whose `Owner` is no longer in `Connection.All`. (`dexlab.sandbox-reforged: Code/DPP/DppSystem.cs`.)
+
+---
+
+### 3. Client-predicted physgun with authority hand-off (`klavs.basebuilder`)
+
+The base recipe sketches the `ControlJoint`-based physgun from `apl.sandboxwars`. `klavs.basebuilder` (`Code/BaseBuilder/BaseBuilderPlacementTool.cs`) implements a simpler but highly composable **client-predicted grab**: the held object moves locally every frame, streams its pose via an *unreliable* RPC, and the host stays network owner throughout.
+
+```csharp
+// On grab: host stays owner, colliders become triggers (ghost through world).
+void BeginHold( GameObject target ) {
+    target.Network.DropOwnership();                          // host is already owner; reaffirm
+    target.Network.SetOwnerTransfer( OwnerTransfer.Fixed );  // lock to host for validation
+    foreach ( var c in target.Components.GetAll<Collider>() )
+        c.IsTrigger = true;                                  // ghost through world while held
+    _state = new GrabState { Offset = localSpaceOffset, Distance = dist };
+}
+
+// Owner client: move locally every frame; stream pose unreliably.
+protected override void OnUpdate() {
+    if ( _state.IsHeld ) {
+        _state.GameObject.WorldTransform = GetHeldWorldTransform();
+        RequestHeldTransform( _state.GameObject.WorldTransform );  // [Rpc.Host] unreliable
+    }
+}
+// Begin/end go over reliable RPCs; continuous pose over unreliable = cheap streaming.
+```
+
+`GrabState` is a value-type `[Sync]` struct with a custom `GetHashCode` — the host re-derives world transform deterministically from the same inputs. Mouse-wheel changes distance; hold `use` to free-spin via `Input.AnalogLook`; hold `run`/`walk` for 45°/15° angle-snap. (`klavs.basebuilder: Code/BaseBuilder/BaseBuilderPlacementTool.cs`.)
+
+**Anti-pattern:** making the client the network owner during the grab — the host would lose validation authority. Use `DropOwnership()` + `OwnerTransfer.Fixed` to keep host authority while the client drives the preview.
+
+---
+
+### 4. `GameFeaturePolicy` — one component to swap game modes (`klavs.basebuilder`)
+
+The cleanest "same map, multiple game modes" pattern in the corpus. An abstract `GameFeaturePolicy : Component` exposes virtual permission methods; a static `GetActive(scene)` returns the first enabled one; the sandbox base calls these everywhere.
+
+```csharp
+public abstract class GameFeaturePolicy : Component {
+    public virtual bool AllowSpawnMenu( Connection caller ) => true;
+    public virtual bool CanSpawnMenuIdent( Connection caller, string ident ) => true;
+    public virtual bool AllowUndo( Connection caller ) => true;
+    public virtual bool ShouldRestoreSavedLoadout() => false;
+    public static GameFeaturePolicy GetActive( Scene s ) =>
+        s.GetAllComponents<GameFeaturePolicy>().FirstOrDefault( p => p.Enabled );
+}
+
+// Round mode: override one component → sandbox becomes a round game.
+public class BaseBuilderFeaturePolicy : GameFeaturePolicy {
+    [Property] public List<GameObject> AllowedSpawnPrefabs { get; set; }
+    public override bool CanSpawnMenuIdent( Connection c, string ident ) =>
+        AllowedSpawnPrefabs.Any( p => p.Name == ident );  // whitelist of 4 block types
+    public override bool AllowUndo( Connection c ) => Phase == BuilderPhase.Building;
+}
+```
+
+Companion pattern — **`ISpawnMenuCondition`** for declarative UI gating: a struct whose `IsVisible()` checks the active policy; Razor menus opt in with `@attribute [SpawnMenuHost.SpawnMenuMode<MyCondition>]` so shop/admin tabs appear only in round mode. (`klavs.basebuilder: Code/Game/GameFeaturePolicy.cs`, `Code/BaseBuilder/BaseBuilderGroups.cs`.)
+
+---
+
+### 5. Absolute-timestamp phase timer (`klavs.basebuilder`)
+
+The base recipe syncs `TimeRemaining` as a float that the host decrements. `klavs.basebuilder` (`Code/BaseBuilder/BaseBuilderRoundManager.cs`) uses an absolute deadline instead — zero per-tick sync cost, drift-free on every client:
+
+```csharp
+[Sync] public float PhaseEndsAt { get; set; }   // Time.Now-based absolute deadline
+[Sync] public bool  IsPaused    { get; set; }
+[Sync] public float PausedTimeRemaining { get; set; }
+
+public float GetPhaseTimeRemaining() =>
+    IsPaused ? PausedTimeRemaining : MathF.Max( PhaseEndsAt - Time.Now, 0f );
+
+void TogglePause() {
+    if ( IsPaused ) { PhaseEndsAt = Time.Now + PausedTimeRemaining; IsPaused = false; }
+    else            { PausedTimeRemaining = GetPhaseTimeRemaining(); IsPaused = true; }
+}
+// Transition check: if ( Time.Now >= PhaseEndsAt ) SwitchPhase( next );
+```
+
+Also net-new: **ready-vote short-circuit** — Building phase runs as open sandbox until `MinimumPlayersToStart` is met (`StartBuildTimer`), and an all-ready vote (`AreAllBuildPlayersReady`) short-circuits straight to the next phase without waiting for the timer. (`klavs.basebuilder: Code/BaseBuilder/BaseBuilderRoundManager.cs`.)
+
+---
+
+### 6. Build undo as transform-restore (not destroy)
+
+The base recipe's `UndoSystem` destroys spawned objects. `klavs.basebuilder` (`Code/BaseBuilder/BaseBuilderPlayerState.cs`) implements a complementary undo for *repositioning*: a host-side `Stack<(GameObject, Transform)>` of pre-move transforms.
+
+```csharp
+// On release during Building: record the pre-move transform only if it changed.
+public void RecordBuildUndo( GameObject go, Transform before ) {
+    if ( !Networking.IsHost ) return;
+    if ( before.Position.Distance( go.WorldPosition ) < 0.1f ) return;  // skip no-ops
+    _undoStack.Push( new UndoBuildEntry( go, before ) );
+}
+
+// Undo: pop until a still-valid object is found and restore it.
+public void RequestUndoLastPlacement() {
+    while ( _undoStack.TryPop( out var e ) ) {
+        if ( e.GameObject.IsValid() && CanBeManipulatedBy( e.GameObject, Rpc.Caller ) ) {
+            e.GameObject.WorldTransform = e.PreviousTransform;
+            return;
+        }
+    }
+}
+```
+
+Stack is host-only and cleared on round reset. Combine with the destroy-undo from the base recipe for full undo coverage (both "put it back where it was" and "un-spawn it"). (`klavs.basebuilder: Code/BaseBuilder/BaseBuilderPlayerState.cs`.)
+
+---
+
+### 7. Contraption graph walk as a shared primitive (`dexlab.sandbox-reforged`)
+
+`dexlab.sandbox-reforged` (`Code/Weapons/ToolGun/Modes/Duplicator/LinkedGameObjectBuilder.cs`) extracts the "find everything physically connected to this root" into one reusable class, powering three features: duplicate, seat-drive arbitration, and achievement stat counting — a pattern worth lifting wholesale.
+
+```csharp
+public class LinkedGameObjectBuilder {
+    public HashSet<GameObject> Objects { get; } = new();
+
+    public void AddConnected( GameObject root ) {
+        if ( !Objects.Add( root ) ) return;  // cycle guard
+        var rb = root.GetComponent<Rigidbody>(); if ( rb is null ) return;
+        foreach ( var joint in rb.Joints ) {
+            AddConnected( joint.Body1.GameObject );
+            AddConnected( joint.Body2.GameObject );
+        }
+        foreach ( var col in root.GetComponentsInChildren<Collider>() )
+            foreach ( var j in col.Joints )
+                AddConnected( j.Body1.GameObject == root ? j.Body2.GameObject : j.Body1.GameObject );
+    }
+    // RejectPlayers() + RejectWorldTag() guards prevent including the player or static map geometry.
+}
+```
+
+Drive-arbitration: `ControlSystem` sorts seats by `RealTimeSince`-occupied and skips contraptions already claimed — two drivers on one vehicle don't fight. (`dexlab.sandbox-reforged: Code/Weapons/ToolGun/Modes/Duplicator/LinkedGameObjectBuilder.cs`, `Code/Game/ControlSystem/ControlSystem.cs`.)
+
+---
+
+### 8. Retroactive prop-destructibility (`apl.sandboxwars`)
+
+`apl.sandboxwars` (`Code/MiniGameManager.cs`, `AddPropHealthToNewObjects`) runs a host-side `TimerTask` every 2 seconds: any `Rigidbody` that is not a player/NPC/weapon/flag and lacks a `PropHealth` component gets one added at runtime. This makes *all* spawned props destructible during Battle without touching the spawn path or requiring the spawner to know about the game mode.
+
+```csharp
+async Task AddPropHealthToNewObjectsAsync() {
+    while ( Phase == GamePhase.Battle ) {
+        foreach ( var rb in Scene.GetAllComponents<Rigidbody>() ) {
+            if ( IsExempt( rb.GameObject ) ) continue;
+            if ( rb.GameObject.GetComponent<PropHealth>() is not null ) continue;
+            rb.GameObject.AddComponent<PropHealth>();    // retroactive on host; replicated via network
+        }
+        await Task.DelaySeconds( 2f );
+    }
+}
+```
+
+Anti-pattern: adding `PropHealth` inside the spawn pipeline — that tightly couples the spawn system to the game mode. The retroactive approach keeps the sandbox generic. (`apl.sandboxwars: Code/MiniGameManager.cs`.)
+
+---
+
+### 9. Spawn-protection volume doubling as no-build zone (`klavs.basebuilder`)
+
+`klavs.basebuilder` (`Code/BaseBuilder/BaseBuilderSpawnPoint.cs`) has `BaseBuilderSpawnPointBounds : ITriggerListener` — a single component that both provides spawn transforms and blocks block placement inside the spawn area, with zero extra components needed:
+
+```csharp
+void ITriggerListener.OnTriggerEnter( Collider other ) {
+    if ( !ResetPlaceablesInsideBounds ) return;
+    var placeable = other.GameObject.GetComponent<BaseBuilderPlaceableObject>();
+    if ( placeable is not null && !placeable.IsHeld )
+        placeable.ResetToBuildDefault();                // kick it out on contact
+}
+
+// Called on release: rejects placement if center is inside any spawn bounds.
+public static bool IsInsideAnySpawnBounds( Vector3 pos ) =>
+    Scene.GetAllComponents<BaseBuilderSpawnPointBounds>()
+         .Any( b => b.WorldBounds.Contains( pos ) );
+```
+
+Composable for any game that needs "can't build here" exclusion zones: add `BaseBuilderSpawnPointBounds`-style components to any box trigger, query them from the placement tool on release. (`klavs.basebuilder: Code/BaseBuilder/BaseBuilderSpawnPoint.cs`.)
+
+---
+
+### Read these games for deeper sandbox patterns
+
+| Game | Strongest net-new material |
+|---|---|
+| `apl.sandboxwars` | Scene-diff save, `ISpawner` strategy, retroactive prop health, snap-grid aim-lock, schedule/task NPC AI, per-player undo |
+| `dexlab.sandbox-reforged` | DPP governance, `LinkedGameObjectBuilder` contraption walk, seat-drive `IPlayerControllable`, wiremod `LinkGrid` node graph |
+| `klavs.basebuilder` | `GameFeaturePolicy` mode-swap seam, absolute-timestamp phase timer, client-predicted physgun, transform-restore undo, spawn-protection volumes, `[Button]` prebuild generators |
+| `facepunch.ss1` | Unrelated (2D bullet-heaven) — cross-reference the survivors-like recipe for its stat-modifier engine |
+| `facepunch.ss2`, `despawn.murder`, `facepunch.fair`, `barrelproto.ragroll` | No sandbox-voxel material — other genres; skip for this topic |

@@ -210,3 +210,253 @@ void RequestSpin( string caseId, long declaredCost )
 The installed SDK is authoritative — confirm with `describe_type` / `search_types` reflection before relying on a signature, not this doc or training data: `Component`, `[Sync]` / `[Rpc.Host]` / `[Rpc.Broadcast]`, `Component.INetworkListener`, `Sandbox.Services.Stats` + `Leaderboards.GetFromStat`, `Game.Random` / `Random.Shared`, `MathX.Lerp` / `Time.Delta`, and `[JsonIgnore]` (System.Text.Json). Note the s&box **sandbox restricts `MathF`** — the `1-(1-t)^3` easing and `(float)Math.Pow(...)` are the safe forms. Stop play mode before scene edits; screenshot UI changes and read the PNG.
 
 Cross-links: see the **sbox-api** skill for authoritative type/method signatures, and the **sbox-build-feature** skill for the screenshot-driven build loop and the sandbox gotcha list (MathF restricted, Cloud assets ephemeral, head-bone case sensitivity).
+
+## Corpus refresh (2026): more reference implementations
+
+A second mining pass across the full 51-game corpus surfaces the following net-new techniques for the gacha-crawler genre. None duplicate patterns already covered above.
+
+### 1. Reflection-driven gacha pool (facepunch.ss2)
+
+The existing file shows a hand-coded item table. SS2's level-up perk draft is **fully reflection-driven** — no table to maintain:
+
+```csharp
+// PerkManager.cs — pool discovered at startup, never hand-listed
+// Each perk file: [Perk(Rarity.Common, includedAtStart:true, minDifficulty:0)]
+// class PerkBulletDamage : Perk { ... }
+
+// Build the pool once:
+var pool = TypeLibrary.GetTypes<Perk>()
+    .Where( t => t.GetAttribute<PerkAttribute>() != null )
+    .ToList();
+
+// Weighted reservoir draw without replacement (Player.Perks.cs):
+foreach ( var type in pool ) {
+    float w = GetWeightForRarity( attr.Rarity ) * (1 + ownedLevel * ExistingPerkChance);
+    // add to weighted bag, draw N without replacement
+}
+```
+
+Add a file, it's in the pool. The **synergy gate** (`IsPerkAllowed`) is a separate filtering pass — ~40 rules checked before a perk enters the offer: `CursePiercing` requires pierce chance > 0, dodge perks require dodge > 0, etc. Two gates: `IsPerkAllowed` (in-run offer) + `IsPerkAllowedAsReward` (stricter, post-run). Banish/reroll mutate the live offer list in place and re-sync.
+
+**Anti-pattern flagged:** the existing cookbook notes `RollRarity`'s threshold-ordering bug from the same corpus. SS2 avoids this by using explicit `rarity weights (Common 425 … Unique 3)` and a **weighted reservoir** rather than cumulative thresholds — safer when the rarity count grows.
+
+(facepunch.ss2: `ss2/Code/perks/PerkManager.cs` GetRandomPerks; `perks/Perk.cs` PerkAttribute)
+
+### 2. Stat-modifier stack for equipment-derived stats (facepunch.ss2)
+
+The existing file covers `TotalStats` fully-derived via a `CalculateTotalStats()` method. SS2 shows a **per-source keyed modifier stack** that makes removal clean — critical for temporary buffs and equip/unequip:
+
+```csharp
+// Player.Stats.cs — keyed so same caller overwrites, removal is O(keys)
+Dictionary<IStatModifier, Dictionary<PlayerStat, ModifierData>> _statModifiers;
+
+public void Modify( IStatModifier caller, PlayerStat stat, float value, ModifierType type ) {
+    _statModifiers[caller][stat] = new ModifierData( value, type );
+    RefreshProperty( stat );
+}
+public void RemoveModifiers( IStatModifier caller ) {
+    _statModifiers.Remove( caller );
+    // RefreshProperty each previously-touched stat
+}
+// RefreshProperty: apply highest-priority Set, sum all Add, multiply all Mult, clamp
+```
+
+`IStatModifier` is a bare marker interface — `Perk`, `Gun`, `Charm`, `Gem` all implement it, so all item kinds plug into the same engine. Each upgrade is ~5 lines: `Player.Modify(this, PlayerStat.BulletDamage, GetValue(Level), ModifierType.Mult)`.
+
+This is a **stronger pattern than `CalculateTotalStats`** when you need mid-combat buff application/removal (the crawler's recompute-from-scratch approach is fine for equip-screen-only changes).
+
+(facepunch.ss2: `ss2/Code/Player.Stats.cs` Modify/RemoveModifiers/RefreshProperty)
+
+### 3. Single-axis multi-outcome leaderboard encoding (facepunch.ss2)
+
+The existing file covers `SetAggregationLast()` leaderboards with metadata. SS2 adds a **score-encoding trick** that maps victory/partial/failure onto one sortable number:
+
+```csharp
+// Manager.Stats.cs — one stat, three outcome bands
+const int VICTORY_OFFSET   = 2_000_000;
+const int BOSS_DEFEAT_OFFSET = 1_000;
+
+long GetScore( RunResult result ) => result switch {
+    RunResult.Victory  => VICTORY_OFFSET - (long)elapsedSeconds,   // faster = higher
+    RunResult.BossLoss => BOSS_DEFEAT_OFFSET + (int)(bossDamage * 100),
+    _                  => (long)elapsedSeconds                     // early death: lower = better rank
+};
+// UI decodes by range: value > VICTORY_OFFSET/2 → victory branch
+```
+
+Also: bake the balance version into the stat name (`$"score_v{LEADERBOARD_VERSION}_n{numPlayers}_d{difficulty}"`), so a balance patch auto-starts a fresh board without nuking historical data.
+
+(facepunch.ss2: `ss2/Code/Manager.Stats.cs` GetScore, GetStatString; `ui/LeaderboardPanel.razor` decode)
+
+### 4. EV-preserving economy normalization (lavagame.multis_cases)
+
+The existing file covers the weighted `RollWinner` pattern and rank-buffed odds. This game adds the **expected-value normalization pass** — the missing piece for anyone building a case-opening economy:
+
+```csharp
+// Cs2CaseApiBuilder.cs NormalizeCaseExpectedValue — sets a target house edge
+void NormalizeCaseExpectedValue( CaseDefinition caseDef, float targetRatio, float maxOverride ) {
+    float targetEV = caseDef.Price * targetRatio;   // e.g. 0.75 = 75c return per $1
+    // Pass 1: scale all item values so weighted EV hits targetEV
+    float currentEV = caseDef.PossibleDrops.Sum( i => i.Value * i.Weight ) / totalWeight;
+    float scale = targetEV / currentEV;
+    foreach ( var item in caseDef.PossibleDrops ) item.Value *= scale;
+    // Pass 2-3: redistribute overflow from capped items proportionally onto uncapped ones
+    // so cap-constrained items don't break the rarity ratio
+}
+```
+
+Pair with `RebalanceKnifeValue`: cuts knife-pool value and redistributes that EV onto standard rarities, so adding a rare-knife pool doesn't inadvertently inflate EV past your target.
+
+**Why this matters:** the existing `RollWinner` picks a winner but doesn't control payout. EV normalization is what lets you set "case pays back 75%" as a design knob rather than accidentally setting it by whatever the item values happen to be.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Economy/Cs2CaseApiBuilder.cs` NormalizeCaseExpectedValue, RebalanceKnifeValue)
+
+### 5. Wear/float as a secondary value axis (lavagame.multis_cases)
+
+A drop can have two dimensions of value: rarity *and* condition. This game's CS2-style wear model is a self-contained, reusable pattern:
+
+```csharp
+// InventoryItem.cs
+public float WearFloat { get; set; }  // 0=Factory New … 1=Battle-Scarred, rolled per drop
+public string WearName => WearFloat switch {
+    < 0.07f => "Factory New", < 0.15f => "Minimal Wear",
+    < 0.38f => "Field-Tested", < 0.45f => "Well-Worn", _ => "Battle-Scarred" };
+// Sell value = BaseValue * WearMultiplier (1.35x FN → 0.70x BS, ±5% intra-tier float)
+public float SellValue => BaseValue * WearMultiplier;
+```
+
+Drop this second axis into any loot system to add perceived variance within a single rarity tier — two "Rare" drops feel different.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Economy/ItemDefinition.cs` WearMultiplier; `InventoryItem.cs`)
+
+### 6. Save integrity without a crypto library (lavagame.multis_cases)
+
+The existing file notes "sanitize on read" but doesn't show a save-tamper-detection pattern. This game's approach is sandbox-safe (no `System.Security.Cryptography` needed):
+
+```csharp
+// SaveCrypto.cs — 49 lines, allocation-light
+static byte[] EncryptAndSign( byte[] plaintext ) {
+    uint checksum = Fnv1a( plaintext );          // 4-byte FNV-1a hash of plaintext
+    var result = new byte[4 + plaintext.Length];
+    BinaryPrimitives.WriteUInt32LittleEndian( result, checksum );
+    for ( int i = 0; i < plaintext.Length; i++ )
+        result[4 + i] = (byte)(plaintext[i] ^ _xorKey[i % _xorKey.Length]);
+    return result;
+}
+static byte[]? VerifyAndDecrypt( byte[] data ) {
+    // recompute checksum on decrypted body; return null on mismatch
+}
+```
+
+Pair with a hand-rolled `BinaryWriter` versioned format: `TotalCasesSpent = version >= 3 ? r.ReadSingle() : 0f` guards give v2→v9 backward compat without a migration framework.
+
+**Anti-pattern:** both tamper-detection and migration are absent from the crawler's `FileSystem.Data` JSON save — fine for free single-player, essential if you gate content behind save data.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Save/SaveCrypto.cs`; `SaveSerializer.cs` SAVE_VERSION guards)
+
+### 7. Cloud-authoritative load + _saveReady guard (lavagame.multis_cases)
+
+The existing cookbook notes "local-first with cloud-authoritative load" but doesn't show the ordering bug most games hit. This game's policy is explicit:
+
+```csharp
+// SaveSystem.cs — cloud is the ONLY load source; local is a write-only safety net
+bool _saveReady = false;  // blocks ALL writes until cloud load completes
+
+async Task LoadFromCloud() {
+    var data = await SaveCloud.Load();
+    Apply( data ?? new SaveData() );  // fresh start if no cloud record
+    _saveReady = true;                // NOW writes are allowed
+}
+void Save() {
+    if ( !_saveReady ) return;       // don't overwrite a good cloud save with empty init state
+    WriteLocalBin();                 // always
+    // debounced: WriteCloud() every 60-180s + on-disconnect flush
+}
+```
+
+The `_saveReady` flag is the key: without it, an async cloud load racing the first `OnUpdate()` tick can write an empty state over a good cloud save.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Save/SaveSystem.cs` _saveReady, LoadFromCloud)
+
+### 8. Client-verified server legitimacy via Steam host SteamId (lavagame.multis_cases)
+
+Novel anti-piracy pattern not seen elsewhere in the corpus. Useful for any economy-bearing MP game:
+
+```csharp
+// Security/ServerVerifier.cs — called on connect, blocks saves on unofficial servers
+async Task VerifyServer() {
+    var hostId = Connection.Host.SteamId;   // Steam-authenticated, not spoofable by server
+    var whitelist = await FetchWhitelistFromCloud();
+    if ( !whitelist.Contains( hostId ) ) {
+        GameManager.BlockSaving = true;
+        ShowCountdownOverlay( "Unofficial server — progress will not be saved" );
+        await Task.DelayRealtimeSeconds( 30 );
+        Game.Disconnect();
+    }
+}
+```
+
+`GameManager.BlockSaving` gates every `Save()` call. Protects the official economy from private servers minting items without you noticing.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Security/ServerVerifier.cs`)
+
+### 9. Persistent bad-luck protection / pity tickets (despawn.murder)
+
+The existing file covers newcomer pity as consumable bools on the character. Murder's ticket system is a **cross-session persisted weighted pity** pattern — more general than a per-session bool:
+
+```csharp
+// MurdererTicketManager.cs — fairness tickets persisted by SteamId across sessions
+// Each unchosen player gains tickets; chosen player's tickets are heavily reduced
+void AfterRoleAssign( ulong[] chosen ) {
+    foreach ( var id in _allPlayerIds ) {
+        int delta = chosen.Contains( id ) ? -LargeReduction : +SmallGain;
+        _tickets[id] = Math.Max( 1, _tickets[id] + delta );
+    }
+    SaveToFile();   // FileSystem.Data JSON keyed by SteamId
+}
+// Strategy interface: swap the whole fairness policy at config time
+interface ITicketStrategy { int GetTickets(ulong id); void AfterAssign(ulong[] chosen); }
+```
+
+Lift this for any "who gets the rare role / the jackpot / the guaranteed legendary this session" mechanic. The `Strategy` interface lets you A/B-test fairness policies.
+
+(despawn.murder: `murder/Code/Systems/Rounds/MurdererTicketManager.cs`; Standout #2 in the mining file)
+
+### 10. [Sync] social feed for "recent wins" (lavagame.multis_cases)
+
+The existing file covers `[Rpc.Broadcast]` for chat events. The sim game adds a lighter pattern for a shared loot feed: expose the **latest win as plain `[Sync]` fields** rather than a broadcast list:
+
+```csharp
+// GameManager.cs — each player's GameManager component, replicated to all proxies
+[Sync] public string LastWinName { get; set; }
+[Sync] public Color  LastWinColor { get; set; }
+[Sync] public float  LastWinValue { get; set; }
+[Sync] public int    LastWinSeq { get; set; }   // monotonic; UI reacts on seq change
+
+// Any client reads: foreach (var gm in GameManager.All) { render gm.LastWin* }
+```
+
+Simpler than a broadcast for "latest pull" feeds — the proxy state IS the feed, late joiners see the current snapshot for free, and there's no `List<T>` `[Sync]` footgun.
+
+(lavagame.multis_cases: `multis_cases/Code/Game/Core/GameManager.cs` LastWin* [Sync] fields; Standout #9 in the mining file)
+
+### Anti-patterns from this pass
+
+| Pattern | Source | Fix |
+|---|---|---|
+| Hand-coded item table requiring maintenance | namicry.gacha_crawler (existing) | Reflection-driven pool via `TypeLibrary.GetTypes<T>()` + attribute (ss2) |
+| No EV control — payout ratio is accidental | any loot system | `NormalizeCaseExpectedValue` redistribute pass (multis_cases) |
+| No save tamper detection | namicry.gacha_crawler | FNV-1a checksum + XOR, BinaryWriter version guards (multis_cases) |
+| `_saveReady` omitted → empty init overwrites cloud | common | Explicit `_saveReady` flag, cloud-only load (multis_cases) |
+| Pity resets on every session | many games | Persisted ticket accumulation keyed by SteamId (despawn.murder) |
+
+### Read these games
+
+For the gacha-crawler genre, the authoritative reference set is now:
+
+- **`namicry.gacha_crawler`** — full gacha + pity + crafting + affix loot + turn-based crawler + async PvP + boss bullet-hell (the deepest single-player gacha in the corpus)
+- **`lavagame.multis_cases`** — host-authoritative multiplayer case-opening + EV normalization + versioned binary save + cloud-authoritative policy + server legitimacy
+- **`facepunch.ss2`** — reflection-driven weighted gacha pool + per-source stat-modifier stack + meta-progression + single-axis leaderboard encoding (best roguelite-gacha hybrid)
+- **`despawn.murder`** — persisted cross-session pity/fairness tickets + Strategy-pattern role assignment (narrow but solves the "bad luck protection" problem cleanly)
+
+Per-game mining notes: `sbox-lessons/mining-v2/games/namicry.gacha_crawler.md`, `lavagame.multis_cases.md`, `facepunch.ss2.md`, `despawn.murder.md`.

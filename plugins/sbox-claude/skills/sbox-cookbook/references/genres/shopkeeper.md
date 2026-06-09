@@ -178,3 +178,283 @@ If your shop is a skin over a decision, swap the tycoon back half for these:
 API surfaces drift between SDK versions — confirm before relying on a signature. Use `describe_type` / `search_types` reflection against the installed SDK as authoritative for: `Sandbox.Networking` (`IsHost`/`CreateLobby`), `[Sync]`/`SyncFlags`/`[Rpc.Host]`/`[Rpc.Broadcast]`, `NavMeshAgent` (`MoveTo`/`Velocity`/`TargetPosition`), `Scene.NavMesh`, `Scene.Trace.Ray(...).HitTriggers()`, `GameObject.NetworkSpawn`/`Network.TakeOwnership`, `CitizenAnimationHelper`, `Texture.CreateRenderTarget`/`CameraComponent.RenderToTexture`, `Sandbox.Speech.Synthesizer`, and `FileSystem.Data` / `Storage` JSON helpers.
 
 Cross-links: see the `sbox-api` skill for authoritative type lookups, and the `sbox-build-feature` skill for the screenshot-driven build/iterate loop.
+
+## Corpus refresh (2026): more reference implementations
+
+Four additional games deepen the shopkeeper corpus: `thefancylads.restaurant_dev` (GASTROTOWN — restaurant tycoon with cooking + grid build-mode + REST backend), `emg.everything_must_go` (pawn-shop tycoon — the most complete host-authoritative shopkeeper in the corpus), `enifun.shop_manager` (grocery supermarket — price-elasticity demand, phone orders, 4-tier co-op permissions), `luckygaming.doner_kiosk` (already the basis of the Judgment section above). Techniques below are **net-new** vs the sections above.
+
+### Charge → act → refund-on-fail rollback (thefancylads.restaurant_dev)
+
+Every spend in GASTROTOWN follows one discipline: charge first, attempt the world change, refund if the world change fails. For replace operations (swap item A for B that costs less), charge only the _difference_. This is the cleanest "money can never desync from the world" recipe in the corpus.
+
+```csharp
+// Common/BuildMode/BuildModeServer.cs
+bool TryCharge( RestaurantComponent r, float cost ) {
+    if ( r.Money < cost ) { /* show toast to Rpc.Caller */ return false; }
+    r.Money -= cost; return true;
+}
+void Refund( RestaurantComponent r, float cost ) => r.Money += cost;
+bool TryChargeOrRefund( RestaurantComponent r, float delta ) {
+    if ( delta > 0 ) return TryCharge( r, delta );
+    if ( delta < 0 ) Refund( r, -delta );   // cheaper replace → give money back
+    return true;
+}
+// Usage: if (!TryCharge(...)) return; if (!grid.TryPlace(...)) { Refund(...); return; }
+```
+
+Anti-pattern: deducting money and then checking whether the action succeeds. Fix: always charge → act → refund-on-fail.
+
+### Sync occupancy bits, not object graphs (thefancylads.restaurant_dev)
+
+For grid placement the server needs full object references; clients only need to know "is this cell taken" to grey out invalid drop targets. Keep a heavy server-only map and a light synced shadow:
+
+```csharp
+// Common/Restaurants/RestaurantGrid.cs
+private Dictionary<Vector2Int, GameObject> _surfaceCells = new();           // HOST ONLY
+[Sync(SyncFlags.FromHost)]
+private NetDictionary<Vector2Int, bool> _occupiedSurfaceCells { get; set; } // SYNCED: just occupancy
+```
+
+Clients call `IsSurfaceCellOccupied(cell)` for preview feedback; the host alone resolves what is there. Composable to any grid/tile placement game.
+
+### Struct-of-Arrays (SoA) for replicating lists of structs (emg.everything_must_go)
+
+`[Sync]` cannot replicate `List<CustomClass>`. The solution: keep the rich list host-side and mirror it as **N parallel `NetList<primitive>` columns**, zip them back on the client. The key robustness trick is clamping to `Math.Min(all column lengths)` before zipping — columns can arrive slightly out of step during replication.
+
+```csharp
+// Shop.CheckoutSync.cs
+[Sync(SyncFlags.FromHost)] NetList<string>  SyncedCheckoutTypes    { get; set; }
+[Sync(SyncFlags.FromHost)] NetList<float>   SyncedCheckoutPrices   { get; set; }
+[Sync(SyncFlags.FromHost)] NetList<int>     SyncedCheckoutCounts   { get; set; }
+
+IReadOnlyList<CheckoutLine> BuildSyncedCheckoutLines() {
+    int n = Math.Min( SyncedCheckoutTypes.Count,
+            Math.Min( SyncedCheckoutPrices.Count, SyncedCheckoutCounts.Count ) );
+    var lines = new List<CheckoutLine>( n );
+    for ( int i = 0; i < n; i++ )
+        lines.Add( new CheckoutLine { Type = SyncedCheckoutTypes[i],
+                                      UnitPrice = SyncedCheckoutPrices[i],
+                                      Count = SyncedCheckoutCounts[i] } );
+    return lines;
+}
+```
+
+Use `Math.Min` (available in sandbox) — not `MathX.Min` (no overload for three args) and not `MathF` (doesn't exist). Applied to checkout lines, active buffs, and progression choices in EMG.
+
+### Authority-forked read properties (emg.everything_must_go)
+
+The cleanest discipline in the corpus for writing a single API that works identically on host and proxy: expose one public property that returns the host's rich object when you are the host and a hydrated mirror when you are a proxy.
+
+```csharp
+// Shop.cs
+public IReadOnlyList<CheckoutLine> CheckoutLines =>
+    Networking.IsHost ? _hostCheckoutLines : BuildSyncedCheckoutLines();
+
+public IReadOnlyList<BuffState> ActiveBuffs =>
+    Networking.IsHost ? _hostBuffs : BuildSyncedBuffs();
+```
+
+UI and other components call one API regardless of where they run. Apply uniformly to any host-only simulation that has a client-readable shadow. (EMG: `Shop.cs:96–124`, `CashRegister.cs:19–34`, `Shelf.cs:48–50`.)
+
+### Queue hash for cheap Razor re-renders (emg.everything_must_go)
+
+Instead of syncing the entire checkout queue to clients, sync one `int` hash that changes whenever the queue meaningfully changes. The Razor panel's `BuildHash()` folds it in, so the panel re-renders only when needed.
+
+```csharp
+// CashRegister.cs
+int BuildQueueHash() {
+    int h = 0;
+    foreach ( var c in _queue ) h = HashCode.Combine( h, c.GetHashCode(), c.Total, c.ItemCount );
+    return h;
+}
+[Sync(SyncFlags.FromHost)] int SyncedCheckoutQueueHash { get; set; }
+// CheckoutPanel.razor  BuildHash(): return HashCode.Combine( base.BuildHash(), Register.SyncedCheckoutQueueHash );
+```
+
+### Three-spend-path currency pattern (enifun.shop_manager)
+
+SHOP MANAGER distinguishes three semantically distinct spend paths — composable and worth codifying verbatim:
+
+```csharp
+// Code/Economy/ShopFunds.cs
+void AddMoney( float amount, string reason = "" )    // income; rejects <=0
+bool SpendMoney( float amount, string reason = "" )  // returns false if insufficient (gated)
+void ForceSpend( float amount, string reason = "" )  // allows negative balance (salary, loan auto-repay)
+bool CanAfford( float amount )                       // pure read — use in UI to grey out buttons
+```
+
+`ForceSpend` is deliberately designed to allow negative balances from system-triggered deductions (daily salaries, loan repayment). The save validator accepts negative money but clamps totals `>= 0`. Anti-pattern: using one `SpendMoney` for both player-initiated and system-triggered spends — the former should fail gracefully; the latter must succeed regardless.
+
+### Price-elasticity demand curve via control-point array (enifun.shop_manager)
+
+Instead of a flat buy-chance, derive purchase probability from where the player-set price falls within the product's wholesale-cost margin band. The curve is a tunable data table of `(margin_t, chance)` control points, linearly interpolated:
+
+```csharp
+// Code/Economy/PriceManager.cs
+static (float t, float chance)[] BuyChanceCurve = {
+    (0f, 1f), (0.25f, 0.99f), (0.50f, 0.98f), (0.75f, 0.85f), (1.0f, 0.20f)
+};
+// actualMargin = (price - wholesale) / wholesale
+// t = InverseLerp(MinMargin, MaxMargin, actualMargin)  → interpolate curve
+```
+
+Rich customers use `GetRichBuyChance` (100% below ceiling, ignores markup). Prices persist per-product-ID decoupled from shelf instance. Non-host pricing uses optimistic-local + `[Rpc.Host]` reconcile. The full price table syncs as one `[Sync] string` in `"id:price,id:price"` CSV form to avoid a synced Dictionary.
+
+### Data-driven modifier engine via EffectsManager (thefancylads.restaurant_dev)
+
+GASTROTOWN's upgrade tree flows entirely through one `EffectsManager.Get(owner, EffectType)` call that aggregates all active upgrades into a single multiplier or additive value. Every gameplay formula reads from it:
+
+```csharp
+// Common/Effects/EffectsManager.cs  (pattern, not verbatim)
+// cook speed:    CookTime += delta * EffectsManager.Get(r, CookSpeedForMethod(method));
+// spawn rate:    CustomerSpawnChance * Time.Delta * EffectsManager.Get(r, CustomerSpawnChance);
+// patience:      Patience *= EffectsManager.Get(r, CustomerPatienceIncrease);
+// meal value:    base * EffectsManager.Get(r, MealValueIncrease);
+```
+
+`UpgradeEffect` is a `struct { EffectType Type; EffectMode Mode(Add/Multiply/Flag); float ValuePerRank; }`. Multiplicative effects return `1 + sum`; additive return `sum`. `GetDescription(rank)` generates tooltip text from the same data — UI never drifts from the math. This is the model to copy for any upgrade/prestige tree.
+
+### Dynamic pricing from recipe complexity (thefancylads.restaurant_dev)
+
+Price is computed from content, not a static field. Each recipe step contributes ingredient cost + a complexity score (raw = 0.4, cooked = 0.8), then the whole thing is multiplied by upgrade and meal-type modifiers:
+
+```csharp
+// Common/Resources/MealResource.cs
+float GetMealValue( RestaurantComponent r ) {
+    float ingredientCost = 0f, complexityScore = 0f;
+    foreach ( var step in Recipe.Steps.Values ) {
+        ingredientCost += step.EffectiveCostPerMeal;
+        complexityScore += step.AcceptedStates.HasFlag( CookedStateMask.Raw ) ? 0.4f : 0.8f;
+        complexityScore *= stepBonusMultiplier;
+    }
+    return ingredientCost * complexityScore * valueMultiplier * mealTypeMultiplier;
+}
+```
+
+Margins emerge from data; balancing is editing `.recipe`/`.upgrade` assets, not code. Pre-packaged items (no recipe) fall back to `Cost * 2`.
+
+### INetworkVisible distance culling for crowded scenes (thefancylads.restaurant_dev)
+
+In a social-hub map with many restaurants each spawning customers, implementing `INetworkVisible` on customers avoids sending updates for NPCs the client can't possibly see:
+
+```csharp
+// Common/Customers/Customer.cs
+public bool IsVisibleToConnection( Connection connection ) {
+    var agent = connection.GetPlayerObject()?.GetComponent<PlayerController>();
+    if ( agent is null ) return true;
+    return WorldPosition.Distance( agent.WorldPosition ) <= 1500f;
+}
+```
+
+The `1500f` threshold is a `[Property]`. Apply to any NPC in a large world; the engine stops sending network updates beyond the distance. Verify `INetworkVisible` exists in your SDK version via `describe_type` before use.
+
+### Data-driven catalogs as plain static C# (emg.everything_must_go)
+
+EMG defines all items, shelves, buffs, and traits as `static class XCatalog { get { yield return new XDefinition{...}; ... } }` — no `GameResource`, no JSON. Each definition carries `Tags[]`, `UnlockLevel`, `UnlockRevenue`, `ModelIdent`, per-shelf `SurfaceLevelCapacityOverrides`, and a `TypeAliases` map so old/cut save strings normalize to current type names (forward-compat shim that complements the version gate). This is a lower-friction content pipeline for non-coders and matches how shipped games actually do it.
+
+### Modal cursor UI borrow/restore (emg.everything_must_go)
+
+Opening a mouse-driven panel (keypad, shop tablet) in an FPS game without leaking input state:
+
+```csharp
+// Code/UI/CheckoutPanel.razor
+void OpenPanel() {
+    _savedInputControls = Controller.UseInputControls;
+    _savedCameraControls = Controller.UseCameraControls;
+    Controller.UseInputControls = Controller.UseCameraControls = Controller.UseLookControls = false;
+    Mouse.Visibility = true;
+}
+void ClosePanel() {   // also called from OnDisabled/Destroy
+    Controller.UseInputControls = _savedInputControls;
+    Controller.UseCameraControls = _savedCameraControls;
+    Mouse.Visibility = false;
+}
+protected override void OnUpdate() { Controller.WishVelocity = Vector3.Zero; } // prevent drift
+```
+
+Anti-pattern: setting controls to `false` on open and hardcoding `true` on close — if the panel is destroyed while another modal is open, the restored state is wrong. Always save and restore.
+
+### Per-player-plot foreign-object eviction (thefancylads.restaurant_dev)
+
+In a social-hub world with separate per-player restaurants, prevent economy griefing by detecting any physics object that crosses into the wrong plot and force-teleporting it home:
+
+```csharp
+// Common/Restaurants/RestaurantArea.cs  (host-only trigger)
+void OnTriggerEnter( Collider other ) {
+    if ( !Networking.IsHost ) return;
+    var grab = other.GameObject.GetComponentInParent<IGrabbable>();
+    if ( grab is null || grab.Restaurant == this ) return;
+    grab.GrabEndFromServer();
+    other.GameObject.Network.TakeOwnership();   // reclaim before moving
+    other.GameObject.WorldPosition = grab.Restaurant.HomePosition;
+    // toast the offender
+}
+```
+
+### Versioned JSON-node migration chain (enifun.shop_manager)
+
+The best save-migration pattern in the corpus: migrations operate on raw `JsonObject` (not deserialized POCOs) and are stored in a `Dictionary<int, Action<JsonObject>>` keyed by the version they migrate *from*, looped until current:
+
+```csharp
+// Code/Save/SaveMigrator.cs
+static Dictionary<int, Action<JsonObject>> _migrations = new() {
+    { 1, v1 => { v1["newField"] = v1["oldField"]; v1.Remove("oldField"); } },
+    { 2, v2 => { /* rename another field */ } },
+    { 3, v3 => { /* add a new section */ } },
+};
+static JsonObject Migrate( JsonObject node, int fromVersion, int toVersion ) {
+    for ( int v = fromVersion; v < toVersion; v++ )
+        if ( _migrations.TryGetValue( v, out var fn ) ) fn( node );
+    return node;
+}
+```
+
+Anti-pattern: bumping `CurrentVersion` with no migration (`CanUseState` rejects old saves outright). That is a valid strategy during active development (EMG does it) but not appropriate for a shipped game. Use the migration chain for live games.
+
+### Clothing blacklist sanitizer for Dresser.Randomize() (luckygaming.doner_kiosk)
+
+After randomizing a Citizen NPC's outfit, strip items that carry semantic meaning (anomaly signatures, gore props) so normal customers never accidentally wear a horror tell:
+
+```csharp
+// Code/npc/Customer.cs
+static readonly HashSet<string> _anomalyClothingBlacklist = new() {
+    "skull_helmet", "axe_in_the_head_01", "mushroom_hat", /* … */
+};
+void DressNormal( CitizenAppearance dress ) {
+    dress.Randomize();
+    dress.Clothing.RemoveAll( e => _anomalyBlacklist.Contains( e.Clothing.ResourceName ) );
+    dress.Apply();
+}
+```
+
+Composable to any game that randomizes NPCs but reserves certain clothing for special roles.
+
+### Hotload-safe singleton via IHotloadManaged (luckygaming.doner_kiosk)
+
+The `[SkipHotload]` attribute on a static field survives code hot-reload but the assignment in `OnStart` does not re-run. Wrap in `IHotloadManaged` to handle both:
+
+```csharp
+// Code/Network/SingletonComponent.cs
+public abstract class SingletonComponent<T> : Component, IHotloadManaged
+    where T : SingletonComponent<T>
+{
+    [SkipHotload] public static T Instance { get; private set; }
+    protected override void OnStart() => Instance = (T)this;
+    void IHotloadManaged.Created( IReadOnlyDictionary<string,object> state ) {
+        if ( state.TryGetValue( "active", out var v ) && (bool)v ) Instance = (T)this;
+    }
+    void IHotloadManaged.Destroyed( IDictionary<string,object> state ) =>
+        state["active"] = ( Instance == this );
+}
+```
+
+Use for long-lived manager singletons. The simpler `static Instance` re-assigned in `OnStart` (doner_kiosk's `GameManager`) works fine if hot-reload of running gameplay is not a concern.
+
+### Read these games
+
+The most complete shopkeeper references, in descending architectural completeness:
+
+- `emg.everything_must_go` — pawn-shop tycoon; SoA net-sync, authority-forked reads, tag-synergy economy, job-queue workers, navmesh-aware checkout line, ghost placement (C:\Users\cargi\sbox-lessons\mining-v2\games\emg.everything_must_go.md)
+- `enifun.shop_manager` — grocery supermarket; price-elasticity demand curve, phone orders, 4-tier permissions, versioned migration chain, day-night clock, late-joiner hydration (C:\Users\cargi\sbox-lessons\mining-v2\games\enifun.shop_manager.md)
+- `thefancylads.restaurant_dev` — restaurant tycoon; charge→act→refund rollback, occupancy-bit sync, EffectsManager modifier engine, `INetworkVisible` cull, `#if SERVER` compile-split, REST backend persistence (C:\Users\cargi\sbox-lessons\mining-v2\games\thefancylads.restaurant_dev.md)
+- `luckygaming.doner_kiosk` — anomaly-detection horror shopkeeper; judgment via FSM exit branch, observation-gated reveals, TTS voice, clothing blacklist, hotload-safe singleton (C:\Users\cargi\sbox-lessons\mining-v2\games\luckygaming.doner_kiosk.md)

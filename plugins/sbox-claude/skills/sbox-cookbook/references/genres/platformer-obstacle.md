@@ -187,3 +187,145 @@ A `GameObjectSystem<T>` needs no GameObject and is the canonical place for globa
 API shifts between SDK builds — reflection is the source of truth, not this doc. Before coding, confirm signatures with the bridge: `describe_type` / `search_types` on `PlayerController`, `Sandbox.Movement.MoveMode`, `Component.ITriggerListener`, `GameObjectSystem`, `Sandbox.Services.Stats`, `Sandbox.Services.Leaderboards`, and `Sandbox.Network.LobbyConfig`.
 
 Cross-links: pair this with **sbox-api** (look up exact type signatures via reflection before writing) and **sbox-build-feature** (the screenshot-driven iteration loop to actually build and verify it in-editor).
+
+## Corpus refresh (2026): more reference implementations
+
+Two of the four newly-mined games (`facepunch.jumper`, `yellowletter.terrys_crash_course`) are the originals this recipe was distilled from — already fully covered above. `stepdev.xtrem_road` is actually `stepdev.fishy` (a fishing/tycoon game; `Game.Ident` → `stepdev.fishy`) and contains no platformer-obstacle material. The net-new source is `alcoholics.nice_putt_idiot`, a physics-rigidbody rage-climber ("Getting Over It" meets mini-golf) that adds several techniques not yet covered.
+
+### Physics-rigidbody as the player, not a character controller — nice_putt_idiot/Code/Pawns/GolfBall.cs
+
+When your "player" IS a physics body (ball, cube, rag-doll), skip `PlayerController` entirely. The ball is a `Rigidbody`; input is applied via `ApplyImpulse`; movement-lock is `Velocity.Length > threshold`. The orthographic follow camera tracks only two axes for the 2.5D side view:
+
+```csharp
+public void Putt( Vector2 direction, float dragDistance, float maxDrag )
+{
+    if ( IsMoving ) return;  // can't putt while rolling
+    var t = MathX.Clamp( dragDistance / maxDrag, 0f, 1f );
+    var power = MinPower + t * (MaxPower - MinPower);
+    // Y/Z plane only — X is locked for 2.5D
+    Rigidbody.ApplyImpulse( new Vector3( 0, direction.x * power, direction.y * power ) );
+    Client?.IncrementStrokes();
+}
+public bool IsMoving => Rigidbody.Velocity.Length > MaxVelocityForPutt;
+```
+
+Anti-pattern in source: `Math.Min` is used instead of `MathX.Clamp` — `System.Math` doesn't exist in the s&box sandbox; use `MathX.Clamp(value, 0f, 1f)`.
+
+### Drag-to-aim via screen-space HUD, no InputAction — nice_putt_idiot/Code/UI/Hud.razor
+
+The entire aim-and-fire mechanic is a `MousePanelEvent` on the HUD panel, not a world-space input action. Project the world object to screen, build a drag vector, draw immediate-mode, and on mouse-up call the launch method. This lets the "feel" live in UI code rather than in a movement component:
+
+```csharp
+// inside Razor panel: track drag start in OnMouseDown, call on OnMouseUp
+var screenPos = Camera.PointToScreenPixels( golfBall.WorldPosition );
+var dragVec   = e.LocalPosition - screenPos;       // screen-space vector
+// draw aim line each frame while dragging
+Scene.Camera.Hud.DrawLine( screenPos, e.LocalPosition, Color.Green.WithAlpha(0.8f), 2f );
+if ( mouseUp ) golfBall.Putt( dragVec.Normal, dragVec.Length, MaxLineLength );
+```
+
+Reusable for: golf, slingshot, billiards, artillery, Angry Birds. The cookbook has no prior example of this pattern.
+
+### Vignette transition gate (hide hard cuts behind a fade) — nice_putt_idiot/Code/Pawns/GolfBall.cs
+
+Every disruptive operation (respawn, load-save, restart, teleport) routes through a 4-phase state machine that fades the screen out, runs the action at full black, then fades back in — hiding the hard cut. No coroutines; just a phase enum and `Time.Delta`:
+
+```csharp
+enum TransitionPhase { None, FadingIn, ExecutingAction, FadingOut }
+TransitionPhase _phase; Action _pendingAction; float _vignetteAlpha;
+
+public void StartVignetteTransition( Action action )
+{
+    _pendingAction = action; _phase = TransitionPhase.FadingIn;
+}
+void UpdateVignette()
+{
+    if ( _phase == TransitionPhase.FadingIn ) {
+        _vignetteAlpha = MathX.Clamp( _vignetteAlpha + Time.Delta * 2f, 0f, 1f );
+        if ( _vignetteAlpha >= 1f ) { _pendingAction?.Invoke(); _phase = TransitionPhase.FadingOut; }
+    } else if ( _phase == TransitionPhase.FadingOut ) {
+        _vignetteAlpha = MathX.Clamp( _vignetteAlpha - Time.Delta * 2f, 0f, 1f );
+        if ( _vignetteAlpha <= 0f ) _phase = TransitionPhase.None;
+    }
+    // drive a Vignette post-process component's Intensity from _vignetteAlpha
+}
+```
+
+Every teleport/respawn path in the game calls `StartVignetteTransition(...)`. Cross-genre utility.
+
+### Hold-to-confirm with input consumption — nice_putt_idiot/Code/UI/RestartPrompt/RestartPrompt.razor
+
+A hold-to-confirm bar (restart / quit / revive) with zero timers or tweens — just `TimeSince` + `Remap` + `Input.ReleaseAction` to prevent re-trigger on the still-held key:
+
+```csharp
+TimeSince _timeRestartHeld;
+void OnUpdate()
+{
+    if ( Input.Down("Restart") && !ball.IsInTransition ) {
+        BarWidth = MathX.Remap( (float)_timeRestartHeld, 0f, HoldDuration, 1f, 0f );
+        if ( _timeRestartHeld > HoldDuration ) {
+            Input.ReleaseAction( "Restart" );  // consume so it doesn't re-fire
+            ball.RestartWithTransition();
+        }
+    } else {
+        _timeRestartHeld = 0;  // reset on release
+    }
+}
+```
+
+### Services leaderboard with metadata columns — nice_putt_idiot/Code/GoalPoint.cs + UI/Leaderboard/Leaderboard.razor
+
+The `nice_putt_idiot` leaderboard passes a metadata `Dictionary<string,object>` alongside the stat value, so the board shows stroke count and formatted time alongside the raw score — no custom backend:
+
+```csharp
+// on finish (GoalPoint.OnTriggerEnter, owner-only):
+var meta = new Dictionary<string, object> {
+    { "player_name", Connection.Local.DisplayName },
+    { "stroke_count", client.StrokeCount },
+    { "formatted_time", FormatTime( elapsed ) }
+};
+Services.Stats.SetValue( "best-time", elapsed, meta );
+Services.Stats.Increment( "completions", 1 );
+```
+
+Leaderboard read pattern matches crash_course (`SetAggregationMin` + `SetSortAscending`) but only fetches 5 entries and diffs with `EntriesAreEqual` before calling `StateHasChanged()` to prevent Razor thrash at a 60s poll interval.
+
+Anti-pattern: stat writes happen on the client side from `OnTriggerEnter` with no host validation. A spoofed client can submit any time. For competitive games, route the stat write through `[Rpc.Host]` with server-side time verification.
+
+### Binary save with "ball at rest" gate — nice_putt_idiot/Code/SaveManager.cs
+
+An alternative to JSON saves: positional `BinaryWriter`/`BinaryReader` to `FileSystem.Data`. Gate autosave on the physics body being still (avoids persisting a mid-fall state), with a minimum interval:
+
+```csharp
+// SaveManager.OnUpdate — only if local owner:
+if ( !ball.IsMoving && !IsProxy ) {
+    if ( _wasBallMoving ) { _ballStoppedTime = 0; _wasBallMoving = false; }
+    if ( _ballStoppedTime > 0.5f && _lastSaveTime > 10f )
+        { SavePlayerProgress(); _lastSaveTime = 0; }
+} else _wasBallMoving = true;
+```
+
+**Anti-pattern in source worth fixing:** the binary format has no version byte or magic header. Any future field addition or reorder silently corrupts old saves — the only guard is a try/catch returning null. Fix: prefix with a `byte version` and wrap reads in a `switch(version)` migration block. For most obstacle-course games JSON saves (the jumper pattern) are safer and easier to migrate.
+
+### No-checkpoint design as an intentional genre choice — nice_putt_idiot/Code/Pawns/Base/Client.cs
+
+`nice_putt_idiot` has no checkpoints by design — a fall sends you back to the start, `TimeSince RunStartTime` accumulates from spawn, and `ResetRun()` restarts both time and stroke count. The only persistence is your *saved position* (so you resume where you left off across sessions, but mid-run you fall to zero). This is the "Getting Over It" philosophy: the punishment IS the game. Contrast with crash_course's checkpoint system (`CheckpointComponent.SetActiveVisualState`, gibs, model bodygroup) — add checkpoints when frustration tolerance matters; omit them when the fall is the mechanic.
+
+### Proxy nametag via WorldPanel + `avatar:` URL — nice_putt_idiot/Code/Pawns/GolfBall.cs
+
+For co-presence "ghost" multiplayer (every player sees others but runs their own game independently), proxy balls are dimmed to 30% alpha and get a floating nametag spawned in `OnStart`:
+
+```csharp
+if ( IsProxy ) {
+    _model.Tint = Color.White.WithAlpha( 0.3f );
+    _outline.Width = 0f;  // no "puttable" highlight for proxies
+    var tag = GameObject.Components.Create<GolfBallTag>();  // WorldPanel + avatar + name
+    // GolfBallTag.OnUpdate: WorldPosition = ball.WorldPosition + Vector3.Up * offset
+}
+```
+
+The nametag component positions itself each `OnUpdate` — no parenting needed (avoids physics body transform interference).
+
+### Updated "read these games" pointer
+
+For this genre, the primary references remain `facepunch.jumper` (charge-jump climber; height scoring; save-restore-on-load; GameObjectSystem manager) and `yellowletter.terrys_crash_course` (time-trial; self-resetting hazards; additive level streaming; medal tiers; crossfade music; Services leaderboard with friends filter + self-row). Add `alcoholics.nice_putt_idiot` for: physics-rigidbody-as-player, drag-to-aim from screen space, vignette-gated transitions, hold-to-confirm UX, Services metadata columns, binary save with physics-rest gate, and the no-checkpoint rage-climber design pattern. The `stepdev.xtrem_road` package is a fishing/tycoon game (`stepdev.fishy`) with no platformer-obstacle content — do not cite it for this genre.

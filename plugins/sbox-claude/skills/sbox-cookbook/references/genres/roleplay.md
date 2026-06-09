@@ -264,3 +264,326 @@ These are what make a roleplay server survive 128 players and not lose saves.
 API surfaces drift between SDK versions — confirm before relying on a signature. Use `describe_type` / `search_types` reflection against the installed SDK as authoritative for: `Sandbox.Networking` (`IsHost`/`IsActive`), `[Sync]`/`SyncFlags.FromHost`/`[Rpc.Host]`/`[Rpc.Broadcast]`, `Component.IPressable` (and its nested `Tooltip`/`Event` types), `GameResource` + `[AssetType]` (`Name`/`Extension`/`Category`/`Flags`), `ResourceLibrary.GetAll<T>`, `GameObjectSystem<T>`, `Json.CalculateDifferences`/`Json.ApplyPatch`, `Game.ChangeScene`, `Connection`/`SteamId`, `GameObject.GetOrAddComponent`, and `Scene.Trace.Ray(...)` for eye-trace placement.
 
 Cross-links: see the `sbox-api` skill for authoritative type lookups, and the `sbox-build-feature` skill for the screenshot-driven build/iterate loop.
+
+## Corpus refresh (2026): more reference implementations
+
+Second DarkRP source: `lowkeynetworks.newrp` (~385 files, `Code/modules/` + `Code/content/` + `Code/framework/`) offers a structural alternative to artisan.darkrpog and introduces several patterns not covered above.
+
+### Alternative: EventBus money (non-`[Sync]`) vs `[Sync(FromHost)]`
+
+artisan.darkrpog puts `long Money` as `[Sync(SyncFlags.FromHost)]` so clients always have the latest value. newrp deliberately keeps money as a plain server-side `int` — never synced — and pushes balance changes to the owning client via a typed EventBus. **Trade-off:** the `[Sync]` approach is simpler and lets any component read the value; the EventBus approach avoids a per-player sync property that every connected client can observe in memory, but requires the HUD to subscribe.
+
+```csharp
+// lowkeynetworks.newrp: Code/modules/player/PlayerData.cs
+public int Money { get => _money; private set => _money = MathX.Max(0, value); } // clamp in setter
+public void AddMoney(int amount) {
+    if (amount <= 0) return;
+    Money += amount;
+    EventBus.Publish(new PlayerStateChangedEvent(this, "money")); // push to HUD
+    Save();
+}
+public bool TakeMoney(int amount) {
+    if (amount <= 0 || Money < amount) return false;
+    Money -= amount;
+    EventBus.Publish(new PlayerStateChangedEvent(this, "money"));
+    Save();
+    return true;
+}
+```
+(newrp: `Code/modules/player/PlayerData.cs`) — note `MathX.Max` not `System.Math.Max`; `System.Math` does not exist in the s&box sandbox. Write-through: every mutation calls `Save()` immediately — trades some I/O for simplicity vs. artisan's batched off-thread queue.
+
+**Anti-pattern in newrp:** `Math.Max(0, value)` (System.Math) appears in the source but will not compile in s&box's sandbox — the correct call is `MathX.Max(0, value)`. Fix before copying.
+
+### Ownable/lockable doors with linked groups and job-access tiers
+
+A door group is a single "property" — buying one door charges for and locks the whole group. Selling refunds half. Certain DoorGroups (e.g. "police", "government") auto-open for the matching job roles without per-door config.
+
+```csharp
+// lowkeynetworks.newrp: Code/modules/doors/DoorOwnershipComponent.cs (sketch)
+[Property] public string DoorGroup { get; set; }
+[Property] public bool BuyLinkedGroup { get; set; } = true;
+
+IEnumerable<DoorOwnershipComponent> GetLinkedDoors() =>
+    Scene.GetAllComponents<DoorOwnershipComponent>()
+         .Where(d => d != this && d.DoorGroup == DoorGroup);
+
+bool Buy(PlayerComponent buyer) {
+    var linked = BuyLinkedGroup ? GetLinkedDoors().Where(d => d.Owner == null) : Enumerable.Empty<DoorOwnershipComponent>();
+    int total = Price + linked.Sum(d => d.Price);
+    if (!buyer.Data.TakeMoney(total)) return false;
+    Owner = buyer; IsLocked = true;
+    foreach (var d in linked) { d.Owner = buyer; d.IsLocked = true; }
+    return true;
+}
+void Sell() {
+    var linked = BuyLinkedGroup ? GetLinkedDoors() : Enumerable.Empty<DoorOwnershipComponent>();
+    int refund = (Price + linked.Sum(d => d.Price)) / 2;   // half-refund
+    Owner?.Data.AddMoney(refund);
+    Owner = null; IsLocked = false;
+    foreach (var d in linked) { d.Owner = null; d.IsLocked = false; }
+}
+bool CanJobAccess(string jobId) => DoorGroup switch {
+    "police" or "pd" => jobId is "police" or "police_chief",
+    "government"     => jobId is "mayor",
+    _                => false
+};
+```
+(newrp: `Code/modules/doors/DoorOwnershipComponent.cs`, `DoorInteractable.cs`) — `DoorComponent` is `Component.ExecuteInEditor` with `DrawGizmos`, hinge inferred from `BoxCollider` bounds, and auto-authored child visual + collider. The hinge pivot is an offset, not the object origin — copy the `ApplyHingeTransform` math exactly, don't guess it.
+
+### `Rpc.FilterInclude` for targeted (whisper / proximity / team) RPCs
+
+The canonical s&box idiom for "send a `[Rpc.Broadcast]` only to a subset of connections." newrp is the clearest in the corpus for two distinct uses: proximity chat and vote UI.
+
+```csharp
+// newrp: Code/modules/chat/ChatService.cs + Code/modules/jobs/JobVoteService.cs
+// 1. Proximity chat — send only to players within channel range
+var recipients = PlayerModule.All
+    .Where(p => Vector3.DistanceBetween(p.WorldPosition, sender.WorldPosition) <= channel.Range)
+    .Select(p => p.Connection).ToList();
+using (Rpc.FilterInclude(recipients))
+    BroadcastChatMessage(sender.Name, text, channel.Tag);  // [Rpc.Broadcast] method
+
+// 2. Vote UI — show only to eligible voters
+var voters = PlayerModule.All
+    .Where(p => p != candidate && p.Data.IsOwner)
+    .Select(p => p.Connection).ToList();
+if (voters.Count == 0) { AutoPass(); return; }
+using (Rpc.FilterInclude(voters))
+    ShowVotePanel(candidate.Name, VoteDuration);
+```
+(newrp: `Code/modules/chat/ChatService.cs:52`, `Code/modules/jobs/JobVoteService.cs:28`) — this pattern appears in no other mined game as cleanly. Use it for area chat, party announcements, per-team HUD updates, crime alerts to law enforcement only.
+
+### Time-boxed vote flow (snapshot electorate → filtered UI → async timeout → resolve)
+
+Cleanest vote-system reference in the corpus. Fully generic — works for any yes/no decision.
+
+```csharp
+// newrp: Code/modules/jobs/JobVoteService.cs (sketch)
+static VoteState _active;
+[Rpc.Host] static void StartVote(Connection candidate) {
+    if (!Networking.IsHost) return;
+    _active = new VoteState { Candidate = candidate,
+        Voters = PlayerModule.All.Where(p => p.Connection != candidate).Select(p=>p.Connection).ToList() };
+    if (_active.Voters.Count == 0) { Resolve(passed: true); return; }
+    using (Rpc.FilterInclude(_active.Voters)) ShowVotePanel(candidate.DisplayName, VoteDuration);
+    _ = FinishLater();
+}
+[Rpc.Host] static void SubmitVote(bool yes) {
+    if (_active?.Voters.Contains(Rpc.Caller) != true) return;
+    _active.Votes[Rpc.Caller.Id] = yes;
+    if (_active.Votes.Count >= _active.Voters.Count) Resolve(_active.Votes.Values.Count(v=>v) > _active.Votes.Values.Count(v=>!v));
+}
+static async Task FinishLater() {
+    for (int i = VoteDuration; i > 0; i--) {
+        await GameTask.Delay(1000);
+        if (_active == null) return;
+        BroadcastCountdown(i - 1);
+    }
+    Resolve(_active.Votes.Values.Count(v=>v) > _active.Votes.Values.Count(v=>!v));
+}
+```
+(newrp: `Code/modules/jobs/JobVoteService.cs`) — `GameTask.Delay` not `Task.Delay`. `Rpc.Caller` is only valid inside an `[Rpc.Host]` method body.
+
+### Dependency-ordered module kernel with cycle detection and fail isolation
+
+The biggest structural pattern in newrp — a "mod loader" for any large multi-system game. Each `GameModule` declares `Type[] Dependencies`; `ModuleManager` topologically sorts them (DFS with permanent/temporary marks, throws on cycle), then runs 5 lifecycle phases (`PreInitialize → Initialize → PostInitialize → Start → PostStart`) in order. With `ContinueOnModuleFailure=true`, a bad module is marked `Failed`, its dependents cascade `Failed`, but everything else boots.
+
+```csharp
+// newrp: Code/framework/modules/ModuleManager.cs (sketch)
+void BuildBootOrder() {
+    var visited = new HashSet<Type>();
+    var tempMark = new HashSet<Type>();
+    void Visit(Type t) {
+        if (tempMark.Contains(t)) throw new Exception($"Dependency cycle: {t.Name}");
+        if (visited.Contains(t)) return;
+        tempMark.Add(t);
+        foreach (var dep in _modules[t].Dependencies) Visit(dep);
+        tempMark.Remove(t); visited.Add(t); _bootOrder.Add(t);
+    }
+    foreach (var t in _modules.Keys) Visit(t);
+}
+void RunPhase(Phase phase) {
+    foreach (var t in _bootOrder) {
+        var m = _modules[t];
+        if (m.HasFailedDependency(_modules)) { m.State = ModuleState.Failed; continue; }
+        try { m.RunPhase(phase); }
+        catch (Exception e) { Log.Error(e); if (!ContinueOnModuleFailure) throw; m.State = ModuleState.Failed; }
+    }
+}
+```
+(newrp: `Code/framework/modules/ModuleManager.cs`, `GameModule.cs`) — a scene `ModuleBootstrap : Component` drives `OnAwake`→boot and `OnUpdate`→module updates, and self-destructs on duplicate. This pattern is not needed for small games but is the right answer for a 10+ system RP framework.
+
+### Host-as-superadmin shortcut + Connection.Id-keyed transient admin state
+
+Admin state (ranks, freeze, noclip) lives in static dictionaries keyed by `Connection.Id` (a `Guid`) — not by SteamId — so it is session-local and never persisted. The listen-server host gets `superadmin` automatically.
+
+```csharp
+// newrp: Code/modules/admin/AdminService.cs (sketch)
+static Dictionary<Guid, AdminRank> _ranks = new();
+static bool IsHost(Connection conn) => Networking.IsHost && conn == Connection.Local;
+
+public static AdminRank GetRank(Connection conn) =>
+    IsHost(conn) ? AdminRank.Superadmin :
+    _ranks.TryGetValue(conn.Id, out var r) ? r : AdminRank.None;
+
+public static void FreezePlayer(Connection target, bool freeze) {
+    if (!Networking.IsHost) return;
+    var ctrl = FindController(target);
+    if (ctrl == null) return;
+    ctrl.UseInputControls = !freeze;
+    if (freeze) ctrl.Velocity = Vector3.Zero;
+}
+public static void SetNoclip(Connection target, bool noclip) {
+    var p = FindPlayer(target);
+    if (noclip) p.GameObject.GetOrAddComponent<NoclipMoveMode>();
+    else p.GameObject.GetComponent<NoclipMoveMode>()?.Destroy();
+}
+```
+(newrp: `Code/modules/admin/AdminService.cs`) — `Connection.Id` is a `Guid`, not a `long`. Freeze sets `UseInputControls = false` and zeroes velocity. Noclip is a `GetOrAddComponent<NoclipMoveMode>()`.
+
+### Network interest culling (`Component.INetworkVisible`) — artisan.darkrpog
+
+By default s&box transmits every networked object to every client. For 30+ printers, doors, ATMs, and dropped money in an RP server, that floods clients. artisan implements per-object distance + role + owner visibility on top with hysteresis and a spawn warmup window.
+
+```csharp
+// artisan.darkrpog: Networking/RoleplayNetworkVisibility.cs (sketch)
+public sealed class RoleplayNetworkVisibility : Component, Component.INetworkVisible
+{
+    [Property] public float VisibleRange { get; set; } = 2000f;
+    [Property] public float ExitBuffer   { get; set; } = 200f;
+    [Property] public float SpawnWarmup  { get; set; } = 4f;
+    TimeSince _spawnedAt;
+
+    bool Component.INetworkVisible.IsVisibleToConnection(Connection conn, BBox worldBounds)
+    {
+        if (_spawnedAt < SpawnWarmup) return true;           // warmup: always visible on spawn
+        var player = PlayerModule.FindForConnection(conn);
+        if (player == null) return true;                     // fail open
+        if (player.Connection == Network.Owner) return true; // owner always sees it
+        if (AdminService.GetRank(conn) >= AdminRank.Moderator) return true;
+        float dist = Vector3.DistanceBetween(player.WorldPosition, worldBounds.Center);
+        bool wasVisible = _visibleTo.Contains(conn.Id);
+        float threshold = wasVisible ? VisibleRange + ExitBuffer : VisibleRange; // hysteresis
+        bool visible = dist <= threshold;
+        if (visible) _visibleTo.Add(conn.Id); else _visibleTo.Remove(conn.Id);
+        return visible;
+    }
+    protected override void OnStart() { _spawnedAt = 0; Network.AlwaysTransmit = false; } // MUST set before NetworkSpawn
+}
+```
+(artisan.darkrpog: `Networking/RoleplayNetworkVisibility.cs`) — **Anti-pattern:** setting `AlwaysTransmit = false` after `NetworkSpawn` races with the engine's initial ownership handshake. Set it in `OnStart` or before the spawn call. The component fails open (returns visible) if disabled via ConVar so a bad rollout is one console command.
+
+### Razor panel performance — BuildHash + PerFramePanelCache + distance-gated OnUpdate
+
+artisan's ATM screen documents the three Razor perf rules clearly. Copy this discipline to any world-facing panel that reads live game state.
+
+```csharp
+// artisan.darkrpog: UI/Atm/AtmScreen.razor (sketch — the three disciplines)
+
+// 1. BuildHash: only re-render when something visible actually changed
+protected override int BuildHash() =>
+    HashCode.Combine(Player?.Money, Player?.Bank, HistoryStamp, SkillBonus);
+
+// 2. PerFramePanelCache: expensive derived getters computed once per frame
+readonly PerFramePanelCache<string> _formattedBalance;
+string FormattedBalance => _formattedBalance.Get(() => $"${Player.Money:n0}");
+
+// 3. Distance-gated OnUpdate: don't run per-frame logic for panels out of range
+const float OnUpdateGateRangeSquared = 300f * 300f;
+protected override void OnUpdate() {
+    var player = Player.FindLocalPlayer();
+    if (player == null) return;
+    float distSq = (player.WorldPosition - WorldPosition).LengthSquared; // no sqrt
+    if (distSq > OnUpdateGateRangeSquared) return;
+    base.OnUpdate();
+}
+```
+(artisan.darkrpog: `UI/Atm/AtmScreen.razor`) — `LengthSquared` avoids a sqrt per frame across every ATM in the scene. `PerFramePanelCache<T>` is an artisan helper — implement it as a `(int frame, T value)` struct that re-evaluates when `Time.Tick` changes.
+
+### World-panel kiosk without collider alignment (WorldInput.Hovered)
+
+artisan's ATM uses `WorldPanel.InteractionRange` + `WorldInput.Hovered` ancestry check to drive walk-up open and digit capture — no 3D collider needed for the UI hit-test.
+
+```csharp
+// artisan.darkrpog: UI/Atm/AtmScreen.razor (sketch)
+protected override void OnUpdate() {
+    bool hovered = WorldInput.Hovered?.IsDescendantOf(this) ?? false;
+    if (hovered && !_isOpen) TryAutoOpen();
+    // keyboard digits captured only while hovered — suppresses gameplay bind conflicts
+    if (hovered && Input.Pressed("KP_0")) RequestAppendDigit(0); // note: "KP_0" not "KP0"
+}
+[Rpc.Host] void RequestAppendDigit(int d) { /* overflow + cooldown guard */ }
+```
+(artisan.darkrpog: `UI/Atm/AtmScreen.razor`) — **Gotcha:** raw numpad input names need underscores (`KP_0`, `KP_1`…); `KP0` maps to `BUTTON_CODE_INVALID` and silently fires nothing. Digit input is routed through the same `[Rpc.Host]` RPCs as the physical keypad so overflow/rate-limit guards apply uniformly.
+
+### Off-thread coalescing persistence writer — artisan.darkrpog
+
+For servers with 50+ players all saving on disconnect or on-payday, synchronous disk writes block the main thread and can trip the server-frame timeout. artisan's `PersistenceFlushQueue` drains writes off-thread with per-path coalescing (only the latest save per player ever hits disk) and a priority-tiered drop policy.
+
+Key ideas (not a full sketch — implement once you need > ~20 concurrent players):
+- Keyed by normalized path; a second enqueue to the same path replaces the pending payload. Only the latest state reaches disk.
+- Priority tiers (Critical > Gameplay > Autosave > Dashboard > Diagnostic): when the queue is full, low-priority writes are dropped, never gameplay saves.
+- `DrainSynchronouslyForShutdown()` — called on server exit to guarantee nothing in-flight is lost.
+- `TryNormalizePath` rejects `..`, `:`, and absolute paths before enqueue.
+
+(artisan.darkrpog: `Concurrency/PersistenceFlushQueue.cs`) — only needed at scale; write-through `Save()` on the main thread is fine for prototypes and solo/co-op games.
+
+### Anti-farm XP on repeatable actions — artisan.darkrpog
+
+Any XP source that can be triggered repeatedly needs a key + hourly cap + per-source cooldown or players will farm it to infinity.
+
+```csharp
+// artisan.darkrpog: Skills/RoleplaySkillService.cs (sketch)
+bool GrantXp(PlayerData player, SkillXpSource source, long antiFarmKey, int hourlyCap, float cooldownSeconds) {
+    if (!Networking.IsHost) return false;
+    var record = player.GetAntiFarmRecord(source, antiFarmKey);
+    if (record.LastGrantedAt + cooldownSeconds > Time.Now) return false;         // per-key cooldown
+    if (record.GrantedThisHour >= hourlyCap) return false;                       // hourly cap
+    record.LastGrantedAt = Time.Now;
+    record.GrantedThisHour++;
+    player.Skills[source].Xp += BaseXpForSource(source);
+    return true;
+}
+// antiFarmKey = target object's stable id (e.g. ATM GameObject id) so grinding one ATM
+// is rate-limited independently from all other ATMs.
+```
+(artisan.darkrpog: `Skills/RoleplaySkillService.cs`) — `antiFarmKey` is typically the target object's `GameObject.Id.GetHashCode()` cast to `long`. Combine with per-source enum so ATM-hack XP and banking XP track independently.
+
+### Per-player-cap vendor with live-object tracking — lowkeynetworks.newrp
+
+The `MaxPerPlayer` cap in newrp's vendor is enforced by counting *live* tracked GameObjects, not a stored integer. Destroyed props (player death, admin cleanup) free the slot automatically.
+
+```csharp
+// newrp: Code/content/market/MarketService.cs (sketch)
+static Dictionary<(long steamId, string itemId), List<GameObject>> _tracked = new();
+
+[Rpc.Host] static void Purchase(string itemId) {
+    var player = FindCaller();
+    var item = ItemRegistry.Get(itemId);
+    if (item == null || !item.Spawnable) return;
+    if (item.Price > 0 && !player.Data.TakeMoney(item.Price)) return;
+    // enforce per-player cap by counting still-valid live objects
+    var key = (player.Data.SteamId, itemId);
+    _tracked.TryGetValue(key, out var owned);
+    owned?.RemoveAll(go => !go.IsValid());                  // prune destroyed first
+    if (item.MaxPerPlayer > 0 && (owned?.Count ?? 0) >= item.MaxPerPlayer) {
+        player.Data.AddMoney(item.Price); return;            // refund, over cap
+    }
+    var go = SpawnItem(player, item);
+    if (!go.IsValid()) { player.Data.AddMoney(item.Price); return; } // refund on fail
+    (_tracked[key] ??= new()).Add(go);
+    go.Tags.Add("newrp-item-" + itemId);
+    Ownable.Set(go, player.Connection);
+    go.NetworkSpawn(true, null);
+}
+```
+(newrp: `Code/content/market/MarketService.cs`) — spawn transform is an eye-trace 220u forward from the player, landing on `HitPosition + Normal*18u`. Spawned object gets `removable`, `newrp-market`, and `newrp-item-{id}` tags so admin cleanup tools can find them.
+
+## Read these games
+
+For the full roleplay pattern set, read both sources together:
+
+- `C:\Users\cargi\sbox-lessons\mining-v2\games\artisan.darkrpog.md` — production-grade framework: off-thread persistence, network interest culling, frame-budget queues, Razor panel perf, world-panel kiosk, anti-farm XP, 45 GameResource asset types, data-driven economy ROI simulator.
+- `C:\Users\cargi\sbox-lessons\mining-v2\games\lowkeynetworks.newrp.md` — framework architecture: dependency-ordered module kernel, `Rpc.FilterInclude` proximity/vote targeting, ownable linked-door groups, EventBus money (non-`[Sync]` alternative), per-player-cap vendor with live-object tracking, `[ConCmd]`→`[Rpc.Host]` chat intercept.
+
+Neither `facepunch.ss2`, `despawn.murder`, `facepunch.fair`, nor `barrelproto.ragroll` contains roleplay/DarkRP-specific material.

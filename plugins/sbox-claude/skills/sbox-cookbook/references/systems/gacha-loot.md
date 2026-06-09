@@ -243,3 +243,290 @@ Verify live: the installed SDK is authoritative — confirm `[Sync]`/`[Rpc.Broad
 `Random.Shared`, and easing helpers (`MathX`, `MathF`) with `describe_type` / `search_types`
 reflection before relying on a signature. For the build loop and API lookups, cross-link the
 `sbox-api` and `sbox-build-feature` skills.
+
+## Corpus refresh (2026): more reference implementations
+
+Four additional games surface techniques absent from the section above. All code is modern
+s&box (GameObject/Component, `[Sync]`/`[Rpc]`, `OnUpdate`).
+
+### Reflection-driven catalog — no hand-list (facepunch.ss2)
+
+The perk pool in Sausage Survivors 2 is never maintained as a list. Every class decorated with
+`[Perk(Rarity, ...)]` is automatically included. Add a file → it's in the pool.
+
+```csharp
+// PerkManager.cs — build the pool once from reflection
+static List<TypeDescription> _pool;
+static void BuildPool()
+{
+    _pool = TypeLibrary.GetTypes<Perk>()
+        .Where( t => !t.IsAbstract && t.HasAttribute<PerkAttribute>() )
+        .ToList();
+}
+
+// Weighted reservoir draw without replacement
+public List<Perk> GetRandomPerks( Player player, int count, PerkRarity rarity )
+{
+    var candidates = _pool
+        .Where( t => PassesSynergyGate( t, player ) )
+        .Select( t => (type: t, weight: GetWeightForRarity( t.GetAttribute<PerkAttribute>().Rarity )) )
+        .ToList();
+    // per-pick reweighting: already-owned perks get weight *= (1 + level * ExistingPerkChance)
+    foreach ( var owned in player.OwnedPerks )
+        AdjustWeight( candidates, owned.GetType(), 1f + owned.Level * ExistingPerkChance );
+
+    return ReservoirDraw( candidates, count );   // removes winner from candidates each pick
+}
+```
+
+Game: facepunch.ss2 — `Code/PerkManager.cs`, `Code/perks/Perk.cs`.
+
+**Anti-pattern fixed here:** a hand-maintained `List<Type>` in a central file → merges conflict and
+authors forget to register. The attribute approach is zero-maintenance.
+
+**Per-pick reweighting (snowball / anti-snowball):** multiply the candidate weight by a bias factor
+after each draw. ss2 uses it to let owned perks snowball (`weight × (1 + level × chance)`), but the
+same hook can *reduce* weight after each pick to push variety.
+
+### Synergy/prerequisite gates (facepunch.ss2)
+
+Before offering a perk, ss2 checks ~40 hardcoded rules so a pick is only shown when it can do
+something useful:
+
+```csharp
+// PerkManager.cs IsPerkAllowed — called as the candidate filter above
+bool PassesSynergyGate( TypeDescription t, Player p )
+{
+    var attr = t.GetAttribute<PerkAttribute>();
+    if ( attr.MinDifficulty > CurrentDifficulty ) return false;
+    if ( attr.RequiresPiercing && !p.CanPierce() ) return false;
+    if ( attr.RequiresCrit && p.CritChance <= 0f ) return false;
+    if ( attr.MaxLevel > 0 && p.GetPerkLevel(t) >= attr.MaxLevel ) return false;
+    // ... ~40 more rules
+    return true;
+}
+```
+
+Apply this any time a loot table should only offer items the player can use — e.g., only offer
+weapon drops matching the player's class, only offer upgrade perks for abilities the player owns.
+
+### Client-side static-registry hydration (facepunch.ss2)
+
+Clients connected mid-session receive perk identities (ints) over `[Sync] NetDictionary`, not
+object instances. Static display dicts are populated by a static ctor — but that ctor never ran on
+the client for perks they haven't encountered:
+
+```csharp
+// Perk.cs — called before displaying a perk by identity
+public static void EnsureRegistered( Type type )
+{
+    if ( _registered.Contains( type ) ) return;
+    // Instantiating the type triggers its static ctor, which calls Register(...)
+    TypeLibrary.GetType( type ).Create<Perk>();
+    _registered.Add( type );
+}
+```
+
+Lesson: `TypeDescription.Create<T>()` purely to trigger a static ctor is the correct way to hydrate
+type-keyed static data on a client that never ran the game-object lifecycle for that type.
+
+### Live cloud stats feeding back into drop tables (facepunch.ss2)
+
+The `PerkRandomFavorite` perk biases the draft toward what this player historically chooses:
+
+```csharp
+// Player.Perks.cs — called once per run to personalize the pool
+void DetermineFavoritePerks()
+{
+    _favorites = _pool
+        .OrderByDescending( t =>
+            Sandbox.Services.Stats.LocalPlayer.Get( $"perkChosen_{t.Identity}" )
+            - Sandbox.Services.Stats.LocalPlayer.Get( $"perkIgnored_{t.Identity}" ) )
+        .Take( 10 )
+        .ToHashSet();
+}
+// During GetRandomPerks: if _favorites.Contains(type) weight *= FavoriteBonus;
+```
+
+Pattern: `Services.Stats.LocalPlayer.Get(key)` — the read-only per-player stat store — is
+queryable at runtime and can personalize any weighted draw. No server round-trip needed.
+
+### Wear/float as a post-roll value modifier (lavagame.multis_cases)
+
+After the rarity roll selects an item, a second `WearFloat` roll (0 = Factory New → 1 =
+Battle-Scarred) drives a `WearMultiplier` (1.35× to 0.70×) that scales `SellValue`:
+
+```csharp
+// InventoryItem construction after RollWinner
+item.WearFloat = rng.NextSingle();   // uniform [0,1)
+item.SellValue = item.BaseValue * GetWearMultiplier( item.WearFloat );
+
+static float GetWearMultiplier( float wear ) => wear switch {
+    < 0.07f  => 1.35f,  // Factory New
+    < 0.15f  => 1.15f,  // Minimal Wear
+    < 0.38f  => 1.00f,  // Field-Tested
+    < 0.45f  => 0.85f,  // Well-Worn
+    _        => 0.70f,  // Battle-Scarred
+};
+```
+
+Game: lavagame.multis_cases — `Code/Game/Economy/ItemDefinition.cs`. Generalizable to any
+"condition" axis on a drop (durability, freshness, edition, quality grade).
+
+### Collection album — completing a set gives a persistent multiplier (lavagame.multis_cases)
+
+Filling all non-gold items in a case grants a permanent `CollectionMultiplier += 0.05f` on passive
+income — a non-monetary, non-pity progression sink that rewards broad rolling over cherry-picking:
+
+```csharp
+// GameManager — called after any item grant
+void CheckCollectionCompletion( string caseName, string itemName )
+{
+    _collection[caseName].Add( itemName );
+    var caseDef = _cases[caseName];
+    bool complete = caseDef.PossibleDrops
+        .Where( i => i.Rarity != ItemRarity.Gold )
+        .All( i => _collection[caseName].Contains( i.Name ) );
+    if ( complete ) CollectionMultiplier += 0.05f;
+}
+```
+
+Game: lavagame.multis_cases — `Code/Game/Core/GameManager.cs` + `CollectionData`.
+
+### Jackpot pending-win-until-ACK (lavagame.multis_cases)
+
+When the jackpot host selects a winner but the winner disconnects before receiving their prize,
+the payout is persisted locally and re-applied on next join:
+
+```csharp
+// JackpotManager.cs — host side, after finalizing the jackpot
+[Rpc.Broadcast]
+void BroadcastJackpotResult( string winnerSteamId, ItemDefinition[] wonItems )
+{
+    if ( Connection.Local.SteamId.ToString() != winnerSteamId ) return;
+    if ( !GrantItems( wonItems ) )
+    {
+        // Disconnecting before grant — persist to local file
+        FileSystem.Data.WriteAllText( "mc_jackpot_pending.json",
+            JsonSerializer.Serialize( wonItems ) );
+    }
+}
+
+// GameManager.OnStart — always re-check for a pending win
+void TryGrantPendingJackpotWin()
+{
+    if ( !FileSystem.Data.FileExists( "mc_jackpot_pending.json" ) ) return;
+    var items = FileSystem.Data.ReadJson<ItemDefinition[]>( "mc_jackpot_pending.json" );
+    if ( GrantItems( items ) )
+        FileSystem.Data.DeleteFile( "mc_jackpot_pending.json" );
+}
+```
+
+Game: lavagame.multis_cases — `Code/Game/Gambling/JackpotManager.cs`, `Code/Game/Core/GameManager.cs`.
+
+### Per-source layered rarity curves (namicry.gacha_crawler)
+
+The same generator serves three different roll contexts, each with its own probability shape:
+
+```csharp
+// ItemGenerator.cs — three separate roll functions, same enum return
+public static ItemRarity RollLootboxRarity()    // shop boxes: Divine 0.15%, Mythic 0.25%, Legendary 2% ...
+public static ItemRarity RollDungeonLootRarity() // no Mythic; Legendary capped at 0.5%; min-rarity floor
+public static ItemRarity RollRarity()            // world drops: wider common band
+
+// ⚠ ANTI-PATTERN in the same file — RollRarity checks Mythic BEFORE Legendary:
+//   if (roll < 0.006f) return Mythic;
+//   if (roll < 0.012f) return Legendary;   ← unreachable (Mythic already catches [0, 0.006))
+// Fix: always check from rarest DOWN in ascending threshold order.
+// RollLootboxRarity at :936 gets it right — copy that, not RollRarity.
+```
+
+Game: namicry.gacha_crawler — `Code/Data/ItemGenerator.cs:912` (buggy world roll) vs `:936` (correct
+lootbox roll). The ascending-threshold bug is already noted in Gotchas above; the layering pattern
+is new.
+
+### Class-weighted generation — biasing drops toward the player's build (namicry.gacha_crawler)
+
+After rarity is decided, the item type is skewed 70% toward what the player's class can use:
+
+```csharp
+// ItemGenerator.GenerateRandomItemForClass
+ItemType PickItemType( PlayerClass cls, Random rng )
+{
+    if ( rng.NextDouble() < 0.70 )
+    {
+        // 70%: preferred armor or a weapon the class can wield
+        return rng.NextDouble() < 0.5
+            ? ClassData.GetPreferredArmor( cls )
+            : ClassData.GetUsableWeapon( cls, rng );
+    }
+    return AllItemTypes[ rng.Next( AllItemTypes.Length ) ];  // 30%: any type
+}
+```
+
+Game: namicry.gacha_crawler — `Code/Data/ItemGenerator.cs`. Useful for any class/build-system where
+off-class drops feel like wasted rolls.
+
+### Ingredient-modified procedural roll (namicry.gacha_crawler)
+
+Crafting ingredients carry `[Flags] CraftIngredientEffect` that modify how `ItemGenerator.GenerateCraftedItem`
+runs — a clean way to let crafting inputs control the loot outcome rather than a fixed recipe:
+
+```csharp
+// CraftIngredientData.cs
+[Flags] enum CraftIngredientEffect { None=0, ClassMatch=1, TierGuarantee=2, PropertyReroll=4 }
+
+// ItemGenerator.GenerateCraftedItem
+public static Item GenerateCraftedItem( int level, ItemRarity rarity, PlayerClass cls,
+                                         CraftIngredientEffect effects )
+{
+    var item = GenerateBase( level, rarity );
+    if ( effects.HasFlag( CraftIngredientEffect.ClassMatch ) )
+        item.Type = ClassData.GetPreferredArmor( cls );
+    if ( effects.HasFlag( CraftIngredientEffect.TierGuarantee ) )
+        item.Tier = MaxTier;
+    if ( effects.HasFlag( CraftIngredientEffect.PropertyReroll ) )
+        RegenerateItemProperties( item );
+    return item;
+}
+```
+
+Game: namicry.gacha_crawler — `Code/Data/CraftIngredientData.cs`, `Code/Data/ItemGenerator.cs`.
+
+### "Server-as-truth" anti-pattern (sino.s_sino)
+
+sino.s_sino (a casino game) carries **no gacha math in the s&box layer at all**. Every roll, every
+balance change, every payout lives on an external Node/WebSocket server. The s&box client only
+renders what the server pushes. Balance is held as **cents strings** (never floats), cached locally
+purely for instant boot display, and always overwritten by the server's first `init` message.
+
+The lesson is not to copy this architecture blindly, but to understand when it applies:
+- If your gacha involves real or cross-session stakes (leaderboard-ranked inventory, PvP case
+  battles), rolling on the s&box host with `[Rpc.Host]` is the minimum; an external server removes
+  the trust problem entirely.
+- For cosmetic-only or single-player gacha, `Random.Shared` on the local client is fine.
+- The explicit pattern from this game: `balance_cache.txt` (cosmetic local cache, regex-validated)
+  + server's first `init` overwrites it. Use this if you ever show a balance before a server
+  connection is established.
+
+Game: sino.s_sino — `Code/UI/BalanceHud.razor`, `Code/Core/WebSocketManager.cs`.
+
+---
+
+### Updated "read these games" pointer
+
+For gacha / loot / weighted-rarity systems, open the real code in this order:
+
+1. **artisan.darkrpog** — clean baseline `LootboxRoller.Roll` + `GameResource` defs
+2. **lavagame.multis_cases** — EV normalization, rank-biased odds, wear/float modifier, collection
+   album, jackpot pending-win-ACK, host-authoritative case-battle
+3. **namicry.gacha_crawler** — layered per-source curves, pity, class-bias, ingredient-flags,
+   spin animation in C# not CSS; also the ascending-threshold anti-pattern at `:912`
+4. **facepunch.ss2** — reflection-driven catalog, synergy gates, per-pick reweighting, cloud-stats
+   personalization, static-registry hydration on clients
+5. **treehaven.sdiver** — `[Sync,Change]` host-authoritative `TreasureContainer`, per-entry caps
+6. **stepdev.xtrem_road** — rod-tier/zone rarity curve, CS:GO strip with `WinIndex=34`
+7. **vault77.chop_the_forest** — timed free case, charge recharge persisted as Unix seconds
+8. **clearlyy.s_miner** — daily/cooldown lootbox
+9. **master.digging_simulator** — virtual/lazy depth-weighted ore spawning
+10. **sino.s_sino** — "server-as-truth" contrast case (no gacha math in s&box layer)

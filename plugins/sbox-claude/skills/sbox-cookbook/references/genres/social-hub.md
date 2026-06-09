@@ -177,3 +177,224 @@ public void Interact(ElevatorPlayer interactor) => OnInteract(interactor);
 s&box's API shifts between SDK versions — reflection is the source of truth, not this doc or training data. Before writing against an unfamiliar type, confirm it: `describe_type` / `search_types` for `Component`, `Component.INetworkListener`, `Sandbox.Networking` (`CreateLobby`, `NetworkSpawn`, `SetOrphanedMode`, `NetworkOrphaned`), `Sandbox.Services.Stats` / `Services.Achievements`, `NavMeshAgent` + `Scene.NavMesh`, `WorldPanel`, `GameResource`, and the `[Sync(SyncFlags.FromHost)]` / `[Rpc.Owner]` / `[Rpc.Broadcast]` attributes; `Scene.Trace` for the interaction raycast. Stop play mode before scene edits; screenshot visual changes and read the PNG.
 
 Cross-links: see the **sbox-api** skill for authoritative type/method signatures, and the **sbox-build-feature** skill for the screenshot-driven build loop and the sandbox gotcha list (MathF restricted, head-bone case sensitivity, NavMesh must be baked + set dirty on level load, Cloud assets ephemeral).
+
+## Corpus refresh (2026): more reference implementations
+
+The three games below add four net-new techniques for social-hub lobby presence not covered above.
+
+---
+
+### 1. `GameObjectSystem<T>` as the network bootstrap — no scene object required (facepunch.jumper)
+
+The spine uses a `Component` on a root GameObject for the network helper. `facepunch.jumper` shows a cleaner alternative: the manager is a `GameObjectSystem<T>` (+ `INetworkListener`, `ISceneStartup`), which the engine instantiates automatically per scene with no scene wiring and no risk of the GO being deleted.
+
+```csharp
+public class HubGameSystem : GameObjectSystem<HubGameSystem>, INetworkListener, ISceneStartup
+{
+    public HubGameSystem(Scene scene) : base(scene) { }
+
+    // Called once on the host before the scene runs — the race-free hook for lobby setup
+    void ISceneStartup.OnHostPreInitialize(SceneFile sf)
+    {
+        // Stamp lobby visibility BEFORE networking spins up — never lose a race with CreateLobby
+        LaunchArguments.Privacy = LaunchPrivacy.Public;   // or Friends
+        Networking.CreateLobby(new LobbyConfig { MaxPlayers = 32 });
+    }
+
+    public void OnActive(Connection channel)   // host callback: a new player connected
+    {
+        var player = PlayerPrefab.Clone(FindSpawn(), name: $"Player - {channel.DisplayName}");
+        player.NetworkSpawn(channel);
+    }
+}
+```
+
+(jumper: `Code/GamePlay/GameManager.cs:1`; sino: `Code/Core/CasinoLobbyPrivacySystem.cs:1` for the `OnHostPreInitialize` lobby-privacy hook.) **Anti-pattern to avoid:** trying to set lobby privacy after `Networking.CreateLobby` — `ISceneStartup.OnHostPreInitialize` is the correct, race-free hook. `sino.s_sino` ships exactly this pattern (`CasinoLobbyPrivacySystem : GameObjectSystem<T>, ISceneStartup`).
+
+---
+
+### 2. Diff-based per-connection lobby preview reconciler (gabreusenra.wjse)
+
+The spine spawns one player per `OnActive` call. For a lobby waiting room you often want a **preview doll** visible before the match starts, reconciled as connections come and go. `wjse/LobbyManager` does this with a simple dictionary diff:
+
+```csharp
+// Host-only, called every frame during lobby phase
+private void UpdateNetworkedPreviews()
+{
+    if (!Networking.IsHost) return;
+
+    // Spawn a preview for any new connection
+    foreach (var conn in Networking.Connections)
+    {
+        if (_previews.ContainsKey(conn.Id)) continue;
+        var doll = PreviewPrefab.Clone(GetPreviewSlot(conn), name: $"Preview - {conn.DisplayName}");
+        doll.NetworkSpawn(conn);   // conn owns their own preview; engine replicates Destroy
+        _previews[conn.Id] = doll;
+    }
+
+    // Destroy previews for disconnected connections
+    var live = new HashSet<Guid>(Networking.Connections.Select(c => c.Id));
+    foreach (var id in _previews.Keys.Where(id => !live.Contains(id)).ToList())
+    {
+        _previews[id]?.Destroy();
+        _previews.Remove(id);
+    }
+}
+```
+
+(wjse: `Map and Lobby/LobbyManager.cs:124-187`.) Key point: `NetworkSpawn(conn)` makes the **chosen player own their own preview**, so the engine handles proxy destruction when the owner disconnects. No manual cleanup needed on disconnect.
+
+**Also from wjse — carrying character/map choices across a scene load via a static dictionary:**
+
+```csharp
+// Before calling Game.ActiveScene.Load(nextMap), copy ephemeral NetDictionary into a static:
+public static Dictionary<Guid, int> StartingCharacters = new();
+
+void StartGame()
+{
+    foreach (var (id, pick) in PlayerCharacters)   // PlayerCharacters is a [Sync] NetDictionary
+        StartingCharacters[id] = pick;
+    Game.ActiveScene.Load(ChosenMap.SceneFile);
+}
+
+// In the next scene's GameSpawner.OnActive:
+int charPick = LobbyManager.StartingCharacters.GetValueOrDefault(channel.Id, 0);
+var prefab = CharacterPrefabs[charPick];
+prefab.Clone(...).NetworkSpawn(channel);
+```
+
+(wjse: `Map and Lobby/LobbyManager.cs:240-289`, `GameSpawner.cs:37-84`.) The `static` dict is the deliberate bridge across the scene-load boundary; `NetDictionary` lives only for the scene's lifetime.
+
+---
+
+### 3. One-player-per-station with a 30-second reservation grace (sino.s_sino)
+
+A recurring social-hub need: a table/terminal/seat that only one player can use at a time, with a hold period after they leave so they can walk away briefly without losing their spot.
+
+```csharp
+public class InteractionStation : Component, Component.IPressable
+{
+    [Sync] public string OccupiedBySteamId { get; private set; }
+    [Sync] public double ReservedUntilTime { get; private set; }  // Time.Now + 30
+
+    public bool IsOccupied => !string.IsNullOrEmpty(OccupiedBySteamId);
+    public bool IsOccupiedByLocal => OccupiedBySteamId == Connection.Local.SteamId.ToString();
+    // A reservation holds for 30 s after the owner leaves
+    public bool IsReservedAgainstMe => Time.Now < ReservedUntilTime && !IsOccupiedByLocal;
+
+    public bool Press(IPressable.Event e)
+    {
+        if (IsOccupied && !IsOccupiedByLocal) return false;   // seat taken
+        if (IsReservedAgainstMe) return false;                 // grace period
+        ClaimSeat();
+        return true;
+    }
+
+    [Rpc.Broadcast]
+    private void ClaimSeat()
+    {
+        OccupiedBySteamId = Connection.Local.SteamId.ToString();
+        ReservedUntilTime = 0;
+    }
+
+    public void ReleaseSeat()   // call when the player closes the overlay
+    {
+        OccupiedBySteamId = "";
+        ReservedUntilTime = Time.Now + 30.0;   // 30s grace
+    }
+
+    protected override void OnUpdate()
+    {
+        // Non-proxy owner auto-clears a stale reservation after it expires
+        if (!IsProxy && !IsOccupied && Time.Now >= ReservedUntilTime)
+            ReservedUntilTime = 0;
+    }
+}
+```
+
+(sino: `Code/Core/GamingTerminalStation.cs:52-80`.) Only `[Sync]` primitives — no custom RPC for the claim; `[Rpc.Broadcast]` writes the synced fields so every peer sees the seat flip in one step.
+
+---
+
+### 4. Ping-corrected shared game clock for timed rounds (barrelproto.ragroll)
+
+The spine uses `Time.Now` directly for round timing. For a drop-in social hub where players join mid-round, a host-broadcast `[Sync]` timestamp + client-side ping correction gives everyone the same apparent clock without drift:
+
+```csharp
+public class HostClock : Component
+{
+    [Sync] private float _hostTimestamp { get; set; }   // written only by host
+    private float _localOffset;
+    private float _lastBroadcast;
+
+    // Every peer reads this — it's the authoritative shared time
+    public float HostTime => _hostTimestamp + _localOffset;
+
+    protected override void OnUpdate()
+    {
+        if (Networking.IsHost)
+        {
+            if (Time.Now - _lastBroadcast > 0.4f)
+            {
+                _hostTimestamp = Time.Now;   // [Sync] replicates to all clients
+                _lastBroadcast = Time.Now;
+            }
+        }
+        else
+        {
+            // Clients: keep advancing locally; only snap on significant drift
+            var estimated = _hostTimestamp + Connection.Host.Ping * 0.001f;
+            if (MathX.Abs(estimated - (_hostTimestamp + _localOffset)) > 0.1f)
+                _localOffset = estimated - _hostTimestamp;
+            else
+                _localOffset += Time.Delta;
+        }
+    }
+
+    public void OnBecameHost()
+    {
+        // Keep whichever is later so clock never jumps backward on promotion
+        _hostTimestamp = MathX.Max(_hostTimestamp, Time.Now);
+        _localOffset = 0;
+    }
+}
+```
+
+(ragroll: `Code/mode/networking/HostClock.cs`.) Use `HostClock.HostTime` instead of `Time.Now` wherever the round timer, spawn windows, or streak windows need to agree across clients. **Note:** `MathF.Abs` does not exist in the s&box sandbox — use `MathX.Abs`.
+
+### 5. `NetworkOrphaned.ClearOwner` for drop-in mode objects (barrelproto.ragroll)
+
+The spine uses `NetworkOrphaned.Host` for level objects (they migrate to the new host). For the **mode manager itself** — the singleton that owns game state — `ragroll` uses `ClearOwner` instead:
+
+```csharp
+// Host clones the mode prefab once; ClearOwner means it survives migration as unowned
+// OnBecameHost then re-asserts control of the now-unowned object
+void InitializeMode()
+{
+    if (!Networking.IsHost) return;
+    _modeGO = ModePrefab.Clone();
+    _modeGO.NetworkSpawn();
+    _modeGO.Network.SetOrphanedMode(NetworkOrphaned.ClearOwner);  // survives host leave
+}
+
+public void OnBecameHost()
+{
+    // Take back authority over the orphaned mode object
+    _modeGO?.Network.TakeOwnership();
+    // Rebuild any ephemeral state from [Sync] fields here
+}
+```
+
+(ragroll: `GameController.cs`, `RollMode.cs:80`; also `lavagame.sandmoney_` uses the same `OnBecameHost` + `RecoverFromHostMigration` pattern.) **When to use `ClearOwner` vs `Host`:** use `Host` for level content (persists under the new host's tree), use `ClearOwner` for the mode/manager object itself (survives unowned, then `OnBecameHost` re-asserts — avoids a circular ownership dependency).
+
+---
+
+### Read these games
+
+For social-hub lobby presence, read these in priority order:
+
+1. `playbtg.elevator` — the canonical hub architecture (rotation, tags, migration, interaction, economy)
+2. `sino.s_sino` — seat occupancy/reservation, external-server economy, `ISceneStartup` lobby privacy, WorldPanel batching fix
+3. `barrelproto.ragroll` — `ClearOwner`+`OnBecameHost` mode migration, ping-corrected clock, `GameObjectSystem<T>`
+4. `gabreusenra.wjse` — per-connection preview reconciler, map-vote + character-pick across scene load
+5. `facepunch.jumper` — `GameObjectSystem<T>` network helper, Steam avatar in Razor via `avatar:SteamId` URL

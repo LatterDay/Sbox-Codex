@@ -168,3 +168,241 @@ public void AckWin( ulong steamId )
 **Verify live:** API shifts between SDK versions — confirm `[Sync(SyncFlags.FromHost)]`, `Networking.IsHost`, `FileSystem.Data`, `Time.Now`/`Time.Delta`, and `[Rpc.Host]` against the installed SDK with `describe_type` / `search_types` reflection (authoritative) before building.
 
 **See also:** the `sbox-api` skill for resolving exact type/method signatures, and the `sbox-build-feature` skill for the screenshot-driven iteration loop when wiring an idle generator into a scene.
+
+---
+
+## Corpus refresh (2026): more reference implementations
+
+### A. UTC-tick scheduling — the correct way to do true offline accrual (klibatocorp.phenodex)
+
+The existing corpus note says "no game simulates true offline elapsed-time" and tells you to build it yourself. `klibatocorp.phenodex` is now the canonical reference: it stores **UTC tick deltas** (`DateTime.UtcNow.Ticks`), not `Time.Delta` accumulators, so growth and bills advance correctly across sessions regardless of how long the server was offline.
+
+```csharp
+// phenodex/Code/Plant.cs
+[Sync(SyncFlags.FromHost)] public long PlantedAtTicks  { get; set; }
+[Sync(SyncFlags.FromHost)] public long PhaseStartAtTicks { get; set; }
+
+// Works correctly after a server restart — no Time.Delta involved
+public double SecondsSincePhaseStart()
+    => TimeSpan.FromTicks( DateTime.UtcNow.Ticks - PhaseStartAtTicks ).TotalSeconds;
+
+// Apply a single DEV_TIME_SCALE knob for QA
+public const double DEV_TIME_SCALE = 1.0;   // raise to e.g. 45 for ~25s cycles
+```
+
+Bills schedule the same way: `NextBillTicks = DateTime.UtcNow.Ticks + TimeSpan.FromSeconds(BillIntervalSec).Ticks`, fired whenever `DateTime.UtcNow.Ticks >= NextBillTicks` — survives any number of restarts unchanged (phenodex: `Player.cs:ChargeMonthlyBill`).
+
+**Anti-pattern (old):** `UnclaimedBalance += income * Time.Delta` — only accrues while the host runs; closing the game forfeits all idle gains.
+**Fix:** store `LastSeenTicks`; on load credit `(DateTime.UtcNow.Ticks - LastSeenTicks)` ticks × rate (clamp to your cap).
+
+### B. Dual-faucet offline reconciliation with penalty + fuel bounds (lavagame.sandmoney_)
+
+`lavagame.sandmoney_` is the best reference for reconciling **two independently bounded offline income streams** from one `LastSeenUnix` timestamp on load:
+
+```csharp
+// sandmoney_/Code/InfrastructureManager.cs (condensed)
+void SimulateOfflineEarnings( double offlineSec )
+{
+    offlineSec = MathX.Clamp( offlineSec, 0, 86400 );   // hard 24-h cap
+    if ( offlineSec <= 300 ) return;                     // 5-min floor — skip trivial sessions
+
+    foreach ( var machine in OwnedMachines )
+    {
+        int cycles = (int)(offlineSec / machine.CycleSec);
+        double earn = cycles * machine.RewardPerCycle * 0.50;  // 50% offline penalty
+        double remainder = offlineSec % machine.CycleSec;
+        machine.CycleStartedAt = DateTime.UtcNow - TimeSpan.FromSeconds( remainder ); // resume mid-cycle
+        ApplyEarnings( earn );
+    }
+}
+
+// sandmoney_/Code/Player/PlayerTrader.cs (condensed)
+void ApplyOfflineEarnings( double offlineSec )
+{
+    foreach ( var bot in ActiveBots )
+    {
+        double earnSec = Math.Min( offlineSec, bot.FuelSeconds );  // fuel-bounded
+        double earn = bot.GetOfflineEarningsPerMin( bot.Tier, bot.Quality ) * (earnSec / 60.0);
+        bot.FuelSeconds -= earnSec;
+        if ( bot.FuelSeconds <= 0 ) bot.SetEnabled( false );       // disables when dry
+        ApplyEarnings( earn );
+    }
+}
+```
+
+Key techniques:
+- **50% offline penalty** — makes online play consistently more rewarding; disincentivises AFK.
+- **Fuel-bounded passive income** — bots can't earn indefinitely offline; they self-disable when fuel runs out, creating a sink economy (refuel/calibrate loop).
+- **Resume mid-cycle** — back-dates `CycleStartedAt` by the remainder so the progress bar picks up where it left off rather than restarting from 0.
+- **5-minute floor** + **once-per-load report** (`_showOfflineReport`) — avoids spammy "+$3 while you were gone" toasts on quick reconnects.
+
+This game also has the prestige layer (see section C) — both patterns compose on the same `LastSeenUnix` field.
+
+### C. Bracket-based prestige currency + full-wipe reset (lavagame.sandmoney_)
+
+The first full prestige implementation in the corpus. Key differentiators over a simple "reset for multiplier":
+
+```csharp
+// sandmoney_/Code/Player/PlayerTrader.cs (condensed)
+long ComputeHeritageCoinsForNetWorth( double nw )
+{
+    // Bracket table: < $1T → 0; each power-of-ten above earns more coins
+    // Returns coins for CURRENT bracket only (not cumulative) —
+    // discourages repeated cheap resets for incremental gains
+    if ( nw < 1e12 ) return 0;
+    if ( nw < 1e13 ) return 1;
+    if ( nw < 1e14 ) return 3;
+    // ...up to 35 at the highest bracket
+    return 35;
+}
+
+void ResetProfileCore()
+{
+    // "NUCLEAR RESET" — zero everything twice for safety
+    Money = 0; CoinsHeld = 0;
+    foreach ( var bot in ActiveBots ) bot.GameObject.Destroy();
+    ActiveBots.Clear();
+    Upgrades = new UpgradeData();
+    Infrastructure = new InfrastructureData();
+    Missions = new MissionData();
+    // Re-apply permanent Heritage perks AFTER wipe
+    foreach ( var bonus in Heritage.PurchasedBonuses ) ApplyHeritageBonus( bonus );
+    RunFtueBootstrap();  // re-run first-time-user flow for the new run
+}
+```
+
+Heritage shop uses `CmdBuyHeritageBonus(id)` with tiered prerequisites (a "Capital I" perk must be bought before "Capital II"); some bonuses grant starting currency, others unlock tiers — a clean meta-currency-spent-on-permanent-multipliers pattern composable into any idle game.
+
+Anti-pattern: awarding cumulative prestige coins (total earned across resets). This encourages "reset as fast as possible." The bracket approach (coins for your *current* bracket only) requires meaningful progression before each reset.
+
+### D. Prestige-wipe with re-grant and teleport (intercrusstudio.sneguborka)
+
+`intercrusstudio.sneguborka` shows the **networking details** of a prestige reset that the sandmoney_ single-player case hides:
+
+```csharp
+// sneguborka/Code/Player/PlayerPrestigeController.cs (condensed)
+[Rpc.Host]
+void WinterReset( Connection caller )
+{
+    // 1. Wipe wallet/tools/upgrades/inventory on host
+    Wallet.SetMoney( 0 );           // SetMoney is the prestige-wipe-only path
+    ToolUpgrades.Clear();
+    Inventory.Clear();
+    WintersSurvived++;
+
+    // 2. Re-grant starter kit (mirrors spawn flow without recreating the GameObject)
+    GrantStarterSpoon();            // first tool at Cost=0, MaxTier=1
+    GrantStarterBag();
+
+    // 3. Zero key-gated state and clear host-only dedupe sets
+    GoldenKeys = 0;
+    _grantedKeysThisWinter.Clear(); // so keys can be re-earned
+
+    // 4. Teleport: reservoir-sample a spawn point, apply on owning client
+    var spawn = ResolveSpawnTransform();
+    Rpc.FilterInclude( caller );
+    ApplyTeleport( spawn );         // clears Rigidbody interpolation
+    PlayerController.EyeAngles = spawn.Rotation.Angles();
+}
+```
+
+Key points:
+- `SetMoney(long)` is the **prestige-wipe-only** mutator — distinct from `Grant` (rewards) and `Charge` (purchases), so the "never take progress away" invariant stays auditable everywhere except here.
+- Re-granting the starter kit mirrors the spawn flow **without re-creating the GameObject** — cheaper and avoids a race between object creation and the Sync replication.
+- Warn-once diagnostic latches (`_warnedNullOriginator`, `_warnedNoEconomyResolve`, etc.) re-arm on prestige so a silent reward-path failure is still observable post-reset.
+- Use `RealTime.GlobalNow` (not `Time.Now`) in the prestige RPC rate-limiter — `Time.Now` resets on editor F5 and a static limiter would silently block every RPC for minutes after a reload (sneguborka: `RpcRateLimiter.cs`).
+
+### E. Autonomous hired-unit idle layer without true offline earnings (freddo.scoops)
+
+`freddo.scoops` shows the simplest "earn while not playing" design — hired drivers that produce income with no player input, with no offline catch-up at all:
+
+```csharp
+// scoops/Code/IceCreamTruck.cs (shape)
+public sealed class IceCreamTruck : Component
+{
+    [Sync] public int Level { get; set; } = 1;       // per-truck upgrade
+    public bool InfiniteStock => true;               // drivers never run out
+
+    protected override void OnUpdate()
+    {
+        if ( !Networking.IsHost ) return;
+        switch ( _state )
+        {
+            case State.Driving:
+                if ( _driveTimer > TruckDriveTime ) _state = State.Serving;
+                break;
+            case State.Serving:
+                if ( _serveTimer > TruckVendTime )
+                {
+                    OwnerEmpire.Earn( EarningsPerCycle );  // pay owner, no input needed
+                    _state = State.Driving;
+                    _driveTimer = 0;
+                }
+                break;
+        }
+    }
+}
+```
+
+Capped at `MaxDrivers = 6`. Each truck carries its own `[Sync] Level` — upgrading the truck (not the player) speeds its serve interval. Not true offline-earnings, but the design intent is identical: buy units that earn for you. Use this shape when offline replay isn't needed (e.g. short-session arcade tycoon).
+
+### F. NaN-guarded money mutators + dynamic per-item shop inflation (itacho.fill_the_void)
+
+`itacho.fill_the_void` contributes two production-quality patterns for idle economy robustness not covered elsewhere:
+
+**1. NaN/Inf-guarded money at every boundary** (GameState.cs):
+```csharp
+// fill_the_void/Code/Components/Game/GameState.cs (condensed)
+float NormalizeMoneyValue( float v )
+    => float.IsFinite( v ) ? MathX.Max( 0f, MathF.Round( v ) ) : 0f;
+
+float NormalizeMoneyDelta( float d )
+    => float.IsFinite( d ) ? MathX.Max( 0f, d ) : 0f;
+
+public void AddMoney( float amount )
+{
+    var d = NormalizeMoneyDelta( amount );
+    if ( d <= 0 ) return;
+    Money = NormalizeMoneyValue( Money + d );
+    // ...achievements, events
+}
+
+public bool SpendMoney( float amount )
+{
+    var d = NormalizeMoneyDelta( amount );
+    if ( NormalizeMoneyValue( Money ) < d ) return false;   // affordability gate returns bool
+    Money = NormalizeMoneyValue( Money - d );
+    return true;
+}
+```
+
+Note: `MathF` is used here (`MathF.Round`) — verify with `describe_type` in your project since `MathF` may not be whitelisted in all s&box SDK versions. `MathX.Max` is always safe.
+
+**Anti-pattern:** `Math.Max(0, NaN)` returns `NaN` — `JsonSerializer` then throws and **silently kills the save**. Normalize before write *and* clamp on load.
+
+**2. Per-item exponential price inflation persisted to save** (GameState.cs):
+```csharp
+// fill_the_void/Code/Components/Game/GameState.cs (condensed)
+public float GetCurrentShopItemPrice( string itemId, float basePrice,
+                                      float multiplierPerPurchase = 1.5f )
+{
+    var count = GetShopItemPurchaseCount( itemId );   // from a persisted Dictionary<string,int>
+    var scaled = basePrice * MathF.Pow( multiplierPerPurchase, count );
+    return float.IsFinite( scaled ) ? scaled : basePrice;   // guard the Pow result too
+}
+```
+
+`_purchasedShopItemCounts` is persisted in the save so prices survive a relog. This is the tycoon standard price curve — `basePrice * mult^purchaseCount` — applied per item-id rather than per upgrade level (suits a shop where each machine type is bought multiple times).
+
+---
+
+### Updated "read these games" pointer
+
+For idle/offline systems, read these games in this order:
+
+1. **artisan.darkrpog** — canonical host-authoritative tick generator, heat/risk, bucketed sync, persistent Guid identity (the baseline; already in the main section).
+2. **lavagame.sandmoney_** — `Code/InfrastructureManager.cs` + `Code/Player/PlayerTrader.cs`: the only game in the corpus with **true offline elapsed-time reconciliation** (dual-faucet, 50% penalty, fuel bounds, mid-cycle resume) AND a full **prestige/Heritage reset** with bracket meta-currency and a Heritage shop.
+3. **klibatocorp.phenodex** — `Code/Plant.cs` + `Code/Player.cs`: UTC-tick delta scheduling (the correct primitive), `DEV_TIME_SCALE` single-knob time compression, bill scheduling that survives server restarts.
+4. **intercrusstudio.sneguborka** — `Code/Player/PlayerPrestigeController.cs` + `Code/Player/PlayerWallet.cs`: networked prestige wipe with semantic `SetMoney`/`Grant`/`Charge` split, re-grant starter kit without re-creating objects, teleport to reservoir-sampled spawn, `RealTime.GlobalNow` rate-limiter anti-footgun.
+5. **itacho.fill_the_void** — `Code/Components/Game/GameState.cs`: NaN-guarded money mutators, `SpendMoney→bool`, per-item exponential price inflation persisted to save, forward-compatible `record` save schema.
+6. **freddo.scoops** — `Code/IceCreamTruck.cs`: simplest idle-agent shape (hired driver FSM, capped count, per-unit level) for games that don't need offline catch-up.

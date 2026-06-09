@@ -184,3 +184,303 @@ A `[Sync,Change("OnStateChanged")] LifeState` enum flips which of two child Game
 API surfaces drift between SDK versions — confirm before relying on a signature. Use `describe_type` / `search_types` reflection against the installed SDK as authoritative for: `[Sync]`/`SyncFlags`/`[Change]`/`Networking.IsHost`/`IsProxy`, `[Rpc.Host]`/`[Rpc.Broadcast]`/`[Rpc.Owner]` (+ `Rpc.Caller`), `NetList<T>`/`NetDictionary<K,V>`, `Component.ITriggerListener` (`OnTriggerEnter`/`Exit`) and `Component.INetworkListener`, `TimeUntil`/`TimeSince`/`RealTimeSince`, `Curve`/`Curve.Evaluate`, `Rigidbody.ApplyForce`/`ApplyForceAt`/`MotionEnabled`, `HullCollider`/`BoxCollider.IsTrigger`, `Scene.Trace.Ray`/`.WithAnyTags`/`.IgnoreGameObjectHierarchy`/`.Run`, `CubemapFog`/`DirectionalLight`/`PointLight.Enabled`, `DamageInfo` (`.FromBullet`/`.WithAttacker`), `Sandbox.Services.Stats`/`Leaderboards`, `FileSystem.Data.WriteJson`/`ReadJson`, `GameResource`/`[AssetType]`/`ResourceLibrary.GetAll<T>()`, and `Scene.GetSystem<T>()`/`GameObjectSystem`.
 
 Cross-links: see the `sbox-api` skill for authoritative type lookups, and the `sbox-build-feature` skill for the screenshot-driven build/iterate loop.
+
+## Corpus refresh (2026): more reference implementations
+
+Net-new techniques mined from the primary survival-horror games (`goders.natural_disaster_survival`, `mishmaps.backrooms`, `treehaven.sdiver`, `ataco.sdoomresurrection`) plus two cross-genre games (`despawn.murder`, `facepunch.ss2`) whose systems compose cleanly into horror loops. Anything already documented above is not repeated here.
+
+### Sanity / vitals — frame-rate-independent discrete ticks
+
+sdiver uses a `TimeSince` gate instead of `Time.Delta` multiplication for vitals like air depletion:
+
+```csharp
+// sdiver: Code/Player/DiverState.cs — flat per-second drain, FPS-independent
+private TimeSince timeSinceLastAirTick;
+void TickVitals()
+{
+    if ( !IsProxy && timeSinceLastAirTick >= 1f )
+    {
+        timeSinceLastAirTick = 0;
+        CurrentAir -= AirDrainPerSecond;   // flat 1-unit/sec, same at 30 or 300 fps
+        if ( CurrentAir <= 0 ) ApplyDamage( pressureDamagePerSec );
+    }
+}
+```
+
+**Why:** `Time.Delta` × rate gives floating-point drift at variable fps; a `TimeSince >= 1f` gate fires exactly once per second regardless of frame rate — sanity bars stay deterministic. Contrast to the grace-then-DoT pattern already shown: both can coexist (discrete ticks for air, continuous DoT multiplied by `Time.Delta` for pressure).
+
+### Disaster / threat cascading — sub-disasters and meteor shards
+
+NDS spawns secondary hazards mid-round whose odds scale *inversely* with primary intensity, delayed to mid-round:
+
+```csharp
+// NDS: Code/disasters/disaster_manager.cs — sub-disaster spawn
+if ( Game.Random.Float() <= 0.1f * (4 - Intensity) )   // rarer as intensity grows
+{
+    await Task.DelaySeconds( Global.RoundManager.CurrentRoundTime / 2f );
+    SpawnFlood( subIntensity );
+}
+```
+
+Meteor shards self-spawn on impact (`Intensity >= 4f → MathX.RoundToInt(Intensity*3)` shards) and maintain a fixed-size fire pool — oldest evicted when `fireList.Count >= MaxFire` (`fireList[0].DestroyGameObject()`). **Anti-pattern:** without the cap, one high-intensity meteor wave snowballs into hundreds of fire objects and tanks frame time. Always bound cascading spawns with a hard cap, and evict by age (not by random removal) to keep the visual uniform.
+
+### Homing hazard — orbital laser that targets nearest LOS player
+
+NDS `LaserComponent` tracks per-object melt state in a `[Sync] NetDictionary<GameObject, LaserObj>` keyed by GameObject. Each tick it finds the nearest line-of-sight player, slerps aim toward them, and drains `LaserObj.health` while scaling `WorldScale = originalScale * health` so objects visually melt. At `health < 0.9` joints are broken and debris cleanup is scheduled; at `~0` the object deletes and a fire spawns:
+
+```csharp
+// NDS: Code/disasters/LaserComponent.cs (summary)
+[Sync] public NetDictionary<GameObject, LaserObj> BurningObjects { get; set; } = new();
+void AdjustAimDir()
+{
+    // trigger overlap → find nearest player with a clear LOS trace
+    // WorldRotation = Rotation.Slerp( WorldRotation, targetRot, Time.Delta * turnSpeed );
+}
+```
+
+**Reuse:** `NetDictionary<GameObject, T>` as "per-object state attached by a separate authority component" avoids putting melt data on the target itself — the hazard owns its own bookkeeping. Combine with `ApplyForce` (never transform-set) and a `[Sync] TimeUntil` cleanup gate.
+
+### Async death with validity re-check (avoid the destroyed-during-await crash)
+
+sdiver's death flow: broadcast death instantly, `await Task.Delay(3000)` for ragdoll spectacle, *then* switch to spectator camera — but only after re-validating:
+
+```csharp
+// sdiver: Code/Gameplay/Diver.cs — SetIncapacitate
+async void SetIncapacitate()
+{
+    BroadcastDeath();                              // instant network effect
+    await Task.Delay( 3000 );                      // let ragdoll play out
+    if ( !GameObject.IsValid() || !Scene.IsValid() ) return;  // guard re-check
+    SwitchToSpectatorCamera();
+}
+```
+
+**Anti-pattern:** skipping the `IsValid()` re-check after `await` is the #1 crash source in async gameplay code — the GameObject can be destroyed (disconnect, scene change, round end) during the delay window. Always re-check both `GameObject.IsValid()` AND `Scene.IsValid()` before touching anything after an `await`.
+
+### Coroutine-based monster AI (IEnumerator as per-actor state machine)
+
+`ataco.sdoomresurrection` drives all 50+ Doom monster types with `IEnumerator`-per-state methods advanced by `MoveNext()` each animation tic — a net-new pattern not seen elsewhere in the corpus:
+
+```csharp
+// sdoomresurrection: Code/entities/monsters/Monster.cs (condensed)
+IEnumerator currentState;
+void SetState( IEnumerator newState ) { currentState = newState; }
+void OnAnimationTick()                // called each Doom tic (~1/35s)
+{
+    if ( currentState != null && !currentState.MoveNext() )
+        SetState( StateIdle() );
+}
+IEnumerator StateSee()
+{
+    while ( true )
+    {
+        NewChaseDir();
+        yield return null;             // one tic per move step
+    }
+}
+IEnumerator StateMissile()
+{
+    SpawnProjectile();
+    yield return null; yield return null;   // brief windup ticks
+    SetState( StateSee() );
+}
+```
+
+**Why it works:** each "actor state" is an `IEnumerator` you swap in via `SetState()`; `MoveNext()` advances it one step per tick. Multi-step sequences (windup → fire → recover) are just `yield return null` chains with no explicit timer state. This is lighter than a full `IEnumerator`-based coroutine system (no coroutine scheduler needed) and avoids `switch`-on-enum spaghetti for per-state logic. Use it for sprite-based or simple AI enemies where the state machine has many small phases.
+
+### Runtime procedural mesh with walkable collision (ModelBuilder pattern)
+
+sdoomresurrection generates Doom's BSP sectors as live s&box geometry with full trace/collision — no `.vmdl` assets at all:
+
+```csharp
+// sdoomresurrection: Code/entities/DoomMap.cs (condensed)
+var mesh = new Mesh();
+mesh.CreateVertexBuffer( verts.Length, MeshLayout, verts );
+var mb = new ModelBuilder();
+mb.AddMesh( mesh );                        // render mesh
+mb.AddCollisionMesh( triVerts, triIdx );   // physics hull
+mb.AddTraceMesh( traceVerts, traceIdx );   // raytrace surface
+go.GetOrAddComponent<ModelRenderer>().Model  = mb.Create();
+go.GetOrAddComponent<ModelCollider>().Model  = mb.Create();
+```
+
+**Note:** `MeshCollider` does NOT exist in s&box — use `ModelCollider` fed a `ModelBuilder`-built model, or `HullCollider` for convex shapes. `AddCollisionMesh` + `AddTraceMesh` on the same builder gives you both physics and `Scene.Trace` in one model. This is the canonical recipe for any dungeon/cave/sector generator that must also be shootable and walkable.
+
+### Host-migration-safe round timer re-arm
+
+`despawn.murder`'s `RoundManager` explicitly handles the clock discontinuity when the host changes:
+
+```csharp
+// despawn.murder: Systems/Rounds/RoundManager.cs — ValidateStateAfterMigration
+void ValidateStateAfterMigration()
+{
+    float remaining = State.TimeLeft.Relative;           // seconds left on old host's clock
+    State.TimeLeft = MathX.Max( remaining, 0 );          // re-arm against new host's Time.Now
+    if ( State is PostRoundState )
+        TransitionTo<WaitingRoundState>( _ => { } );     // stale post-round → fresh round
+}
+```
+
+`TimeUntil` stores an absolute epoch offset from the **old** host's `Time.Now`; after migration it holds the wrong epoch. The fix: read `.Relative` (remaining seconds from old context), clamp to zero, write back — this re-anchors the timer to the new host's clock. **Anti-pattern:** using `TimeUntil` directly across a host migration without re-arming will either instantly expire (negative remaining) or run far too long (large positive epoch offset). Always re-arm in `INetworkListener.OnBecameHost`.
+
+### AI Director for adaptive spawn pacing (composed multipliers)
+
+`despawn.murder`'s `RoundDirector` computes next-spawn time as a base interval multiplied by several independent factors. Each factor returns a float near `1.0`:
+
+```csharp
+// despawn.murder: Systems/Rounds/RoundDirector/RoundDirector.Multipliers.cs (condensed)
+float GetNextSpawnTime()
+{
+    float t = DirectorBaseInterval;
+    t *= PlayerCountMultiplier();       // more players → faster
+    t *= KillInactivityMultiplier();    // nobody dying → faster
+    t *= MilestoneProximityMultiplier();// someone near objective → faster
+    t *= TimePressureMultiplier();      // final 40% of round → faster
+    t *= DiscoveryRateMultiplier();     // found too few recently → faster
+    t = MathX.Clamp( t, MinInterval, MaxInterval );
+    t *= PerMapPenalty;                 // applied AFTER clamp for predictability
+    return t;
+}
+```
+
+**Why composed multipliers beat a single curve:** each axis is independently tunable; disabling one (`return 1f`) has no side effects. Per-map tuning goes in `PerMapPenalty` (or a `MapResource`-style asset component) applied after the clamp so map balance doesn't fight the global range. This pattern directly extends NDS's `IntensityCurve` approach and works for any survival-horror wave cadence — not just clues.
+
+### Bad-luck protection (pity tickets) for role/threat assignment
+
+`despawn.murder` persists pity ticket counts across sessions:
+
+```csharp
+// despawn.murder: Systems/MurdererTickets/MurdererTicketManager.cs (condensed)
+Dictionary<ulong, int> tickets;   // SteamId → ticket count, loaded from FileSystem.Data JSON
+ulong PickMurderer( List<ulong> candidates )
+{
+    float total = candidates.Sum( id => MathX.Max( 1, tickets[id] ) );
+    float roll  = Game.Random.Float() * total;
+    // cumulative-weight selection → winner
+    foreach ( var id in candidates ) { tickets[id]--; }   // winner loses tickets
+    foreach ( var id in candidates ) { if (id!=winner) tickets[id]++; }
+    Save();
+    return winner;
+}
+```
+
+**Survival horror application:** use the same pattern to ensure the same player isn't always targeted by the disaster first or always assigned the "it" role in asymmetric horror. The `MathX.Max(1, ...)` floor means even a brand-new player has a baseline chance. Save to `FileSystem.Data` JSON for persistence across sessions — but only store SteamIds, not personal data.
+
+### Per-recipient outline via ghost clone (wallhack for specific clients only)
+
+`despawn.murder`'s radar item shows an outline only to the buyer and dead spectators — no global recolor:
+
+```csharp
+// despawn.murder: Radar.cs (condensed)
+void CreateOutlineForTarget( Diver target )
+{
+    var ghost = target.GetComponent<SkinnedModelRenderer>().GameObject.Clone();
+    ghost.Tags.Add( "outline_ghost" );
+    ghost.GetOrAddComponent<HighlightOutline>().Color = outlineColor;
+    // send ONLY to the buyer and spectators:
+    using var filter = Rpc.FilterInclude( buyerConnection, spectatorConnections );
+    BroadcastSpawnGhost( ghost.Id );
+}
+```
+
+**Key technique:** clone the target's renderer into a tagged ghost, apply `HighlightOutline`, then use `Rpc.FilterInclude(...)` so only those specific connections receive the spawn broadcast. Use `Rpc.FilterInclude` + a ghost clone whenever "show this visual hint to only N clients" — never recolor the real object which all clients see. Time-based alpha fade + `Tags`-based cleanup on round end.
+
+### First-round grace period using persisted round count
+
+NDS grants a longer pre-round timer the very first time a new player joins, without a flag:
+
+```csharp
+// NDS: Code/globals/RoundManager.cs
+CurrentRoundTime = PersistentData.Instance.RoundsPlayed > 0
+    ? MAX_PRE_ROUND_TIME       // 15s — returning player
+    : STARTING_PRE_ROUND_TIME; // 45s — first ever session
+```
+
+`RoundsPlayed` is a persistent integer incremented every POST_ROUND. This avoids "I just joined and the round started before I loaded" for new players with zero additional flag state. The same trick applies to any "first-session tutorial grace window."
+
+### Parallel-array networking as NetDictionary workaround
+
+NDS `DebrisManager` stores pending debris deletions as **two parallel NetLists** (objects + `TimeUntil` expiry) instead of a `NetDictionary<GameObject, TimeUntil>`, with the dict version commented out above the lists:
+
+```csharp
+// NDS: Code/globals/DebrisManager.cs
+[Sync] public NetList<GameObject> DebrisDestructionListA { get; set; } = new();
+[Sync] public NetList<TimeUntil>  DebrisDestructionListB { get; set; } = new();
+// Former attempt: NetDictionary<GameObject,TimeUntil> DebrisDict — had wire-format issues
+```
+
+**Anti-pattern + fix:** `NetDictionary<GameObject, V>` can misbehave when the `GameObject` key is destroyed mid-frame or changes ownership — the dictionary key becomes stale before the network message arrives. Two index-aligned `NetList`s are safe because `NetList` entries are positional, not keyed. If a `NetDictionary` key type gives you ghost entries or silent drops, switch to parallel `NetList`s and manage the indices manually.
+
+### Priority-gated transient HUD announcements
+
+NDS `RoundUI` drops low-priority messages while a more important one is active:
+
+```csharp
+// NDS: Code/ui/RoundUI.cs — broadcastMessage is [Rpc.Broadcast(NetFlags.HostOnly)]
+[Rpc.Broadcast( NetFlags.HostOnly )]
+void BroadcastMessage( string msg, int priority )
+{
+    if ( priority < messagePriority ) return;   // silent drop
+    messagePriority = priority;
+    messageText     = msg;
+    // 3-step tween: fade in → hold → fade out
+}
+```
+
+`BuildHash() => HashCode.Combine( DisplayTime, RoundTitle, centralOpacity, messageText )` makes Razor rebuild only when any of those change. **Pattern:** assign integer priority levels (1=flavor, 5=round-end, 10=all-dead); any banner with lower priority than the one currently showing is silently dropped. This prevents "everyone is dead!" from being stomped by a simultaneous disaster text.
+
+### SoundStream — streaming raw PCM audio positionally
+
+`ataco.sdoomresurrection` decodes DMX sound lumps to `short[]` and plays them via `SoundStream`:
+
+```csharp
+// sdoomresurrection: Code/doomwad/SoundLoader.cs (condensed)
+short[] samples = DecodeDmxToSigned16( lumpBytes );       // unsigned 8-bit → signed 16-bit
+var stream = new SoundStream( sampleRate, channels: 1 );
+stream.WriteData( samples );
+var snd = stream.Play();
+snd.Position = worldPosition;                              // positional 3D audio
+// schedule disposal: await Task.Delay((int)(samples.Length / sampleRate * 1000));
+```
+
+**Why it matters for survival-horror:** you can generate or decode *any* audio format (procedural groans, decoded monster sounds, custom synthesizer output) and play it positionally without a `.vsnd` asset. The `SoundStream` push pattern is the only way to play raw PCM in s&box. Note: dispose the `SoundStream` after the clip finishes — use `Task.Delay` scheduled from the caller (or `TimeSince` polling) since there is no completion callback.
+
+### Tween library as GameObjectSystem (reusable juice layer)
+
+NDS ships `Braxnet.TweenManager` — a ~340-line `GameObjectSystem` with a sequential+parallel chaining API:
+
+```csharp
+// NDS: Code/globals/TweenManager.cs — usage example
+var tween = TweenManager.CreateTween();
+tween.AddFloat( t => myPanel.Opacity = t, from: 0f, to: 1f, duration: 0.3f )
+     .AddPosition( go, to: targetPos, duration: 0.5f ).Parallel
+     .SetEasing( Sandbox.Utility.Easing.EaseOut );
+await tween.Wait();   // TaskCompletionSource-backed, auto-skips if !GameObject.IsValid()
+```
+
+`.Parallel` marks the next step as concurrent with the previous one (they start at the same time); without it steps run in sequence. `await tween.Wait()` blocks the calling async method. Auto-skips invalid objects so a round-end destroy doesn't throw. **Drop this in instead of per-effect lerp loops** — use it for HUD fades, damage flash, disaster despawn dissolve, "you survived" slide-in.
+
+### Per-map disaster tuning via a scene component
+
+NDS `MapComponent` is a `[Property]`-only component attached to each map's root object:
+
+```csharp
+// NDS: Code/map/MapComponent.cs
+public class MapComponent : Component
+{
+    [Property] public float StartingFloodHeight { get; set; }
+    [Property] public float FinalFloodHeight    { get; set; }
+    [Property] public float MinVolcanoAngle     { get; set; }
+    [Property] public float MaxVolcanoAngle     { get; set; }
+}
+```
+
+`MapManager` reads it on scene load and pushes values into `DisasterManager`. **Pattern:** put all per-map balance knobs (spawn arcs, flood range, intensity multiplier) on a single component in the scene, not in code or in a separate asset file. `MapComponent` has zero methods — it is pure data. This is the cheapest way to make each map feel hand-tuned without branching on map identity in the disaster code.
+
+---
+
+### Read these games
+
+Primary survival-horror corpus: `goders.natural_disaster_survival` (round/wave/disaster director, NDS anti-streak picker, TweenManager), `mishmaps.backrooms` (atmosphere FSM, RealTimeSince cosmetic timing), `treehaven.sdiver` (co-op extraction, vitals discrete ticks, reconnect-sleeping-body, mode-as-strategy), `ataco.sdoomresurrection` (IEnumerator monster AI, ModelBuilder collision mesh, SoundStream PCM, billboard SceneCustomObject).
+
+Cross-genre techniques that compose into horror: `despawn.murder` (AI Director multipliers, pity tickets, host-migration timer re-arm, per-recipient ghost outlines), `facepunch.ss2` (per-source stat modifier stack, reflection-driven upgrade catalog).

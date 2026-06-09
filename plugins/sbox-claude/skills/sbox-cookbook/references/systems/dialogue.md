@@ -156,3 +156,186 @@ Faithful to `jumper/Code/UI/JumperNPCTalker.razor:33-78`. The `.visible` opacity
 **Verify live:** the installed SDK is authoritative — confirm members before coding with the bridge's reflection tools: `describe_type GameResource`, `describe_type Sandbox.Component+ITriggerListener`, `describe_type Sandbox.UI.PanelComponent`, `search_types CitizenAnimationHelper`. Reflection beats any snippet here if the API has moved.
 
 **See also:** `sbox-api` (exact signatures for `PanelComponent`, `ITriggerListener`, `GameResource`, `RealTimeSince`) and `sbox-build-feature` (the screenshot-driven loop to wire the prefab trigger + panel and see it working).
+
+## Corpus refresh (2026): more reference implementations
+
+Three newly-mined games surface three distinct "dialogue-adjacent" patterns not covered above: **procedural per-player objectives** (despawn.murder), **imperative awaited branching narrative** (dimmies.terryspapers), and **server-authoritative multiplayer vote UI** (lowkeynetworks.newrp). Each is a different point in the design space from the existing typewriter/trigger/modal coverage.
+
+---
+
+### Pattern A — Polymorphic per-player objective generator (despawn.murder)
+
+`Systems/GunAcquisition/` implements a procedural **quest generator**: 3 random tasks per player drawn from a polymorphic pool (FindClues / FindEvidence / VisitZone / FindBody / Survive / FindCluesOrEvidence). This is the cleanest per-player quest-contract reference in the corpus.
+
+Key shapes:
+- `GunTaskDefinition(Scene)` base — `IsEnabled()`, exclusion `Group` string (only one task per group is picked), `Make()` → returns a `GunTaskState`.
+- `GunTaskManager.GenerateTasks()` shuffles enabled definitions, picks `TaskCount` honoring group exclusion, pads with clue tasks if variety is short.
+- **Three progress strategies coexist**: event-hook (OnCluePickup/OnEvidencePickup called from gameplay code), polling (OnFixedUpdate zone/body/survival checks), OR-condition (`Progress >= Target || AltProgress >= AltTarget`).
+- Per-player display strings (`[x/y]`) rebuilt and pushed **only to that player** via `Rpc.FilterInclude(connection)`.
+- String-encoded task params: `ZoneVisitTracker.FromExtraData("zone1,zone2|seconds")` — lightweight, no extra asset type.
+- Anti-pattern: progress tracked as plain fields with no cancellation path. Fix: add a `Cancel()` method to `GunTaskState` so tasks can be voided when a round ends without leaving dangling event hooks.
+
+```csharp
+// despawn.murder: Systems/GunAcquisition/Tasks/GunTaskDefinition.cs (condensed)
+public abstract class GunTaskDefinition
+{
+    public abstract bool IsEnabled( Scene scene );
+    public virtual string Group => null;           // null = no exclusion
+    public abstract GunTaskState Make();
+}
+
+public class FindCluesTask : GunTaskDefinition
+{
+    static readonly int[] _targets = { 2, 3, 4 };
+    public override bool IsEnabled( Scene scene ) => true;  // always available
+    public override GunTaskState Make()
+        => new GunTaskState { Description = $"Find {_target} clues", Target = _target = Game.Random.FromArray(_targets) };
+}
+
+// Manager rolls the set
+void GenerateTasks( IEnumerable<GunTaskDefinition> defs )
+{
+    var shuffled = defs.Where( d => d.IsEnabled( Scene ) ).OrderBy( _ => Guid.NewGuid() ).ToList();
+    var used = new HashSet<string>();
+    var picked = new List<GunTaskState>();
+    foreach ( var d in shuffled )
+    {
+        if ( d.Group != null && !used.Add( d.Group ) ) continue;
+        picked.Add( d.Make() );
+        if ( picked.Count >= TaskCount ) break;
+    }
+    // push [x/y] display string per-player via Rpc.FilterInclude
+    using ( Rpc.FilterInclude( _ownerConnection ) )
+        SyncTasks( picked.Select( t => t.Description ).ToArray() );
+}
+```
+
+---
+
+### Pattern B — Imperative awaited branching narrative (dimmies.terryspapers)
+
+`PhoneUI.razor` (~2100 lines) is the entire life-sim story delivered as straight-line C# `async Task` methods. No tree-asset, no node graph — branches are plain `if/else`, state is flags on `PlayerData`. Three micro-primitives create a full VN engine:
+
+```razor
+@inherits PanelComponent
+@* dimmies.terryspapers: Code/UI/PhoneUI.razor (condensed) *@
+@code {
+    bool clicked;
+    string selectedChoice = "";
+
+    // Awaitable "tap to continue"
+    async Task WaitForClick()
+    {
+        interactUI.clickToContinue = true;
+        while ( !clicked ) await GameTask.Delay( 1 );
+        clicked = false;
+        interactUI.clickToContinue = false;
+    }
+
+    // Awaitable binary choice — returns "left" or "right"
+    async Task<string> StartChoice( string question, string left, string right )
+    {
+        choiceActive = true;
+        choiceLeft = left; choiceRight = right; choiceQuestion = question;
+        while ( selectedChoice == "" ) await GameTask.Delay( 1 );
+        var result = selectedChoice;
+        selectedChoice = ""; choiceActive = false;
+        return result;
+    }
+
+    // "Days-since" scheduler — no timers, no queue; stamp IS the schedule
+    async Task StartScene()
+    {
+        // e.g. "baby born 3 shifts after pregnancy start"
+        if ( gameHandler.Shift - playerData.PregnancyOn == 3 ) { await BabyBornEvent(); goto send_day_stats; }
+        if ( gameHandler.Shift - playerData.PregnancyOn == 8 ) { await MomDiesEvent();  goto send_day_stats; }
+        // flavor events fall through; story events short-circuit via goto
+        await FlavorEvent();
+        send_day_stats: await SendDayStats();
+    }
+}
+```
+
+Key lesson: **ordering encodes priority** — checking story beats before flavor beats, then `goto` short-circuits so only one life-changing event fires per shift. The `...On` shift-stamp fields in `PlayerData` are the scheduler; no timer component needed.
+
+Anti-pattern from the source: `playerData` is written directly to disk client-side with no server — fine for single-player but breaks under any multiplayer authority model. For networked games, keep the flag store server-side and push read-only copies via `[Sync]`.
+
+---
+
+### Pattern C — Host-authoritative time-boxed vote (lowkeynetworks.newrp)
+
+`Code/modules/jobs/JobVoteService.cs` is a complete, reusable yes/no vote: snapshot electorate → filtered-RPC UI to voters only → host-tallied ballots → async countdown → apply. The cleanest vote-flow reference in the corpus.
+
+```csharp
+// lowkeynetworks.newrp: Code/modules/jobs/JobVoteService.cs (condensed)
+public class VoteSession
+{
+    public Dictionary<Guid, bool> Votes = new();
+    public List<Connection> Voters;
+    public float Duration = 18f;
+}
+
+VoteSession _active;
+
+// Host-only: kick off a vote targeting a candidate
+public void StartVote( Connection candidate )
+{
+    if ( !Networking.IsHost ) return;
+    var voters = Connection.All.Where( c => c != candidate ).ToList();
+    if ( voters.Count == 0 ) { Apply( passed: true ); return; }   // auto-pass with no voters
+    _active = new() { Voters = voters };
+    using ( Rpc.FilterInclude( voters ) )   // UI shown ONLY to voters
+        ShowVote( candidate.DisplayName );
+    _ = FinishLater();
+}
+
+[Rpc.Host]
+public void SubmitVote( bool yes )
+{
+    if ( _active == null ) return;
+    if ( !_active.Voters.Any( v => v.Id == Rpc.Caller.Id ) ) return;  // non-voter guard
+    _active.Votes[Rpc.Caller.Id] = yes;
+    if ( _active.Votes.Count >= _active.Voters.Count ) Finish();       // early-finish when all in
+}
+
+async Task FinishLater()
+{
+    float remaining = _active.Duration;
+    while ( remaining > 0 && _active != null )
+    {
+        await GameTask.Delay( 1000 );
+        remaining -= 1f;
+        BroadcastCountdown( (int)remaining );
+    }
+    if ( _active != null ) Finish();
+}
+
+void Finish()
+{
+    bool passed = _active.Votes.Count( kv => kv.Value ) > _active.Votes.Count( kv => !kv.Value );
+    _active = null;
+    Apply( passed );
+}
+```
+
+Key technique: `using ( Rpc.FilterInclude( voters ) ) ShowVote(...)` — sends a `[Rpc.Broadcast]` only to those connections. This is the idiomatic "whisper / area / team" networking pattern and composes with any vote, notification, or reveal system.
+
+Anti-pattern to avoid: storing `_active` as a plain field with no null-guard on `SubmitVote` after a round ends. Always null-check `_active` and return early if a late ballot arrives after `Finish()` has cleared it.
+
+---
+
+### How these three compose
+
+A dialogue-driven quest game might use all three together:
+1. **Pattern A**: NPC gives the player 3 procedurally-generated tasks on talk.
+2. **Pattern B**: Story cutscenes between task completions are imperative `await` scripts in a Razor panel.
+3. **Pattern C**: At end of round, players vote on which optional objective to unlock next — host-tallied, time-boxed, UI filtered to eligible voters only.
+
+The existing typewriter trigger (jumper) stays as the NPC bark layer; Pattern A replaces the single-line `DisplayMessage` with a rich task list synced per-player.
+
+---
+
+**Read these games** (in addition to the existing set above):
+- **despawn.murder** — `Systems/GunAcquisition/Tasks/GunTaskDefinition.cs` + `GunTaskManager.cs` (polymorphic objectives), `Systems/Rounds/States/MapVoteRoundState.cs` (map vote).
+- **dimmies.terryspapers** — `Code/UI/PhoneUI.razor` (full imperative VN engine), `Code/Game/GameHandler.cs` (TCS gate, shift-stamp scheduler).
+- **lowkeynetworks.newrp** — `Code/modules/jobs/JobVoteService.cs` (vote flow), `Code/modules/chat/ChatService.cs` (proximity chat as social dialogue).

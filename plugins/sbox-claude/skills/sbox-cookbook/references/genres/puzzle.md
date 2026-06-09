@@ -238,3 +238,169 @@ Per-entry custom data (the scramble seed) is NOT inline — fetch via `Entry.Dat
 Verify live: the installed SDK is authoritative — `describe_type Sandbox.Services.Leaderboards`, `describe_type Sandbox.Services.Stats`, `describe_type Sandbox.Services.Achievements`, `describe_type Sandbox.FileSystem`, and `search_types ScreenPixelToRay` before coding against any of these; the Services/FileSystem surface shifts between versions.
 
 Cross-links: use **sbox-api** (`describe_type`/`search_types` reflection) to confirm every type signature, and **sbox-build-feature** for the screenshot-driven build loop (spawn tiles → screenshot → adjust layout) that this genre lives or dies by.
+
+## Corpus refresh (2026): more reference implementations
+
+Additional patterns mined from `mostudio.sweeper_otso` (multiplayer Minesweeper) and cross-checked against `facepunch.fair` (tycoon grid) and `barrelproto.ragroll` (services-integration). The four newly-named games (`facepunch.ss2`, `despawn.murder`, `facepunch.fair`, `barrelproto.ragroll`) contain no sliding-tile or grid-puzzle code; puzzle-specific net-new comes entirely from `sweeper_otso`.
+
+### Multiplayer grid puzzle: `[Sync]` bool bag for round state
+
+The existing file documents single-player only. `sweeper_otso` shows how to host-authoritative a grid puzzle round with a minimal `[Sync]` bool bag — no enum, no networked state-machine:
+
+```csharp
+// MINESWEEPER.cs — host writes, all clients read
+[Sync] public bool BoardActive      { get; set; }
+[Sync] public bool TimerRunning     { get; set; }
+[Sync] public bool IsGameOver       { get; set; }
+[Sync] public bool WinInProgress    { get; protected set; }
+[Sync] public int  SafeTilesRemaining { get; protected set; }
+
+public bool RoundActuallyRunning =>
+    BoardActive && TimerRunning && !IsGameOver && !WinInProgress;
+```
+
+Anti-pattern: using an enum `[Sync]` state. Problem: a new joiner mid-round only sees the enum value, not the transitions, so they can't reconstruct which async tasks are still running. Fix: orthogonal bool fields — each is independently meaningful to a fresh joiner. (`mostudio.sweeper_otso/Code/MINESWEEPER.cs`)
+
+### Tag-based player state survives host migration; lists do not
+
+```csharp
+// instead of List<GameObject> playingPlayers:
+// tag players with "playing" / "excluded" / "dead" / "ghost"
+// new host OnBecameHost: scan all players, anyone with no tag → exclude them
+foreach ( var player in Scene.GetAll<PlayerController>() )
+{
+    if ( !player.Tags.Has( "playing" ) && !player.Tags.Has( "excluded" ) )
+        player.Tags.Add( "excluded" );   // auto-detect mid-round joiner
+}
+```
+
+Tags are replicated via `[Rpc.Broadcast]` calls (`UpdatePlayerExclusion`) and survive host migration; a `List<GameObject>` of player references doesn't. (`mostudio.sweeper_otso/Code/MINESWEEPER.cs`)
+
+### Row-cascade board spawn with locked-step animations
+
+Pre-compute `[Sync(SyncFlags.FromHost)] float SpawnDelay` on each tile **before** `NetworkSpawn()` so the scale-in animation is identical on all clients regardless of packet batching:
+
+```csharp
+// host-side, inside SpawnBoardInternal
+for ( int row = 0; row < rows; row++ )
+{
+    foreach ( var col in rowCols )
+    {
+        var go = tileпрефab.Clone();
+        var anim = go.Components.Create<TileSpawnAnimator>();
+        anim.SpawnDelay = row * 0.12f;          // set BEFORE NetworkSpawn
+        go.Network.Spawn();
+        go.Network.SetOrphanedMode( NetworkOrphaned.Host );
+    }
+    await Task.DelaySeconds( 0.12f );           // cascade pacing on host
+}
+```
+
+The animator reads `SpawnDelay` in `OnAwake` (not `OnStart`) to avoid the one-frame "pop to full size" flash on proxies, and destroys itself at `t >= 1` to drop the per-frame cost. (`mostudio.sweeper_otso/Code/TileSpawnAnimator.cs`)
+
+### Counter + authoritative recount before win/clear
+
+The cheap maintained counter handles the common case; an authoritative recount guards every round-ending decision:
+
+```csharp
+// fast path — maintained per reveal
+SafeTilesRemaining--;
+if ( SafeTilesRemaining <= 0 ) TriggerWin();
+
+// TriggerWin — always recount before committing
+private async Task TriggerWin()
+{
+    int actual = Scene.GetAll<TileCover>().Count( t => !t.IsRevealed && !t.IsMine );
+    if ( actual > 0 ) { SafeTilesRemaining = actual; return; }  // counter was wrong, abort
+    WinInProgress = true;
+    // ... celebration flow ...
+}
+```
+
+Overlapping flood-fills, host migration, and simultaneous reveals can drift the counter; a pre-win recount is cheap and prevents false rounds. (`mostudio.sweeper_otso/Code/MINESWEEPER.cs:RegisterUncovered/TriggerWin`)
+
+### `[Sync] NetList<Vector3>` position registry outlives GameObjects
+
+For "is this cell flagged?" the game checks, in order: (a) a `[Sync] NetList<Vector3> FlaggedPositions` on the manager; (b) the local `"flagged"` tag; (c) a scene scan for a nearby GameObject named `Flag_Cover`. The NetList is the **only form that reliably survives host migration** — GameObject ownership, network ids, dictionaries, and tags all desync on host change; a synced list of world-positions doesn't.
+
+```csharp
+[Sync] public NetList<Vector3> FlaggedPositions { get; set; } = new();
+
+public bool IsFlagged( Vector3 worldPos )
+{
+    // (a) authoritative registry — survives host change
+    if ( FlaggedPositions.Any( p => p.Distance( worldPos ) < 10f ) ) return true;
+    // (b) fast local tag
+    if ( NearbyTile( worldPos )?.Tags.Has( "flagged" ) == true ) return true;
+    // (c) last-ditch scene scan
+    return Scene.GetAll<FlagCover>().Any( f => f.WorldPosition.Distance( worldPos ) < 10f );
+}
+```
+
+Pattern: for any data that must survive host migration, store it as a `[Sync] NetList` of **values** (positions, IDs, counts), not as references to specific GameObjects. (`mostudio.sweeper_otso/Code/Mine.cs:IsFlagged`)
+
+### Reactive Razor HUD: `BuildHash()` + event-subscribe pattern
+
+This pattern is mined from `simalami.15_puzzle_master` but absent as a code snippet in the existing file. It is the canonical way to make a puzzle HUD auto-rebuild without manual diffing:
+
+```csharp
+// HudPanelBase.cs — subscribe in OnStart, unsubscribe in OnDestroy
+protected override void OnStart()
+{
+    puzzleLogic.OnStateChanged += StateHasChanged;
+    puzzleLogic.OnSolved       += StateHasChanged;
+}
+protected override void OnDestroy() =>
+    puzzleLogic.OnStateChanged -= StateHasChanged;
+
+// ClassicHudPanel.razor — BuildHash over every value the markup reads
+protected override int BuildHash() => HashCode.Combine(
+    puzzleLogic.Moves,
+    (int)puzzleLogic.ElapsedSeconds,
+    puzzleLogic.IsWon,
+    puzzleLogic.CanUndo,
+    puzzleLogic.CanRedo
+);
+```
+
+Anti-pattern: calling `StateHasChanged()` every `OnUpdate` frame. Problem: rebuilds the full Razor tree at 60 Hz — unnecessary GC and DOM churn. Fix: subscribe to model events + `BuildHash()`. (`simalami.15_puzzle_master/Code/.../Visual/UI/HudPanelBase.cs`, `ClassicHudPanel.razor`)
+
+### BFS catalog for small boards; seeded-random for large
+
+The existing file documents the seeded-random shuffle. `simalami.15_puzzle_master` also ships a BFS catalog for small boards (≤9 cells) that guarantees every seed maps to a unique, distinct layout:
+
+```csharp
+// ClassicSeedCatalog.cs — for boards with <=9 cells
+// BFS from the solved state, collect all reachable unsolved states, sort them.
+// seed N → catalog[N % catalog.Count]; reverse map findSeed(tiles) → index.
+// For larger boards, fall back to shuffleSeeded(count, new Random(hashSeed(size, seed))).
+int hashSeed = HashCode.Combine( size, seed );
+board.shuffleSeeded( moveCount, new Random( hashSeed ) );
+```
+
+Use BFS for boards where you want "share your seed = exact same layout" with a small enumerable space. Use seeded-random for larger boards. (`simalami.15_puzzle_master/Code/ClassicMode/.../Models/ClassicSeedCatalog.cs`)
+
+### `#if !DEBUG` guard on leaderboard submissions
+
+From `barrelproto.ragroll` (`Code/mode/score/ModeScore.cs`) — dev runs should not pollute the live board:
+
+```csharp
+#if !DEBUG
+Stats.SetValue( "combo_score", score );
+Stats.Flush();
+#endif
+```
+
+Apply the same guard to `Stats.SetValue` calls in any puzzle's win path so playtesting doesn't appear on global leaderboards. (`barrelproto.ragroll/Code/mode/score/ModeScore.cs`)
+
+### Anti-pattern: `MathF` availability is SDK-version dependent
+
+`sweeper_otso` uses `MathF.Round` and `MathF.Max` in `TileSpawnAnimator` and `TileDespawnAnimator` — which contradicts the common guidance that `MathF` is blocked in the s&box sandbox. Both values co-exist in the corpus. **Safe rule: use `MathX.Clamp/Lerp` for the ops it covers; verify any `MathF.*` call with `describe_type System.MathF` before shipping.** Do not use `System.Math` — that is reliably blocked.
+
+---
+
+Read these games for puzzle / grid reference:
+- `simalami.15_puzzle_master` — canonical single-player, MVC layering, undo, services, save slots (primary reference)
+- `mostudio.sweeper_otso` — multiplayer grid puzzle, host-migration resilience, `[Sync]` bool round state, tag-based player exclusion, cascade spawn animations, NetList position registry
+- `facepunch.fair` — grid + flood-fill region connectivity + pooled A* (relevant if the puzzle grid needs reachability or AI pathfinding; `GridManager.cs`)
+- `barrelproto.ragroll` — `#if !DEBUG` leaderboard gating, `Services.Stats.Flush()` pattern

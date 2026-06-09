@@ -158,3 +158,204 @@ The weighted-trait roll (`GetRandomOptions`) reads the *active rules* and some a
 Verify live: the installed SDK is the source of truth — confirm `Scene.Trace.Ray`, `HighlightOutline`, `Texture.CreateRenderTarget`, `CameraComponent.RenderToTexture`, `TextRenderer`, and `GameTask.Delay` signatures with `describe_type` / `search_types` reflection before coding, as the API shifts between versions.
 
 See also: the **sbox-api** skill (reflection-verified type signatures) and the **sbox-build-feature** skill (screenshot-driven iteration loop) when implementing any system above.
+
+## Corpus refresh (2026): more reference implementations
+
+The four newly-mined games (facepunch.ss2, despawn.murder, facepunch.fair, barrelproto.ragroll) do not implement document-inspection mechanics — they contribute no net-new patterns to this genre. The additional pass over `dimmies.terryspapers` itself surfaces several standout techniques not covered in the sections above.
+
+### A. Named-event delta table as the entire progression system
+
+`GameHandler.SetMood(string id)` adjusts a single `int mood` via a `Dictionary<string,int>` of 35 named deltas. The same method guards promotion and game-over. All balance lives in one place; adding an outcome is one dictionary entry (terryspapers: `GameHandler.cs`, `moodChanges` field):
+
+```csharp
+// terryspapers: GameHandler.cs — mood as a string-keyed delta table
+static readonly Dictionary<string, int> moodChanges = new() {
+    { "validProcess",   +1  },   { "invalidProcess",   -5 },
+    { "babyBorn",       +25 },   { "momDie",           -40 },
+    { "wifeVacation",   +75 },   // ... 30 more named events
+};
+
+public void SetMood( string id )
+{
+    playerData.mood += moodChanges[id];          // single write
+    if ( playerData.mood >= 100 && playerData.employeeLevel < 3 ) {
+        playerData.employeeLevel++;
+        playerData.mood = 40;                    // promote + reset meter
+    }
+    if ( playerData.mood <= 0 ) GetFired();      // game-over branch
+    SavePlayerData();                            // save after every change
+}
+```
+
+**Anti-pattern:** raw string keys — a typo throws `KeyNotFoundException` at runtime. Fix: an enum keyed to a `ReadOnlyDictionary<MoodEvent, int>`. The upside of plain strings is zero ceremony to add events; the enum version makes it impossible to reference an undefined event.
+
+### B. `TaskCompletionSource` as a "wait for all animations to settle" barrier
+
+Long async punishment sequences (boss slap, chair spin) would corrupt state if the day ended mid-animation. The pattern: create a fresh `TaskCompletionSource<bool>`, `await` it before advancing, and resolve it from every state-change path that could satisfy the condition (terryspapers: `GameHandler.cs`):
+
+```csharp
+// terryspapers: GameHandler.cs — TCS gate prevents day-end mid-animation
+TaskCompletionSource<bool> _settled;
+
+async Task WaitForAnimationsToSettle()
+{
+    _settled = new TaskCompletionSource<bool>();
+    bool alreadyClear = terryHandler.CurrLocation == "SPAWN"
+                     && !terryHandler.SpinningChair
+                     && !terryHandler.GotSlapped;
+    if ( !alreadyClear )
+        await _settled.Task;                     // park here
+}
+
+// Called from every flag-clearing site (animation end callbacks, etc.)
+public void OnAnimationStateChanged()
+{
+    if ( terryHandler.CurrLocation == "SPAWN"
+      && !terryHandler.SpinningChair
+      && !terryHandler.GotSlapped )
+        _settled?.TrySetResult( true );          // release the awaiter
+}
+```
+
+The same TCS pattern reappears in `TweenManager` to make a tween awaitable from outside the tween loop — a general recipe for "make any external condition awaitable without polling the caller."
+
+### C. Clock-driven day (simulated time in `OnUpdate`, not a wave count)
+
+The day ends when an in-game clock reaches 5 PM, not when N subjects are processed. The entire clock runs in `OnUpdate` off `Time.Delta` with a float accumulator (terryspapers: `GameHandler.cs`):
+
+```csharp
+// terryspapers: GameHandler.cs — real-time accumulator drives sim clock
+float _elapsed;
+const float MinuteInterval = 0.7f;   // real seconds per in-game minute
+
+protected override void OnUpdate()
+{
+    _elapsed += Time.Delta;
+    if ( _elapsed < MinuteInterval ) return;
+    _elapsed = 0f;
+    Minute++;
+    if ( Minute >= 60 ) { Minute = 0; Hour++; }
+    if ( Hour >= 5 && TimeAMPM == "PM" ) EndDay( "End of Day" );
+}
+```
+
+**Composable lesson:** difficulty in a document-sim scales with the rule set per shift (what you must check) not with NPC count alone. `shiftQuota` is a *minimum correct decisions* floor, not a cap — a slow player still has to meet quota before the clock runs out.
+
+### D. Save-on-every-mutation rather than autosave-on-timer
+
+`SavePlayerData()` is a one-liner called after *every* state change (mood, money, narrative flag). This eliminates "session lost" bugs at the cost of tiny per-operation disk writes that are acceptable in a singleplayer turn-based loop (terryspapers: `GameHandler.cs`):
+
+```csharp
+// terryspapers: GameHandler.cs
+public void SavePlayerData() =>
+    FileSystem.Data.WriteAllText( "data.json", JsonSerializer.Serialize( playerData ) );
+```
+
+**The triple-write discipline:** adding a new field to `PlayerData` requires touching three places — the field declaration, `GetDefaultData()` (new-game seed), and the field-by-field load path. The source has an explicit comment warning about this. If you start from this pattern, consider a generated save struct that keeps those in sync, or use the `facepunch.fair` `ISaveDataProperty` interface approach for larger projects.
+
+### E. `[ConCmd]` Monte-Carlo balance harness for the data generator
+
+The game ships a console command that runs the full subject-generation + verdict pipeline 20 times in a loop and logs the valid/invalid split. This is an in-engine statistical test that ensures a shift rule combination is not 100% rejects before it ships (terryspapers: `GameHandler.genterries()`):
+
+```csharp
+// terryspapers: GameHandler.cs — [ConCmd] balance-validation harness
+[ConCmd( "genrandomterries" )]
+public static void GenerateRandomTerries()
+{
+    if ( !Game.IsEditor ) return;              // ship dead in public builds
+
+    int valid = 0, invalid = 0;
+    for ( int i = 0; i < 20; i++ )
+    {
+        var data = RandomTerryData.GetRandomTerry( Instance.gameCore );
+        var (wrong, _) = Instance.terryHandler.DidWeGetItWrong( data );
+        if ( wrong.Count == 0 ) valid++; else invalid++;
+    }
+    Log.Info( $"Valid: {valid}  Invalid: {invalid}  ({valid*100/20}% clean)" );
+}
+```
+
+**Anti-pattern to note:** the verdict logic was duplicated inside this ConCmd in the original source rather than calling the real `DidWeGetItWrong` — a maintenance footgun. The fix shown above calls the real method. Gate every debug/cheat ConCmd behind `Game.IsEditor` so it compiles but is unreachable in shipped builds.
+
+### F. Embedded async minigame as a sub-state-machine inside the inspection loop
+
+`HackUI.razor` pops a full "hacking" minigame as one `async void TriggerHack()` driving an `int Stage` (0-6). The Razor switches on `Stage` to show different UI; stages run via `await GameTask.Delay(50)` loops. This is the `document-sim + embedded-minigame` composition pattern: the minigame is a co-routine inside the shift loop, charges a money penalty on failure, and returns to the inspection desk on completion (terryspapers: `HackUI.razor`):
+
+```csharp
+// terryspapers: HackUI.razor — async stage machine as inline minigame
+int Stage = 0;
+
+async void TriggerHack()
+{
+    Stage = 1;                          // typewriter fake-terminal output
+    for ( int i = 0; i < 70; i++ ) {
+        AppendTerminalLine( FakeLogLines[i] );
+        await GameTask.Delay( 50 );
+        if ( !Game.IsPlaying ) return;  // guard every await
+    }
+    Stage = 2;                          // ASCII skull reveal
+    await GameTask.Delay( 1200 );
+
+    // Stage 3: build memory grid (Simon-says)
+    int n = Game.Random.Next( 4, 13 );
+    hackSquares = Enumerable.Range( 1, 16 ).OrderBy( _ => Game.Random.Next() ).Take( n ).ToArray();
+    Stage = 3;
+    await WaitForPlayerRecall();        // awaits player click-back all N squares
+
+    if ( recallCorrect ) {
+        Stage = 6;                      // success + achievement
+        Services.Achievements.Unlock( "hack_success" );
+    } else {
+        Stage = 5;                      // fail + money penalty
+        int penalty = Game.Random.Next( 150, 450 );
+        gameHandler.playerData.money -= penalty;
+        gameHandler.SavePlayerData();
+    }
+}
+```
+
+**Composable lesson:** a self-contained minigame needs no new scene and no networking — it is one Razor panel + one `async void` + one `int Stage`. The pattern generalizes to lockpicking, scanner calibration, or any "press correct sequence under time pressure" skill check inside a larger loop.
+
+### G. Random recurring threat on a reset timer (boss visit)
+
+`PunisherHandler` adds tension via a visit that fires at a random time and resets its own timer each visit. This creates unpredictable pressure without a scripted event schedule (terryspapers: `PunisherHandler.cs`):
+
+```csharp
+// terryspapers: PunisherHandler.cs — random recurring threat
+float _nextVisitTime;
+
+protected override void OnStart()
+{
+    ResetVisitTimer();
+}
+
+void ResetVisitTimer()
+{
+    _nextVisitTime = Time.Now + Game.Random.Float( 420f, 900f );  // 7–15 min
+}
+
+protected override void OnUpdate()
+{
+    if ( gameHandler.DayOver || gameHandler.Shift == 1 ) return;  // no threat tutorial or after day
+    if ( Time.Now < _nextVisitTime ) return;
+    BossVisit();
+    ResetVisitTimer();                  // reschedule immediately after visit
+}
+```
+
+**Note:** `Game.Random.Float(min, max)` is correct s&box API; `System.Random` and `MathF` do not exist in the sandbox. The source mixes both — prefer `Game.Random` throughout for reproducibility.
+
+### H. Static email/hint DB as the tutorial layer
+
+`EmailDB.cs` is a `static Dictionary<string, EmailData>` of ~26 hand-authored emails. Some are flavor spam; others are in-fiction hints from an NPC ("Sophie") that teach mechanics — e.g. "if you can't find someone in the database and the spelling's right, they're using a fake name." This decouples tutorial text from code: designers edit the dictionary, mechanics never change. Pattern is directly reusable for any "NPC messages teach the rules" tutorial approach (terryspapers: `EmailDB.cs`).
+
+---
+
+**Cross-genre borrowing worth noting:**
+- `despawn.murder` (`zips-code/despawn.murder`) implements a *procedural per-player task system* (`GunAcquisition/Tasks/`) that maps onto the document-sim objective layer — if you want to add secondary objectives ("process 3 Drakorian travellers before end of shift"), its `GunTaskDefinition / GunTaskManager` pattern (polymorphic task base, group-exclusion, progress-tracking via event-hooks + polling) is a cleaner scaffold than ad-hoc flags.
+- `facepunch.fair` (`fair/Code/Persistence/`) has the best save-system in the corpus (`ISaveDataProperty` interfaces, `PropertyOrder`, corrupt-section isolation, version-delete migration) — worth adopting over terryspapers' hand-rolled triple-write discipline for any document-sim that adds many fields over time.
+
+**Read these games** for the document-sim genre:
+- `dimmies.terryspapers` — the only direct implementation in the corpus; mine it for the verdict engine, diegetic document raising, render-target mugshot, forgery generation, and all patterns above.
+- `despawn.murder` — for the procedural task/objective layer and the optimistic-store pattern if you add a backend.
+- `facepunch.fair` — for a production-grade save/persistence system to replace the triple-write footgun.

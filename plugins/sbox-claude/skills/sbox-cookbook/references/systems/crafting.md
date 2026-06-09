@@ -132,3 +132,111 @@ CraftIngredientType.Rune => tier switch {
 Verify live: confirm `GameResource`, `[AssetType]`, `ResourceLibrary.GetAll<T>()`, `Prefab.Clone()`, and `Game.Random.FromEnumerableWithChance` against the installed SDK with `describe_type` / `search_types` reflection — that is authoritative, not this doc or training data.
 
 See also: **sbox-api** (resolve exact signatures for `GameResource` / `ResourceLibrary` / `Game.Random`) and **sbox-build-feature** (screenshot-driven loop to wire the recipe asset + UI into a running scene).
+
+## Corpus refresh (2026): more reference implementations
+
+### Conveyor-trigger transmutation chain (enum-keyed, no recipe asset)
+
+`stellawisps.lumberyard` skips `GameResource` recipes entirely for a linear pipeline. A `PlankCutter` trigger volume carries a `CutterType` enum (`Plank`/`Paper`/`Money`). On `OnTriggerEnter` it identity-checks ownership, reads the incoming item's current type and `CutType`, and routes to a `SpawnX` method that destroys the input, clones a new `GameObject` with updated components, multiplies value by a data-asset float (`TreeResource.PlankMultiplier`), copies material/tint, and `NetworkSpawn()`s. Balance lives in `.tree` GameResource assets — zero code change to re-tune.
+
+```csharp
+// PlankCutter.cs — stellawisps.lumberyard Code/Trees/PlankCutter.cs:21-80
+public enum CutterType { Plank, Paper, Money }
+[Property] public CutterType Type { get; set; }
+
+protected override void OnTriggerEnter( Collider other )
+{
+    if ( !Networking.IsHost ) return;
+    if ( other.Root.Network.Owner != Root.Network.Owner ) return; // ownership gate
+
+    var wood = other.Root.Components.Get<Wood>();
+    if ( wood == null ) return;
+
+    if ( Type == CutterType.Plank && wood.GetComponent<Plank>() == null )
+        SpawnPlank( other.Root, wood.Value * wood.Resource.PlankMultiplier );
+    else if ( Type == CutterType.Paper && wood.GetComponent<Plank>() is { CutType: CutType.Plank } )
+        SpawnPaper( other.Root, wood.Value * wood.Resource.PaperMultiplier );
+    // ... SpawnMoney for Paper→Money stage
+}
+```
+
+(stellawisps.lumberyard: `Code/Trees/PlankCutter.cs:86-215`) — each stage is a separate world trigger; resources flow through space as physics rigidbodies, not abstract counters. Anti-pattern avoided: **do not use recipe assets for a fixed linear pipeline**; an enum + trigger is simpler and allows physics-based "miss the conveyor = lose the resource" gameplay.
+
+### Timed offline-safe converter (DateTime-stamped completion)
+
+`thefancylads.farm_land` shows the correct pattern for a crafting station that should still complete while the game is closed. The `Composter` stamps `TimeFinished` as a real `DateTime` (not a countdown `TimeSince`) and its `[Rpc.Owner]` `OnUpdate` checks `IsComposting && TimeFinished < DateTime.Now`. Speed is modified by a buff key at schedule-time so the finish time accounts for the player's current upgrades when the craft starts, not when it checks.
+
+```csharp
+// Composter.cs — thefancylads.farm_land Common/Farming/Composter.cs
+void BeginComposting()
+{
+    float speed = BuffManager.Instance.GetModifier( "farming.compost.speed" );
+    TimeFinished = DateTime.Now + TimeSpan.FromSeconds( BaseDuration / AverageSpeed / speed );
+    IsComposting = true;
+}
+
+[Rpc.Owner]
+protected override void OnUpdate()
+{
+    if ( IsComposting && TimeFinished < DateTime.Now )
+        FinishComposting(); // yields fertiliser, clears IsComposting
+}
+```
+
+(thefancylads.farm_land: `Common/Farming/Composter.cs`) — persists `TimeFinished` as a `DateTime` string so offline completion is free. **Anti-pattern: using `TimeSince` or a float countdown for a crafting timer** — `TimeSince` resets to zero on load and the craft never completes after a session restart. Always stamp the absolute finish time.
+
+### Timed slot-growth as crafting-over-time
+
+`bublic.stone_by_stone` implements crafting-over-time as a `GardenComponent` with per-slot state. Each `PlantSlot` tracks `GrowthElapsed`/`GrowDuration`/`Progress`; `OnUpdate` advances `GrowthElapsed += Time.Delta` and lerps `WorldScale` from `MinVisualScale*target → target` so the output visually manifests. Harvest clones the slot's `HarvestItem ×HarvestCount` into the bag, fires quest progress, then **cycles the slot** (round-robin or random). Upgrading calls `ReduceGrowDuration` across all slots. This is architecturally identical to a smelter/kiln — a "slot" is a running recipe whose output appears after a duration.
+
+```csharp
+// GardenComponent.cs — bublic.stone_by_stone Code/GardenComponent.cs
+protected override void OnUpdate()
+{
+    foreach ( var slot in Slots.Where( s => s.IsOccupied && !s.CanHarvest ) )
+    {
+        slot.GrowthElapsed += Time.Delta;
+        slot.Progress = slot.GrowthElapsed / slot.GrowDuration; // 0→1
+        var t = MathX.Clamp( slot.Progress, 0f, 1f );
+        slot.PlantModel.WorldScale = Vector3.Lerp(
+            slot.MinVisualScale * slot.TargetScale, slot.TargetScale, t );
+        if ( t >= 1f ) slot.CanHarvest = true;
+    }
+}
+```
+
+(bublic.stone_by_stone: `Code/GardenComponent.cs`) — the slot array is the "queue"; no recipe asset needed when every slot produces the same item. Reuse for kilns, furnaces, or any station with multiple parallel slots.
+
+### Sell terminal as implicit item-to-currency conversion
+
+`master.digging_simulator` shows the simplest possible "refine" primitive: a `ShopTerminal` with a `[Property] Dictionary<string,int> OrePrices` keyed by item name. `SellAll` iterates the bag, looks up price by name, sums, clears. No recipe asset, no output item — the terminal *is* the crafting step (ore → gold). For survival/mining games where every gathered resource converts to a flat currency value, this beats a full recipe system.
+
+```csharp
+// ShopTerminal.cs — master.digging_simulator Code/ShopTerminal.cs:33,142
+[Property] public Dictionary<string, int> OrePrices { get; set; } = new();
+
+public void SellAll( PlayerInventory bag )
+{
+    int total = 0;
+    foreach ( var (name, qty) in bag.Items )
+        if ( OrePrices.TryGetValue( name, out int price ) )
+            total += price * qty;
+    bag.Clear();
+    bag.Owner.AddMoney( total );
+}
+```
+
+(master.digging_simulator: `Code/ShopTerminal.cs:142`) — balance lives in the inspector dictionary; designers set prices without touching code. Pair with a `[Button]`-wired `RestoreLevels` for the load path.
+
+### Anti-patterns flagged in these games
+
+- **`master.digging_simulator` uses `MathF.Pow`** in `GetCost` (`ShopTerminal.cs:49`). `System.MathF` does not exist in s&box's C# sandbox — replace with `MathX` or a manual `float pow = 1f; for(int i=0;i<level;i++) pow *= mult;` loop.
+- **Conveyor ownership gate must be host-side.** `PlankCutter` gates on `!Networking.IsHost` before doing anything. Skipping this causes every client to destroy the resource and spawn a duplicate output. (stellawisps.lumberyard: `PlankCutter.cs:21`.)
+- **`DateTime.Now` offline timers require the save to store the `DateTime`, not a remaining duration.** Storing a remaining float and subtracting session length is a second integration that drifts; store `TimeFinished` directly. (thefancylads.farm_land: `Composter.cs`.)
+
+### Read these games
+
+- **stellawisps.lumberyard** — conveyor-trigger transmutation chain, physics-rigidbody resource economy, Branch.Refine fuse-and-multiply. `Code/Trees/PlankCutter.cs`, `Code/Trees/Branch.cs`.
+- **thefancylads.farm_land** — timed offline-safe converter (Composter), buff-speed-modified craft duration, event-interface bus for output reactions. `Common/Farming/Composter.cs`, `Common/Players/Buffs/BuffManager.cs`.
+- **bublic.stone_by_stone** — timed slot-growth as crafting-over-time, `ReduceGrowDuration` upgrade hook, quest-progress on harvest. `Code/GardenComponent.cs`.
+- **master.digging_simulator** — sell-terminal as implicit item→currency conversion, `[Property] Dictionary<string,int>` price table. `Code/ShopTerminal.cs`.

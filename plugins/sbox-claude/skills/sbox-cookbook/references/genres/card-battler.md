@@ -185,3 +185,219 @@ Don't hardcode starting life / hand size / deck limits. battledraft's `ReadOrWri
 Reflection is authoritative for the installed SDK — confirm the real shapes before coding: `describe_type GameResource` (constructor args vary), `describe_type Sandbox.Connection` (Rpc.Caller / FilterInclude / FilterExclude), and `search_types Rpc` / `search_types Sync` for the current attribute surface. Then `search_types TimeUntil` for the turn-timer heartbeat.
 
 See also: **sbox-api** (reflection-first type/method lookup before you write code) and **sbox-build-feature** (the screenshot-driven build/iterate loop — essential for the hand/board UI).
+
+## Corpus refresh (2026): more reference implementations
+
+Four games added in the 2026 mining pass — facepunch.ss2, despawn.murder, facepunch.fair, barrelproto.ragroll — do not implement card-battler mechanics directly. The techniques below are genuinely net-new vs the existing file and are directly composable into a card game.
+
+### A. Reflection-driven draft pool (facepunch.ss2 — `PerkManager.cs`, `Player.Perks.cs`)
+
+facepunch.ss2 is a bullet-heaven roguelite, but its **level-up perk draft** is structurally identical to "draw N cards to offer, player picks one": a pool discovered at boot by `TypeLibrary.GetTypes<Perk>()`, filtered by per-card attribute gates, then weighted-reservoir-sampled without replacement. This is the missing "draft offer" layer for a card game:
+
+```csharp
+// ss2: perks/Perk.cs + PerkManager.cs (adapted — replace Perk with CardDef)
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class CardAttribute : Attribute
+{
+    public Rarity Rarity;
+    public bool AvailableFromStart;
+    public CardAttribute( Rarity rarity, bool availableFromStart = true )
+        { Rarity = rarity; AvailableFromStart = availableFromStart; }
+}
+
+// Build pool once at match start — adding a new card file auto-includes it:
+static IReadOnlyList<TypeDescription> BuildPool() =>
+    TypeLibrary.GetTypes<CardDef>()
+               .Where( t => t.GetAttribute<CardAttribute>() is { AvailableFromStart: true } )
+               .ToList();
+
+// Weighted-reservoir draw of N offers WITHOUT replacement (ss2 pattern):
+static List<TypeDescription> DraftOffers( IReadOnlyList<TypeDescription> pool,
+                                           int n, Random rng )
+{
+    var result = new List<TypeDescription>();
+    var weights = pool.Select( GetRarityWeight ).ToList();
+    while ( result.Count < n && weights.Any( w => w > 0 ) )
+    {
+        float total = weights.Sum();
+        float roll  = rng.NextFloat() * total;
+        float acc   = 0;
+        for ( int i = 0; i < pool.Count; i++ )
+        {
+            acc += weights[i];
+            if ( roll <= acc ) { result.Add( pool[i] ); weights[i] = 0; break; }
+        }
+    }
+    return result;
+}
+static float GetRarityWeight( TypeDescription t ) =>
+    t.GetAttribute<CardAttribute>()?.Rarity switch
+        { Rarity.Common => 425, Rarity.Uncommon => 85, Rarity.Rare => 22, _ => 3 };
+```
+
+Anti-pattern in ss2: the pool is built host-side and the offered indices are broadcast, but perk *display metadata* (name, icon, description) lives in per-class static ctors that only fire when that type is actually instantiated client-side. If you broadcast `cardId` strings to clients who haven't instantiated the `CardDef`, the display dict is empty. ss2 fixes this with `Perk.EnsureRegistered(type)` — it does `TypeLibrary.GetType(type).Create<Perk>()` once solely to trigger the static ctor. For a `GameResource`-based card game you avoid the problem entirely: `ResourceLibrary.GetAll<CardDef>()` loads all assets on both sides at boot, so there is no "static ctor hasn't fired" hole.
+
+### B. Draft-offer sync with `[Rpc.FilterInclude]` + `PerkChoiceHash` (facepunch.ss2)
+
+The existing file already covers `Rpc.FilterInclude` for hand privacy. ss2 adds a complementary trick: **hash-counter UI reactivity**. A `PerkChoiceHash` int is incremented every time the draft offer list mutates; the Razor panel's `BuildHash()` returns it. This means the panel re-renders exactly once per offer-list change, never per-frame. Adapt for a card-play or draft-offer panel:
+
+```csharp
+// MatchManager addition — cheap dirty flag for UI
+[Sync( SyncFlags.FromHost )] public int DraftHash { get; private set; }
+
+void SetDraftOffers( Guid playerId, List<string> cardIds )
+{
+    _draftOffers[playerId] = cardIds;
+    DraftHash++;                      // panel rebuilds exactly here, not every frame
+    using ( Rpc.FilterInclude( ConnectionOf( playerId ) ) )
+        ReceiveDraftOffers( cardIds.ToArray() );
+}
+// Razor panel:
+// protected override int BuildHash() => HashCode.Combine( MatchManager.Instance.DraftHash );
+```
+
+### C. `INetworkSnapshot` for late-join board state (khamitech.battledraft — `Manager.cs:42`)
+
+The existing file uses `[Sync]` fields for everything. battledraft adds a **bulk-state-transfer** path for late-joiners via `INetworkSnapshot { OnWrite(ref ByteStream); OnRead(ref ByteStream); }`. Each manager that implements the interface gets a `SnapshotComponent` wired at map load; the new client deserializes the whole board in one blob instead of waiting for incremental `[Sync]` catchup. For a card game this matters if a spectator joins mid-match and needs the complete board instantly:
+
+```csharp
+public sealed class MatchManager : Component, INetworkSnapshot   // battledraft Manager.cs:42 pattern
+{
+    // Called once when a new client connects:
+    public void OnWrite( ref ByteStream s )
+    {
+        s.Write( ActivePlayerId );
+        s.Write( Turn );
+        s.Write( (byte)_boardCards.Count );
+        foreach ( var (pid, cards) in _boardCards )
+        {
+            s.Write( pid );
+            s.Write( (byte)cards.Count );
+            foreach ( var id in cards ) s.Write( id );
+        }
+    }
+    public void OnRead( ref ByteStream s )
+    {
+        ActivePlayerId = s.Read<Guid>();
+        Turn           = s.Read<int>();
+        int pCount     = s.Read<byte>();
+        _boardCards.Clear();
+        for ( int i = 0; i < pCount; i++ )
+        {
+            var pid = s.Read<Guid>();
+            int n   = s.Read<byte>();
+            var cards = new List<string>();
+            for ( int j = 0; j < n; j++ ) cards.Add( s.Read<string>() );
+            _boardCards[pid] = cards;
+        }
+    }
+}
+```
+
+Anti-pattern in battledraft: `ItemShop` and `JsonConfiguration` distinguish `[JsonIgnoreNetwork]` fields (rich disk schema) from the slim wire format. Keep the same discipline — don't include display fields (art path, localised name) in the snapshot stream; the client already has them via `GameResource`.
+
+### D. Disk-vs-wire schema split (`[JsonIgnoreNetwork]`) (khamitech.battledraft — `ItemShop.cs:115`, `JsonConfiguration.cs:64`)
+
+battledraft serialises the full balance config to `Servers/<dir>/Configurations/*.json` for server-owner hand-editing, but networks **only** the 2 fields the client actually needs. Use the same split for card-game config:
+
+```csharp
+// Only BalanceConfig fields without [JsonIgnoreNetwork] go over the wire.
+public class BalanceConfig
+{
+    public int StartingLife        { get; set; } = 20;
+    public int HandSize            { get; set; } = 5;
+    public int TurnMana            { get; set; } = 1;   // networked — clients need to show HUD
+    [JsonIgnoreNetwork] public string DesignerNotes { get; set; } = "";   // disk only
+    [JsonIgnoreNetwork] public List<string> BannedCards { get; set; } = new();
+}
+```
+
+Note: `[JsonIgnoreNetwork]` is a battledraft custom attribute on their `JsonConfiguration`, not a built-in s&box attribute. You replicate the intent by hand-rolling the `OnWrite`/`OnRead` in the snapshot to skip those fields, or by maintaining a separate, smaller DTO for the wire.
+
+### E. Stat-modifier engine for card buffs (facepunch.ss2 — `Player.Stats.cs`)
+
+The existing file uses a plain `BuffAttack` effect op. ss2 shows a more composable spine: a `Dictionary<IStatModifier, Dictionary<PlayerStat, ModifierData>>` where each buff source (a played card) owns its own slot. Removal by source (when the card leaves the board) is O(1) and never leaves stale values. The `ModifierType` enum — `Set`, `Add`, `Mult` — resolves in priority order so +3 attack (`Add`) and ×2 multiplier (`Mult`) compose correctly:
+
+```csharp
+public enum ModifierType { Set, Add, Mult }
+public record ModifierData( float Value, ModifierType Type, float Priority = 0 );
+
+// On the game board — host only:
+Dictionary<IStatModifier, Dictionary<CardStat, ModifierData>> _mods = new();
+
+public void Modify( IStatModifier source, CardStat stat, float value, ModifierType type )
+{
+    if ( !_mods.TryGetValue( source, out var d ) ) _mods[source] = d = new();
+    d[stat] = new( value, type );
+}
+public void RemoveModifiers( IStatModifier source ) => _mods.Remove( source );
+
+public float GetStat( CardStat stat, float baseVal )
+{
+    float v = baseVal;
+    foreach ( var (_, d) in _mods.OrderBy( x => 0 ) )    // Set first
+        if ( d.TryGetValue( stat, out var m ) && m.Type == ModifierType.Set ) v = m.Value;
+    foreach ( var (_, d) in _mods )
+        if ( d.TryGetValue( stat, out var m ) && m.Type == ModifierType.Add ) v += m.Value;
+    foreach ( var (_, d) in _mods )
+        if ( d.TryGetValue( stat, out var m ) && m.Type == ModifierType.Mult ) v *= m.Value;
+    return v;
+}
+```
+
+ss2 also keeps a **whitelist** of stats that actually sync to proxy clients (`_syncedStats`). For cards this means: only sync the stats the hand-panel HUD needs (attack, health); leave internal combat intermediates host-only.
+
+### F. Vote-to-next-round / map-vote as draft selection (khamitech.battledraft — `VoteMapSystem.cs`)
+
+battledraft's map-vote FSM is a clean, general-purpose "N players choose from M options, resolve by majority-live or plurality-at-timeout" primitive. It reuses almost 1:1 as a **"choose next draft pick" or "vote on a mulligan"** mechanic:
+
+```csharp
+// battledraft VoteMapSystem.cs pattern — generalised:
+public sealed class VoteSystem : Component
+{
+    readonly Dictionary<Guid, int> _votes = new();
+    TimeSince _opened;
+    const float TimeoutSec = 15f;
+
+    [Rpc.Host] public void SendVote( int index )
+    {
+        _votes[PlayerIdOf( Rpc.Caller )] = index;
+        if ( MajorityReached() ) Resolve( majority: true );
+    }
+
+    protected override void OnUpdate()
+    {
+        if ( !Networking.IsHost ) return;
+        if ( _votes.Count > 0 && _opened > TimeoutSec ) Resolve( majority: false );
+    }
+
+    void Resolve( bool majority )
+    {
+        // plurality: pick the most-voted index
+        var winner = _votes.GroupBy( kv => kv.Value )
+                           .OrderByDescending( g => g.Count() ).First().Key;
+        OnResolved?.Invoke( winner );
+    }
+
+    public Action<int> OnResolved;
+    bool MajorityReached() =>
+        _votes.GroupBy( kv => kv.Value ).Any( g => g.Count() * 2 > _votes.Count + PlayerCount );
+    int PlayerCount => 2;   // replace with real count
+}
+```
+
+Anti-pattern in battledraft: the debounce uses `GameTimer.InvokeOnce("check_votes", 2f)` — a named global timer that can be overwritten by concurrent callers. Prefer `TimeSince` (shown above) to avoid the name-collision footgun.
+
+---
+
+### Read these games
+
+For a card-draft battler, the highest-value source games in order of relevance:
+
+| Game | File | What to mine |
+|---|---|---|
+| **khamitech.battledraft** | `sbox-lessons/mining-v2/games/khamitech.battledraft.md` | Host-auth RPC mutation convention, `GameResource` asset pipeline, round/turn FSM (`RoundExpires`/`IsPlayMode`), `INetworkSnapshot` late-join, `CraftAsset.GetResult` effect evaluator, `FilterExclude(Host)` idiom, `Rpc.FilterInclude(owner)` for hand privacy |
+| **facepunch.ss2** | `sbox-lessons/mining-v2/games/facepunch.ss2.md` | Reflection-driven draft pool (`TypeLibrary.GetTypes<Perk>()`), weighted-reservoir draw, rarity weights, synergy/prerequisite gate, stat-modifier engine (Set/Add/Mult), hash-counter UI reactivity (`PerkChoiceHash`) |
+| **despawn.murder** | `sbox-lessons/mining-v2/games/despawn.murder.md` | `RoundState` base class with `Begin/Tick/Finish` virtuals + `TimeUntil TimeLeft`; `[Rpc.Host] PurchaseHost` host-authoritative buy with ConVar-priced items; per-recipient reveal via ghost clones (`Rpc.FilterInclude`) |
+| **facepunch.fair** | `sbox-lessons/mining-v2/games/facepunch.fair.md` | `INetworkSnapshot` for `ByteStream` bulk-state (owned-chunk set); reason-tagged economy transactions; `ISaveDataProperty` versioned persistence |
+| **barrelproto.ragroll** | `sbox-lessons/mining-v2/games/barrelproto.ragroll.md` | `IGameMode` swappable-interface pattern; owner-gated score write (`[Sync]` setter early-returns unless `Network.IsOwner`); `VoteSystem`-style debounced majority/plurality resolution |

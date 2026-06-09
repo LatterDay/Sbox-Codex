@@ -125,3 +125,187 @@ Author with `create_gameobject` / `create_prefab` / `instantiate_prefab` / `grid
 
 ---
 See also: `sbox-api` (type/method reflection — verify any `MapInstance`/`Clutter`/`Terrain`/`NavMeshArea` member, API drifts per SDK), `sbox-build-feature` (the screenshot-driven iteration loop), `references/engine/worldgen-rendering.md` (SDF/voxel/runtime mesh + host-authoritative spawn placement), `references/engine/performance-threading.md` (object-count budgets, frame-budget + RPC-batching rules behind the freeze-class gotchas).
+
+## Corpus refresh (2026): more reference implementations
+
+### Weighted spawn nodes with anti-repeat + occupancy guard (despawn.murder)
+
+`Components/LootSpawnPoint.cs` + `Systems/Rounds/RoundDirector/RoundDirector.Spawning.cs`
+
+The canonical "designer marks spawn nodes, Director picks among them" pattern — not the zone/table approach already in this file (TreasureSpawnGroup/ShelfableSpawner), but a **per-point weighted selection** with occupancy and anti-clustering baked in:
+
+```csharp
+// Designer-placed component. The Director queries all of these each spawn tick.
+public sealed class LootSpawnPoint : Component
+{
+    [Property] public float SpawnWeight { get; set; } = 1f;
+    [Property] public GameObject CustomPrefab { get; set; }    // null = use Director default
+    [Property] public string AchievementId { get; set; }
+
+    // Returns false if something is already sitting here (physics overlap check).
+    public bool CheckOccupancy()
+        => Scene.Trace.Sphere( 24f, WorldPosition, WorldPosition )
+               .WithoutTags( "loot_spawn" )
+               .Run().Hit;
+}
+
+// Director.Spawning: weighted pick with anti-repeat queue + distance bias
+// (near-milestone: prefer points FAR from all players)
+Queue<LootSpawnPoint> _recentSpawns = new();   // last 2 positions excluded
+
+LootSpawnPoint PickSpawnPoint( bool distanceBias )
+{
+    var candidates = Scene.GetAllComponents<LootSpawnPoint>()
+        .Where( p => !_recentSpawns.Contains(p) && !p.CheckOccupancy() )
+        .ToList();
+    if ( candidates.Count == 0 ) return null;
+
+    if ( distanceBias )
+    {
+        // score = SpawnWeight × min-distance-to-any-player (normalised)
+        float maxDist = candidates.Max( p => MinPlayerDist(p) );
+        candidates = candidates.OrderByDescending(
+            p => p.SpawnWeight * (MinPlayerDist(p) / MathX.Max(maxDist, 1f)) ).ToList();
+        var pick = candidates[0];
+        TrackRecent( pick );
+        return pick;
+    }
+    // plain weighted random
+    float total = candidates.Sum( p => p.SpawnWeight );
+    float roll  = Game.Random.Float( 0f, total );
+    float acc   = 0f;
+    foreach ( var p in candidates ) { acc += p.SpawnWeight; if ( acc >= roll ) { TrackRecent(p); return p; } }
+    return candidates[^1];
+}
+
+void TrackRecent( LootSpawnPoint p )
+{
+    _recentSpawns.Enqueue( p );
+    if ( _recentSpawns.Count > 2 ) _recentSpawns.Dequeue();
+}
+```
+
+**Anti-patterns caught in the source:**
+- Forgetting `CheckOccupancy()` → clues/items stack on the same point and vanish under each other. Fix: always guard before placing.
+- Skipping the anti-repeat queue → the same corner gets hit repeatedly, breaking the "spreads across the map" feel. The queue size (2) is a single constant — tune it.
+
+### Per-map metadata as a GameResource (despawn.murder)
+
+`Systems/MapVote/MapResource.cs` — a `.mapvote` `GameResource` that carries not just scene metadata but **per-map spawn-tuning knobs** consumed by the Director at runtime:
+
+```csharp
+[GameResource( "Map Vote Resource", "mapvote", "Despawn map config", Icon = "map" )]
+public sealed class MapResource : GameResource
+{
+    [Property] public SceneFile SceneFile    { get; set; }
+    [Property] public Texture   Image        { get; set; }
+    [Property] public float     VoiceRange   { get; set; } = 600f;
+
+    // Director reads these to lerp spawn multiplier by lobby size
+    [Property] public float ClueSpawnMultiplier    { get; set; } = 1f;
+    [Property] public float ClueSpawnMultiplierMax { get; set; } = 1.5f;
+
+    // Match a running scene back to its resource for runtime lookup
+    public static MapResource GetCurrent( Scene scene )
+        => ResourceLibrary.GetAll<MapResource>()
+               .FirstOrDefault( r => r.SceneFile?.ResourcePath == scene.Source );
+}
+```
+
+Steal this pattern whenever a game ships multiple maps with different difficulty/pacing: one `.mapvote` (or `.mapconfig`) file per map, `GetCurrent(Scene)` resolves at round start, the Director pulls multipliers from it. Zero per-map branching in code.
+
+### Auto-classifying map size from spawn-point geometry (despawn.murder)
+
+`RoundDirector.MapAnalysis.cs` — runs once at scene load, requires no hand-tuning:
+
+```csharp
+// Bucket: Small / Medium / Large / VeryLarge
+// Formula: 0.7 * avgPairDist + 0.3 * boundingBoxDiag, then / sqrt(spawnCount)
+var points = Scene.GetAllComponents<LootSpawnPoint>().ToList();
+float avgDist  = AveragePairDistance( points );          // O(n²), fine for ≤100 points
+float bbox     = BoundingBoxDiagonal( points );
+float score    = (0.7f * avgDist + 0.3f * bbox) / MathX.Sqrt( MathX.Max(points.Count,1) );
+MapSize = score switch { < 300 => Size.Small, < 600 => Size.Medium, < 900 => Size.Large, _ => Size.VeryLarge };
+```
+
+Use this to auto-set base spawn intervals, clue count targets, or round duration without exposing another knob to level designers. The 70/30 blend dampens outliers from single far-flung points that would inflate the bbox alone.
+
+### Per-map C# loader components as "map plugins" (despawn.murder)
+
+`Code/Maps/{Clue,Fate,Fracture,Plaza,Legacy}/*MapLoader.cs` — each map ships a bespoke `*MapLoader : Component` alongside a generic `MapLoader.cs` base. The generic loader handles common setup (spawn points, game-mode hooks); each map's plugin overrides or adds set-pieces. Plaza has a full scripted tanker-explosion cutscene: `CutsceneDirector`, `TankerExplosion`, `CarTrack*`, `FireZone` — all in the map's folder, never touching shared code.
+
+Pattern: author a `MapLoader` base Component with virtual `OnMapLoaded()` / `OnRoundStart()` hooks, drop a concrete subclass into each map's prefab. Adding a new map = add a folder + one subclass. Shared gameplay code never changes. Maps become self-contained "plugins." The bridge's `create_gameobject` / `add_component_with_properties` can scaffold the stub.
+
+### Atmospheric level dressing: 3-state flicker light (mishmaps.backrooms)
+
+`Code/LightFlicker.cs` (`NeonFlickerLight`) — purely cosmetic, runs on every client (no `[Sync]`), zero curve/anim track, organic non-periodic behavior from a 3-state machine:
+
+```csharp
+public sealed class NeonFlickerLight : Component
+{
+    enum State { Off, On, Burst }
+    [Property] public PointLight Light      { get; set; }
+    [Property] public float OffMin          { get; set; } = 0.1f;
+    [Property] public float OffMax          { get; set; } = 0.5f;
+    [Property] public float BurstMin        { get; set; } = 0.05f;
+    [Property] public float BurstMax        { get; set; } = 0.15f;
+
+    State _state; RealTimeSince _timer; float _next; int _burstTarget, _burstCount;
+
+    protected override void OnStart() => SwitchState( State.On );
+
+    protected override void OnUpdate()
+    {
+        if ( _timer < _next ) return;
+        if ( _state == State.Burst )
+        {
+            Light.Enabled = !Light.Enabled;
+            if ( ++_burstCount >= _burstTarget ) SwitchState( RandomState() );
+            else { _timer = 0; _next = Game.Random.Float( BurstMin, BurstMax ); }
+        }
+        else SwitchState( RandomState() );
+    }
+
+    void SwitchState( State s )
+    {
+        _state = s; _timer = 0; _burstCount = 0;
+        _burstTarget = Game.Random.Int( 2, 6 );
+        Light.Enabled = s != State.Off;
+        _next = s == State.Off  ? Game.Random.Float( OffMin, OffMax )
+              : s == State.On   ? Game.Random.Float( 1f, 5f )
+                                : Game.Random.Float( BurstMin, BurstMax );
+    }
+    static State RandomState() => (State)Game.Random.Int( 0, 2 );
+}
+```
+
+Drop this on any `PointLight` in a horror map. Extend to a `Style` enum (FluorescentDying / Sparking / StormStrobe) by varying the parameter ranges. The same skeleton drives any "intermittent ambient effect" — blinking signs, sparking consoles, pulsing growl sounds.
+
+**Note:** the backrooms source export contains only this component — the actual maze geometry, collision, and player code were not included in the open-source package (see `sbox-lessons/mining-v2/games/mishmaps.backrooms.md` for scope warning).
+
+### Document/object inspection interaction (dimmies.terryspapers)
+
+`Code/ViewDocument.cs` — a pick-up-and-examine interaction that fits any "examine an item" mechanic (evidence, readable notes, loot appraisal):
+
+```csharp
+// Objects start hidden (z = -5). A trigger or NPC call sets Held = true.
+// OnFixedUpdate lerps to camera-relative position for a "held up to face" feel.
+protected override void OnFixedUpdate()
+{
+    if ( !Held ) { WorldPosition = Vector3.Lerp( WorldPosition, OriginalPos, 0.1f ); return; }
+    var cam   = Scene.Camera;
+    var target = cam.WorldPosition + cam.WorldRotation.Forward * HoldDistance;
+    WorldPosition = Vector3.Lerp( WorldPosition, target, 0.1f );
+    WorldRotation = Rotation.Slerp( WorldRotation, cam.WorldRotation * TargetRotOffset, 0.1f );
+}
+// Click while held → return to OriginalPos/Rot (saved on OnStart)
+```
+
+`TargetRotOffset` is a per-object `[Property]` (e.g. rotate ID cards face-up, tilt fingerprint tablets). Level design takeaway: **hide props below the desk (z < 0) as the "not visible" state** instead of toggling `Enabled` — smooth lerp-in on pickup, lerp-out on drop.
+
+---
+
+**Read these games for the patterns above:**
+- `sbox-lessons/mining-v2/games/despawn.murder.md` — weighted spawn nodes, map-size auto-classification, per-map GameResource knobs, C# map-loader plugins, AI Director pacing
+- `sbox-lessons/mining-v2/games/mishmaps.backrooms.md` — NeonFlickerLight (3-state machine atmosphere)
+- `sbox-lessons/mining-v2/games/dimmies.terryspapers.md` — ViewDocument lerp-to-camera inspection, TCS scene-settle gate

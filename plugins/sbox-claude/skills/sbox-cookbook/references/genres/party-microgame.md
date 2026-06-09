@@ -207,3 +207,155 @@ Reflection is the source of truth for the installed SDK — confirm the networki
 - `search_types ISceneEvent` — confirm the scene-event bus API before defining `IGameEvent`.
 
 Cross-links: see **sbox-api** for authoritative type/method lookups (`describe_type`/`search_types`) and **sbox-build-feature** for the screenshot-driven build-and-verify loop that keeps the bridge out of guess-and-check.
+
+## Corpus refresh (2026): more reference implementations
+
+Three games surface important variations that the original `vidya.terry_games` coverage doesn't capture: a 3-manager hub split (`playbtg.elevator`), a co-op round-manager using synced bools + tag-based player state instead of an enum FSM (`mostudio.sweeper_otso`), and a host-migration watchdog pattern that makes any round-based game hard to soft-lock. `facepunch.ss2`, `despawn.murder`, `facepunch.fair`, and `barrelproto.ragroll` add supporting techniques noted inline.
+
+### Variation 1 — Three-manager hub split (playbtg.elevator)
+
+Instead of one God-object director, **The Elevator** uses three cooperating host-authoritative components. This avoids the "GameSystem grows forever" problem and makes the between-rounds vs in-round logic cleanly separable.
+
+- **`LobbyManager`** — between-rounds only. Majority-ready-up (`(ready*2 > total) || isHostReady`), `[Sync] CountdownRemaining`, "everyone ready → snap to 5s" shortcut. Detects level-end by edge-detecting `ExperienceLoaded` falling (no polling).
+- **`ExperienceManager`** — in-round. Owns the live countdown, early-end when `alive == 0`, coin spawning, and teardown. Kills stragglers who didn't board at round end (`TakeDamage(Health*2, "missed their ride")`).
+- **`ElevatorController`** — door animation state machine. Fires `OnDoorsOpened`/`OnDoorsClosed` actions; the ExperienceManager subscribes. Animation completion is detected from the door *object's* own callback, not a timer — decouples physics/anim from logic.
+
+**Tag-based teardown (critical for host migration):** every object spawned during a round is tagged `active-level` or `temporary`. Cleanup is a single scene scan — no stored references that go stale on host change:
+
+```csharp
+// ExperienceManager — called on round end or host migration recovery
+void TeardownLevel()
+{
+    foreach (var go in Scene.GetAllObjects(true)
+                            .Where(o => o.Tags.Has("active-level") || o.Tags.Has("temporary")))
+        go.Destroy();
+}
+```
+
+**Host-migration-safe round ordering** (`playbtg.elevator` Standout #1): store the shuffled queue as a `[Sync(SyncFlags.FromHost)] string ExperienceOrderSerialized` (CSV of titles). A new host calls `RestoreExperienceOrder()` — rebuild from the synced CSV — so a host crash mid-session doesn't reset the rotation. Generalize: *replicate the seed/order of any procedural sequence as a primitive string.*
+
+**Anti-pattern:** storing the level prefab in a reference variable (`_level`) and calling `Destroy()` on it directly. If the host disconnects, `_level` is null on the new host, so the teardown silently no-ops. Tag-based cleanup is the fix. (`Code/Experiences/ExperienceManager.cs`)
+
+### Variation 2 — Synced-bool state machine + tag-based player exclusion (mostudio.sweeper_otso)
+
+`MinesweeperGenerator` expresses round state as a **bag of `[Sync]` bools** rather than a single `[Sync]` enum. This is simpler for co-op games (no sequential phases) and a fresh joiner reads exactly which combination of flags is active without needing to know what transitions are legal:
+
+```csharp
+[Sync] public bool BoardActive, ClearInProgress, IsGameOver, WinInProgress { get; set; }
+[Sync] public bool TimerRunning, GameWon { get; protected set; }
+
+// Derived "actually running" is just a bool expression — no switch:
+public bool RoundActuallyRunning =>
+    BoardActive && TimerRunning && !IsGameOver && !ClearInProgress && !WinInProgress;
+```
+
+**Tag-based player exclusion** (survives host migration better than a `List<PlayerPawn>` winner list). Tags `"playing"` / `"excluded"` / `"dead"` / `"ghost"` are broadcast to all clients and live on the player GameObject — a fresh host sees them immediately via a scene scan without any RPC reconciliation:
+
+```csharp
+// Host OnUpdate — auto-exclude any fresh joiner mid-round:
+foreach (var player in Scene.GetAll<PlayerPawn>())
+{
+    if (!player.Tags.Has("playing") && !player.Tags.Has("excluded"))
+        UpdatePlayerExclusion(player, "excluded");  // [Rpc.Broadcast] sets the tag
+}
+```
+
+**Anti-pattern:** `List<Client> Winners` synced as a `NetList` — on host migration, the new host's NetList may not have fully replicated yet, causing it to re-run `OnEnding` kills against an empty winner set (everyone dies). `[Sync] NetList<Vector3> FlaggedPositions` on the manager (sweeper_otso Standout #1) shows the safer pattern: store *world-space data*, not *object references*.
+
+### Variation 3 — HostWatchdog: round recovery after host disconnect (mostudio.sweeper_otso)
+
+Every round-based game soft-locks when the host disconnects mid-round unless you explicitly handle it. `sweeper_otso`'s `HostWatchdog` pattern is a complete, droppable playbook:
+
+```csharp
+public partial class GameManager : Component, Component.INetworkListener
+{
+    bool _wasHost;
+
+    protected override void OnUpdate()
+    {
+        if (Networking.IsHost && !_wasHost)
+            OnBecameHost();          // host migration detected
+        _wasHost = Networking.IsHost;
+    }
+
+    async void OnBecameHost()
+    {
+        ForceResetTransientFlags();  // clear stuck ClearInProgress/WinInProgress from dead host's async tasks
+        ReclaimOrphanedObjects();    // TakeOwnership on any NetworkOrphaned objects
+        await Task.DelaySeconds(1f); // let in-flight packets settle
+        if (!ValidateRoundState())   // recount/verify — is the board coherent?
+            ForceRestart();          // too broken: clean restart
+    }
+
+    void ForceResetTransientFlags()
+    {
+        ClearInProgress = false;
+        WinInProgress = false;
+        // never reset BoardActive — it may be legitimately true
+    }
+}
+```
+
+**Key insight:** prefer re-validate-and-restart over preserve-state. Preserving mid-round state across host migration requires every piece of state to be in `[Sync]` fields; transient async state (the old host was mid-`await`) cannot be preserved. Accept a restart and make it fast. (`Code/HostWatchdog.cs`)
+
+### Variation 4 — `IGameMode` swappable interface cloned by a controller (barrelproto.ragroll)
+
+`RagRoll` structures the mode as a **separate spawnable component** that `GameController` clones and `NetworkSpawn`s, rather than having the director own the mode inline. The mode exposes one interface and the controller doesn't need to know the concrete type:
+
+```csharp
+public interface IGameMode
+{
+    IEnumerable<Connection> Players { get; }
+    bool CanMove { get; }
+    void OnGameReady();
+    void OnPlayerJoined(Connection c);
+    // ...
+}
+
+// GameController (host-only transition):
+void StartMode(PrefabFile modePrefab)
+{
+    var go = GameObject.Clone(modePrefab);
+    go.Network.SetOrphanedMode(NetworkOrphaned.Host);
+    go.NetworkSpawn();
+    _activeMode = go.Components.Get<IGameMode>();
+    _activeMode.OnGameReady();
+}
+```
+
+The mode's `CanMove` property gates player input from the round FSM — cleaner than a global `UseInputControls` flag the director toggles directly. (`Code/mode/RollMode.cs`)
+
+**Comparison to terry_games pattern:** terry_games uses `abstract Gamemode : Component` with state-mirrored virtuals — good for many modes sharing a thick base. The `IGameMode` interface pattern is lighter and better when modes have no shared state, or when modes are from different inheritance trees (e.g. one mode is a horror scene, one is a party game).
+
+### Variation 5 — Anti-streak fairness across rounds (despawn.murder)
+
+When the same players keep getting picked for the "bad" role (Murderer, Seeker, It), a weighted ticket system prevents streaks without giving players perfect control. `MurdererTicketManager` accumulates tickets for the unpicked and reduces them for the picked:
+
+```csharp
+// Generalized pattern — works for any "who is it this round" role assignment:
+void PickRole(List<Connection> candidates)
+{
+    // tickets[conn] increases each round you're NOT picked, decreases when you are
+    var total = candidates.Sum(c => _tickets[c]);
+    var roll = Game.Random.Next(0, total);
+    var cum = 0;
+    foreach (var c in candidates)
+    {
+        cum += _tickets[c];
+        if (roll < cum) { AssignRole(c); _tickets[c] = MathX.Max(1, _tickets[c] / 3); return; }
+    }
+}
+// Persist _tickets by SteamId across sessions so the fairness carries over.
+```
+
+Persisting tickets by SteamId (not `Connection`) means the protection survives disconnects and reconnects. (`Systems/Rounds/MurdererTicketManager.cs`)
+
+### Read these games
+
+| Game | What it adds to this genre |
+|---|---|
+| `vidya.terry_games` | Original reference: enum FSM director, `TimeUntil` clock, `Gamemode` virtuals, data-driven pool, pawn-swap, trigger zones |
+| `playbtg.elevator` | 3-manager hub split; tag-based teardown; host-migration-safe order CSV; majority ready-up; shop-as-a-mode |
+| `mostudio.sweeper_otso` | Synced-bool state machine; tag-based player exclusion; HostWatchdog recovery pattern; co-op win condition |
+| `despawn.murder` | Distinct-state-class round architecture; anti-streak fairness tickets; ConVar-live-balance DSL |
+| `barrelproto.ragroll` | `IGameMode` swappable interface; ping-corrected shared game clock |
