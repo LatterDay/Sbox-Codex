@@ -1,16 +1,16 @@
 # Graph Report - sbox-claude  (2026-06-09)
 
 ## Corpus Check
-- 135 files · ~465,290 words
+- 135 files · ~636,431 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2461 nodes · 3360 edges · 149 communities (134 shown, 15 thin omitted)
+- 2838 nodes · 3758 edges · 147 communities (137 shown, 10 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 1 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `fa926052`
+- Built from commit: `7bfda815`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -157,15 +157,13 @@
 - [[_COMMUNITY_Community 140|Community 140]]
 - [[_COMMUNITY_Community 141|Community 141]]
 - [[_COMMUNITY_Community 142|Community 142]]
-- [[_COMMUNITY_Community 143|Community 143]]
-- [[_COMMUNITY_Community 144|Community 144]]
 - [[_COMMUNITY_Community 146|Community 146]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `JsonElement` - 177 edges
-2. `IBridgeHandler` - 174 edges
+2. `IBridgeHandler` - 176 edges
 3. `Task` - 158 edges
-4. `Communities (101 total, 37 thin omitted)` - 61 edges
+4. `Communities (149 total, 15 thin omitted)` - 131 edges
 5. `BridgeClient` - 46 edges
 6. `ClaudeBridge` - 40 edges
 7. `Tools & features` - 21 edges
@@ -188,19 +186,23 @@
 ## Import Cycles
 - None detected.
 
-## Communities (149 total, 15 thin omitted)
+## Communities (147 total, 10 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
-Nodes (145): AddBeamHandler, AddCaveWaypointHandler, AddColliderHandler, AddComponentWithPropertiesHandler, AddEnvmapProbeHandler, AddForestPOIHandler, AddForestTrailHandler, AddJointHandler (+137 more)
+Nodes (69): AddCaveWaypointHandler, AddComponentWithPropertiesHandler, AddForestPOIHandler, AddForestTrailHandler, AddNetworkHelperHandler, AddTerrainClearingHandler, AddTerrainHillHandler, AddTerrainTrailHandler (+61 more)
+
+### Community 1 - "Community 1"
+Cohesion: 0.06
+Nodes (18): AddJointHandler, AssignSoundHandler, CreatePlayerControllerHandler, DeleteGameObjectHandler, FindInProjectHandler, FocusObjectHandler, ListPrefabsHandler, RaycastTerrainHandler (+10 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.03
-Nodes (61): Communities (101 total, 37 thin omitted), Community 0 - "editor_myeditormenu_ibridgehandler", Community 10 - "editor_myeditormenu_scenetoolhelpers_resolveid", Community 11 - "editor_npcbrainhandlers_npcbrainhelpers", Community 12 - "readme_readme_sbox_claude_plugin", Community 15 - "references_networking_authority", Community 16 - "transport_bridge_client", Community 17 - "transport_bridge_client_bridgeclient" (+53 more)
+Cohesion: 0.02
+Nodes (131): Communities (149 total, 15 thin omitted), Community 0 - "Community 0", Community 100 - "Community 100", Community 101 - "Community 101", Community 102 - "Community 102", Community 103 - "Community 103", Community 104 - "Community 104", Community 105 - "Community 105" (+123 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.07
-Nodes (6): Color, AddLightHandler, ParticleFloat, ParticleGradient, Rotation, Vector2
+Cohesion: 0.04
+Nodes (37): Color, AddBeamHandler, AddColliderHandler, AddEnvmapProbeHandler, AddLightHandler, AddPhysicsHandler, AddRagdollHandler, AddScreenPanelHandler (+29 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.04
@@ -224,15 +226,15 @@ Nodes (41): ai-director, anti-cheat, board-game, building-placement, card-battle
 
 ### Community 9 - "Community 9"
 Cohesion: 0.05
-Nodes (39): Addon Location, API Schema, Architecture, Bridge Behavior Notes, Bridge map (knowledge graph), Class Discovery, Compilation, Components (+31 more)
+Nodes (40): Addon Location, API Schema, Architecture, Bridge Behavior Notes, Bridge map (knowledge graph), Class Discovery, Compilation, Components (+32 more)
 
 ### Community 10 - "Community 10"
 Cohesion: 0.11
 Nodes (21): Angles, DriveJob, DrivePlayerHandler, DrivePlayerStatusHandler, PlayInputDriver, float, Guid, int (+13 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.11
-Nodes (14): AddComponentToNewObjectHandler, CreateEconomyWalletHandler, CreateHealthSystemHandler, CreateObjectiveSystemHandler, CreatePickupHandler, ScaffoldHelpers, SetComponentReferenceHandler, Component (+6 more)
+Cohesion: 0.10
+Nodes (17): AddComponentToNewObjectHandler, CreateDayNightClockHandler, CreateEconomyWalletHandler, CreateHealthSystemHandler, CreateObjectiveSystemHandler, CreatePickupHandler, CreateRoundPhaseMachineHandler, ScaffoldHelpers (+9 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.06
@@ -251,8 +253,8 @@ Cohesion: 0.08
 Nodes (17): args, bridge, server, registerAssetTools(), registerAudioTools(), registerComponentTools(), registerDiscoveryTools(), registerMaterialTools() (+9 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.09
-Nodes (16): Action, DateTime, Dictionary, double, ClaudeBridge, PlayState, Func, HashSet (+8 more)
+Cohesion: 0.08
+Nodes (18): Action, DateTime, Dictionary, double, ClaudeBridge, PlayState, Func, HashSet (+10 more)
 
 ### Community 17 - "Community 17"
 Cohesion: 0.06
@@ -267,8 +269,12 @@ Cohesion: 0.07
 Nodes (29): AI opponents — IEnumerator-as-state-machine, Build order, Corpus refresh (2026): more reference implementations, Damage contract — one interface, trace to parents, Data-driven spawn director (alternative to scripted waves), Data-key → spawned-behavior shop (in-round powerups), Deathmatch / Arena-Combat Recipe, Hitscan — trace ray with spread, multi-result (+21 more)
 
 ### Community 20 - "Community 20"
-Cohesion: 0.17
+Cohesion: 0.19
 Nodes (4): WorldGenHelpers, IList, MethodInfo, Component
+
+### Community 21 - "Community 21"
+Cohesion: 0.05
+Nodes (21): AddRpcMethodHandler, AddSyncPropertyHandler, CreateGameManagerHandler, CreateLobbyManagerHandler, CreateMaterialHandler, CreateNetworkedPlayerHandler, CreateNetworkEventsHandler, CreateNpcControllerHandler (+13 more)
 
 ### Community 22 - "Community 22"
 Cohesion: 0.08
@@ -283,24 +289,24 @@ Cohesion: 0.08
 Nodes (25): 1. Hold economy state as host-authoritative `[Sync]`, 2. The canonical buy recipe (proxy → host → validate → spend → cap → save), 3. The cost curve, 4. Pull-based payoff (don't push), 5. Define content as data, not code, 6. Persist it (and clamp on load), Achievements as decoupled event-listeners, Backend-authoritative XP with optimistic local level-ups (+17 more)
 
 ### Community 25 - "Community 25"
-Cohesion: 0.12
-Nodes (7): CameraComponent, CharacterHelpers, GetPropertyHandler, GetSceneHierarchyHandler, VisualHelpers, GameObject, Scene
+Cohesion: 0.10
+Nodes (11): CameraComponent, AddPostProcessHandler, ApplyAtmosphereHandler, ApplyPostFxLookHandler, GetPropertyHandler, GetSceneHierarchyHandler, InspectNetworkedObjectHandler, MeasureDistanceHandler (+3 more)
 
 ### Community 26 - "Community 26"
 Cohesion: 0.08
 Nodes (24): 10. Cloud assets are not persisted across project restarts, 11. No `.mp3` audio import, 12. No concave `MeshCollider` component (only `HullCollider`), 13. Light components expose no `Intensity`/`Brightness` field, 14. `PlayerController.AnimationHelper` removed — throws `MissingMethodException` at runtime (regression), 15. Razor reactivity: `@if`, root `class="@(...)"`, and `@Prop`-as-element-text don't re-render reliably, 16. No sandbox-safe API to capture editor console / log output from an addon, 17. No editor API to pause/resume play mode (+16 more)
 
 ### Community 27 - "Community 27"
-Cohesion: 0.08
-Nodes (24): 10. Spawn networked objects: configure → `NetworkSpawn`, 11. Lobby + connection lifecycle via `INetworkListener`, 12. Production lifecycle: validate-before-spawn, reuse-on-reconnect, reap orphans, 13. Non-replicable types: sync a `Guid`, resolve it, 14. `Network.Refresh()` after out-of-band host mutations, 15. Host-loss failover: heartbeat + `RealTimeSince` timeout, 16. Send intent, not state (sparse discrete events), 17. Host-migration watchdog: reclaim orphans, reconcile the `[Sync]` registry, sanity-restart (+16 more)
+Cohesion: 0.05
+Nodes (39): 10. Spawn networked objects: configure → `NetworkSpawn`, 11. Lobby + connection lifecycle via `INetworkListener`, 12. Production lifecycle: validate-before-spawn, reuse-on-reconnect, reap orphans, 13. Non-replicable types: sync a `Guid`, resolve it, 14. `Network.Refresh()` after out-of-band host mutations, 15. Host-loss failover: heartbeat + `RealTimeSince` timeout, 16. Send intent, not state (sparse discrete events), 17. Host-migration watchdog: reclaim orphans, reconcile the `[Sync]` registry, sanity-restart (+31 more)
 
 ### Community 28 - "Community 28"
 Cohesion: 0.08
 Nodes (24): Anti-Cheat / Host Authority, Bots reuse the human anti-cheat path (no separate trust model), Canonical approach, Corpus refresh (2026): more reference implementations, Engine-as-renderer: hold the ledger off the s&box host entirely, Gotchas, Host-migration-safe re-validation (don't lose the round when the host leaves), Host re-validates *eligibility*, and price comes from a ConVar (not the item) (+16 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.12
-Nodes (8): AlignObjectsHandler, DistributeObjectsHandler, MeasureDistanceHandler, SaveInspectHandler, SceneToolHelpers, SetTagsHandler, List, Vector3
+Cohesion: 0.13
+Nodes (10): AlignObjectsHandler, DistributeObjectsHandler, GroupObjectsHandler, ReplaceModelHandler, SaveInspectHandler, SceneToolHelpers, SetTagsHandler, SetTintHandler (+2 more)
 
 ### Community 30 - "Community 30"
 Cohesion: 0.09
@@ -327,8 +333,8 @@ Cohesion: 0.09
 Nodes (21): 1. The ghost preview (client-local, NetworkMode.Never), 2. Cast the mouse ray and position the ghost, 3. Validate (client-side, for UI feedback only), 4. Commit on the host (authoritative), 5. Grid variant: cells, footprints, rotation, Blueprint placement: spawn a saved contraption, not one prefab (apl.sandboxwars / dexlab.sandbox-reforged), Building / Placement System, Buy-land chunks gate the build zone (facepunch.fair) (+13 more)
 
 ### Community 36 - "Community 36"
-Cohesion: 0.23
-Nodes (5): NpcBrainHelpers, Component, GameObject, JsonElement, Task
+Cohesion: 0.17
+Nodes (10): AssignPatrolRouteHandler, CreateNpcBrainHandler, CreateNpcSpawnerHandler, NpcBrainHelpers, PlacePatrolRouteHandler, SimulateNpcPerceptionHandler, Component, GameObject (+2 more)
 
 ### Community 37 - "Community 37"
 Cohesion: 0.10
@@ -359,12 +365,12 @@ Cohesion: 0.11
 Nodes (17): Build order, Carryable items + hand-off (the co-op verb), Co-op cleanup on disconnect, Co-op Kitchen / Assembly-Line (Overcooked-like) Recipe, Core loop, Gotchas & anti-patterns (wjse ships these — teach the fix), Proximity world UI on stations (no per-frame panel churn), Round flow, lobby, and best-run save (+9 more)
 
 ### Community 44 - "Community 44"
-Cohesion: 0.11
-Nodes (17): Build order, Chat slash-command router, Content as assets — `GameResource` definitions, How the real game does each piece, Idle income — the MoneyPrinter (and the bucketed-`[Sync]` perf trick), Interaction — `Component.IPressable` with a live tooltip, Per-player persistence — versioned, with a migration ladder, Persistent world-entity identity — durable IDs for placed objects (+9 more)
+Cohesion: 0.06
+Nodes (31): Alternative: EventBus money (non-`[Sync]`) vs `[Sync(FromHost)]`, Anti-farm XP on repeatable actions — artisan.darkrpog, Build order, Chat slash-command router, Content as assets — `GameResource` definitions, Corpus refresh (2026): more reference implementations, Dependency-ordered module kernel with cycle detection and fail isolation, Host-as-superadmin shortcut + Connection.Id-keyed transient admin state (+23 more)
 
 ### Community 45 - "Community 45"
-Cohesion: 0.11
-Nodes (17): Build order, Cash register — checkout queue, Customer AI — activity-queue FSM on a NavMeshAgent, How the real games do each piece, Interaction + carry, Judgment variant (doner_kiosk), Pitfalls (from the mined code), Save/load — scan + factory respawn (+9 more)
+Cohesion: 0.06
+Nodes (35): Authority-forked read properties (emg.everything_must_go), Build order, Cash register — checkout queue, Charge → act → refund-on-fail rollback (thefancylads.restaurant_dev), Clothing blacklist sanitizer for Dresser.Randomize() (luckygaming.doner_kiosk), Corpus refresh (2026): more reference implementations, Customer AI — activity-queue FSM on a NavMeshAgent, Data-driven catalogs as plain static C# (emg.everything_must_go) (+27 more)
 
 ### Community 46 - "Community 46"
 Cohesion: 0.11
@@ -379,12 +385,12 @@ Cohesion: 0.12
 Nodes (16): 1. Add the C# handler (for tools that touch the editor), 2. Register it in `RegisterHandlers()` (same file), 3. Add the MCP tool (TypeScript), 4. If you created a new tool file, register it in `index.ts`, 5. Build and test, Adding a New Tool, Architecture Overview, C# (Bridge Addon) (+8 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.12
-Nodes (16): Build order, Component adapter exposes segregated interfaces, Deterministic, always-solvable generation, Gotchas, How the real game does it, Input forwards only, Leaderboards + achievements (best-effort), Objectives: strategy + factory (+8 more)
+Cohesion: 0.07
+Nodes (26): Anti-pattern: `MathF` availability is SDK-version dependent, BFS catalog for small boards; seeded-random for large, Build order, Component adapter exposes segregated interfaces, Corpus refresh (2026): more reference implementations, Counter + authoritative recount before win/clear, Deterministic, always-solvable generation, Gotchas (+18 more)
 
 ### Community 50 - "Community 50"
-Cohesion: 0.12
-Nodes (16): Atmosphere — a per-instance flicker FSM, no networking, Build order, Death → spectate, and reconnect into a sleeping body, Escalating spawner — pity-weighted pick + curve-driven cadence, How the real games do each piece, Interactor + inventory — hold-to-use eye-trace + tag-as-mutex pickup, Pitfalls (from the mined code), Reward loop — escalating quota with carry-over, or survive-cash + meta-shop (+8 more)
+Cohesion: 0.06
+Nodes (34): AI Director for adaptive spawn pacing (composed multipliers), Async death with validity re-check (avoid the destroyed-during-await crash), Atmosphere — a per-instance flicker FSM, no networking, Bad-luck protection (pity tickets) for role/threat assignment, Build order, Coroutine-based monster AI (IEnumerator as per-actor state machine), Corpus refresh (2026): more reference implementations, Death → spectate, and reconnect into a sleeping body (+26 more)
 
 ### Community 51 - "Community 51"
 Cohesion: 0.12
@@ -395,8 +401,8 @@ Cohesion: 0.12
 Nodes (16): Adapt, don't hardcode, B1. Floor (so you don't fall forever), B2. Player + camera (atomic, with the now-loaded controller), B3. The goal (win trigger) at the far end, B4. Objective singleton + wire the player reference, B5. Minimal HUD (optional but nice), B6. Input — bind to built-in actions only (Phase 1), Phase A — Generate all scripts, hotload, verify compile (+8 more)
 
 ### Community 53 - "Community 53"
-Cohesion: 0.12
-Nodes (15): Gotchas, Mental model, Pattern: auto-register pluggable types via TypeLibrary reflection, Pattern: const tag/input helpers + the canonical trace chain, Pattern: decoupled event bus on `ISceneEvent<T>`, split Local vs Global, Pattern: defensive boundaries for drifting APIs and threads, Pattern: dependency-sorted module loader (topological boot + fault isolation), Pattern: own the game loop in `GameObjectSystem<T>` (+7 more)
+Cohesion: 0.07
+Nodes (26): Corpus refresh (2026): more reference implementations, Gotchas, Mental model, Pattern: abstract RoundState base + TransitionTo<T> + host-mirror RPC (despawn.murder), Pattern: async generation guard for respawning (bublic.stone_by_stone), Pattern: auto-register pluggable types via TypeLibrary reflection, Pattern: client-side static-registry hydration via TypeDescription.Create (facepunch.ss2), Pattern: const tag/input helpers + the canonical trace chain (+18 more)
 
 ### Community 54 - "Community 54"
 Cohesion: 0.12
@@ -407,64 +413,64 @@ Cohesion: 0.13
 Nodes (14): 1. The bridge cannot synthesize gameplay input — "compiles + zero exceptions" ≠ "playable", 2. "Default Surface not found" thrown on every `Scene.Trace`, 3. Newly-added local-library `PackageReference`s need a real restart, not `trigger_hotload`, 4. Asset pipeline — corpus/community model paths render as the giant ERROR mesh, 5. Copying a model that SHADOWS a core asset → endless recompile-stall loop, 6. Razor / UI transpiler quirks, 6a. A `PanelComponent` renders nothing without a sibling `ScreenPanel`, 6b. Emoji in `@code`, or `switch`-expressions in `@code`, can crash the transpiler (+6 more)
 
 ### Community 56 - "Community 56"
-Cohesion: 0.13
-Nodes (14): 1. Hide-until-positioned to kill the one-frame origin flicker, 2. Guaranteed deps with `[RequireComponent]`; correct `FindMode` for lookups, 3. Split persistent networked data from the disposable pawn, 4. Belt-and-suspenders cleanup for transient (per-round) objects, 5. Scene-scoped services via `GameObjectSystem<T>` with ordered hooks, 6. Simulation gating — `LocalSimulation || Network.IsOwner` (incl. collisions), 7. Defer heavy init out of `OnStart` behind a readiness gate, 8. Teardown discipline — cancel async, then unsubscribe, then clear (+6 more)
+Cohesion: 0.09
+Nodes (22): 10. Hotload-safe singleton via `IHotloadManaged`, 11. `OnEnabled`/`OnDisabled` for component registration, 12. `StartEnabled=false` → configure → `NetworkSpawn` to prevent first-frame uninitialized state, 13. Proxy initialization bundle in `OnStart`, 14. Centralized `GameObjectSystem` tick — agents must NOT override `OnUpdate`, 15. `[Sync, Change("MethodName")]` — callback on sync value change, 16. `!IsValid()` guard in tick methods, 1. Hide-until-positioned to kill the one-frame origin flicker (+14 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.13
-Nodes (14): 1. Cards as `GameResource` content (not hardcoded classes), 2. Authoritative turn flow: host owns truth, clients read a synced field, 3. Playing a card: request → host-validate → broadcast (the core net idiom), 4. Resolving card effects (the crafting evaluator, repurposed), 5. Win check + result, with late-joiner snapshot, 6. Self-seeding balance config, Build order, Card-Battler Recipe (deckbuilder / TCG / auto-battler) (+6 more)
+Cohesion: 0.09
+Nodes (22): 1. Cards as `GameResource` content (not hardcoded classes), 2. Authoritative turn flow: host owns truth, clients read a synced field, 3. Playing a card: request → host-validate → broadcast (the core net idiom), 4. Resolving card effects (the crafting evaluator, repurposed), 5. Win check + result, with late-joiner snapshot, 6. Self-seeding balance config, A. Reflection-driven draft pool (facepunch.ss2 — `PerkManager.cs`, `Player.Perks.cs`), B. Draft-offer sync with `[Rpc.FilterInclude]` + `PerkChoiceHash` (facepunch.ss2) (+14 more)
 
 ### Community 58 - "Community 58"
-Cohesion: 0.13
-Nodes (14): Build order, Data-driven microgame pool with lobby constraints, Party / Microgame-Collection Recipe, Pawn-swap elimination (player ↔ spectator), Per-mode synced sub-timer (late-joiner-safe sequencing), Pitfalls (from the real game), The director: one FSM, one clock, The microgame contract: state-mirrored virtuals (+6 more)
+Cohesion: 0.09
+Nodes (21): Build order, Corpus refresh (2026): more reference implementations, Data-driven microgame pool with lobby constraints, Party / Microgame-Collection Recipe, Pawn-swap elimination (player ↔ spectator), Per-mode synced sub-timer (late-joiner-safe sequencing), Pitfalls (from the real game), Read these games (+13 more)
 
 ### Community 59 - "Community 59"
-Cohesion: 0.13
-Nodes (14): Build order, Charge-jump (the climber's whole game) — jumper/Code/Player/JumperControllerInput.cs:313, Countdown race timer + Services PB — terrys_crash_course/Code/CrashCourse/RaceTimerSystem.cs:236, Finish-line / hazard trigger zones — jumper/Code/GamePlay/JumperFinishLine.cs:14, How the real games do it, Manager + spawn — jumper/Code/GamePlay/GameManager.cs:1, Pitfalls, Platformer / Obstacle-Course Recipe (+6 more)
+Cohesion: 0.08
+Nodes (24): Binary save with "ball at rest" gate — nice_putt_idiot/Code/SaveManager.cs, Build order, Charge-jump (the climber's whole game) — jumper/Code/Player/JumperControllerInput.cs:313, Corpus refresh (2026): more reference implementations, Countdown race timer + Services PB — terrys_crash_course/Code/CrashCourse/RaceTimerSystem.cs:236, Drag-to-aim via screen-space HUD, no InputAction — nice_putt_idiot/Code/UI/Hud.razor, Finish-line / hazard trigger zones — jumper/Code/GamePlay/JumperFinishLine.cs:14, Hold-to-confirm with input consumption — nice_putt_idiot/Code/UI/RestartPrompt/RestartPrompt.razor (+16 more)
 
 ### Community 60 - "Community 60"
 Cohesion: 0.13
 Nodes (14): Allocation-free multiplayer HUD, Body-report → meeting, and the vote flow, Build order, Hidden roles + per-recipient visibility (the heart of the genre), One host-validated interaction verb (`CmdUseTarget`), Pitfalls (from the real games), Proximity voice with role + dead channels, Social-Deduction Recipe (+6 more)
 
 ### Community 61 - "Community 61"
-Cohesion: 0.13
-Nodes (14): Build order, Drivetrain: recursive Query/ForwardStep over a Component tree — PowertrainComponent.cs:103, Engine + transmission — Engine.cs / Transmission.cs, How the real game does it, Multiplayer spawn with ownership transfer — VehicleSpawner.cs:25, Pitfalls, Raycast wheel: trace, then push ONE body — WheelCollider.Suspension.cs:39, Reusable standout patterns (+6 more)
+Cohesion: 0.10
+Nodes (20): 1. Generic "possess any contraption" seat-drive — dexlab.sandbox-reforged, 2. Buoyant boat: `IPressable + ISitTarget`, force driving, self-righting torque — pldr.duck_pond, 3. Multi-point spring-damper buoyancy (wave-transport, flooding) — treehaven.sdiver, 4. vault77.chop_the_forest vehicles note, Build order, Corpus refresh (2026): more reference implementations, Drivetrain: recursive Query/ForwardStep over a Component tree — PowertrainComponent.cs:103, Engine + transmission — Engine.cs / Transmission.cs (+12 more)
 
 ### Community 62 - "Community 62"
 Cohesion: 0.13
 Nodes (14): A factor method, concretely, AI Director / Adaptive Pacing, ataco.sdoomresurrection — continuous per-second probability director (the if-ladder variant), Build order, despawn.murder — anti-clustering weighted placement, despawn.murder — the flagship multi-factor Director, facepunch.ss1 — multiplicative time-ramps × live population (no Director class needed), goders.natural_disaster_survival — intensity-curve director + inverse-scaling sub-events (+6 more)
 
 ### Community 63 - "Community 63"
-Cohesion: 0.14
-Nodes (13): Gotcha table, Mental model, Performance & Threading, Recipe: async GPU readback with `GetPixelsAsync`, Recipe: client sound scheduler with game-speed pitch + ambient crossfade, Recipe: custom GPU work via `CommandList` on the scene camera, Recipe: low-latency PCM streaming with `SoundStream` + backpressure, Recipe: never block `OnUpdate` — offload + observe the task (+5 more)
+Cohesion: 0.09
+Nodes (22): Corpus refresh (2026): more reference implementations, Gotcha additions, Gotcha table, Mental model, Performance & Threading, Recipe: async GPU readback with `GetPixelsAsync`, Recipe: async respawn with a generation guard — cancel stale Tasks after reset, Recipe: `BuildHash` from cheap revision counters — O(changes) Razor re-renders (+14 more)
 
 ### Community 64 - "Community 64"
-Cohesion: 0.14
-Nodes (13): Cross-cutting (apply to every pawn), Gotcha table, Mental model, Player Controller (modern s&box scene system), Recipe: CharacterController movement loop, Recipe: death → ragdoll + spectator, Recipe: dress a controller-driven / code-spawned citizen at RUNTIME, Recipe: extend locomotion with MoveMode (don't fork the controller) (+5 more)
+Cohesion: 0.08
+Nodes (24): Anti-pattern: "first proxy player" scan for opponent resolution, Corpus refresh (2026): more reference implementations, Cross-cutting (apply to every pawn), Gotcha: hot-reload does not reinitialize static fields - use properties for condition tables, Gotcha: stats `Flush()` is mandatory for leaderboard propagation, Gotcha table, Mental model, Pattern: disconnect grace to avoid false draws (+16 more)
 
 ### Community 65 - "Community 65"
 Cohesion: 0.14
 Nodes (13): Anti-cheat & server legitimacy, Build order, Casino-Gambling Genre Recipe, Currency & money-sink design, Embedding web-app screens (external-backend posture), Provably-fair rolls (the trust layer), Save / persistence, Standout patterns worth copying (+5 more)
 
 ### Community 66 - "Community 66"
-Cohesion: 0.14
-Nodes (13): Baseline-snapshot cleanup, Build order, ConVar GameSettings as the whole config surface, Host-authoritative shared pool (ammo / resources), How the real game does it (cite map), ISpawner: one interface for everything placeable, Optional round layer: phase state machine + chat-vote, Ownership / prop protection (+5 more)
+Cohesion: 0.08
+Nodes (24): 1. Scene-diff save (net-new vs "serialize my structs"), 2. DPP — full per-player prop governance (beyond simple `Ownable`), 3. Client-predicted physgun with authority hand-off (`klavs.basebuilder`), 4. `GameFeaturePolicy` — one component to swap game modes (`klavs.basebuilder`), 5. Absolute-timestamp phase timer (`klavs.basebuilder`), 6. Build undo as transform-restore (not destroy), 7. Contraption graph walk as a shared primitive (`dexlab.sandbox-reforged`), 8. Retroactive prop-destructibility (`apl.sandboxwars`) (+16 more)
 
 ### Community 67 - "Community 67"
-Cohesion: 0.14
-Nodes (13): 1. Single-player / local: a Component with a change-event, 2. Slots + hotbar + deploy (the common "weapons/tools" shape), 3. Multiplayer pickup: host-authoritative consume, 4. Shared/host-authoritative pool: optimistic client + `[Rpc.Host]` twin, 5. Race-locked pickup (many clients grab the same item one tick), 6. Drop = inverse of deploy, Canonical recipe (modern s&box), Gotchas (+5 more)
+Cohesion: 0.10
+Nodes (19): 1. Single-player / local: a Component with a change-event, 2. Slots + hotbar + deploy (the common "weapons/tools" shape), 3. Multiplayer pickup: host-authoritative consume, 4. Shared/host-authoritative pool: optimistic client + `[Rpc.Host]` twin, 5. Race-locked pickup (many clients grab the same item one tick), 6. Drop = inverse of deploy, A. Three-tier bag + equipment-driven expansion (bublic.stone_by_stone), B. Static service + per-instance data bag (lowkeynetworks.newrp) (+11 more)
 
 ### Community 69 - "Community 69"
 Cohesion: 0.23
 Nodes (7): EnsureInputActionHandler, InputActionHelpers, JsonArray, JsonObject, Encoding, JsonElement, Task
 
 ### Community 70 - "Community 70"
-Cohesion: 0.15
-Nodes (12): 1. Define named actions, poll by name, 2. Designer-editable, rebindable binding field, 3. `IPressable` for use/press, with its two real gotchas, 4. Contextual "Press E to ..." prompt over `IPressable`, 5. Analog feel from binary keys: read-raw → filter, separate rise/fall, 6. Indirect control: route a controller's input with `ClientInput.PushScope`, 7. Centralized dispatch with cancellable pre/post events, 8. Block UI click-passthrough by element type (+4 more)
+Cohesion: 0.11
+Nodes (18): 10. Drag-to-aim in Razor: screen-space `MousePanelEvent` + `Hud.DrawLine`, no `InputAction`, 11. Hold-to-confirm with `TimeSince`/`Remap` + `Input.ReleaseAction` to consume the key, 12. Controller-agnostic key glyphs with `Input.GetGlyph`, 13. Block game input while a UI panel is open: `UseInputControls` + `Mouse.Visibility`, 1. Define named actions, poll by name, 2. Designer-editable, rebindable binding field, 3. `IPressable` for use/press, with its two real gotchas, 4. Contextual "Press E to ..." prompt over `IPressable` (+10 more)
 
 ### Community 71 - "Community 71"
-Cohesion: 0.15
-Nodes (11): Gotcha table, Mental model, Misc patterns, Recipe: a declarative HUD panel with correct BuildHash, Recipe: bootstrap a HUD in code (GameObjectSystem + ScreenPanel), Recipe: guard overlapping async UI (typewriter / fades / auto-advance), Recipe: imperative widget (constructor + Tick), Recipe: networked transient feed (kill feed / toasts) (+3 more)
+Cohesion: 0.10
+Nodes (19): Corpus refresh (2026): more reference implementations, Gotcha additions, Gotcha table, Mental model, Misc patterns, Read these games, Recipe: a declarative HUD panel with correct BuildHash, Recipe: bootstrap a HUD in code (GameObjectSystem + ScreenPanel) (+11 more)
 
 ### Community 72 - "Community 72"
 Cohesion: 0.15
@@ -480,27 +486,27 @@ Nodes (12): 1. Submit a stat (the write side), 2. Read the leaderboard back (the
 
 ### Community 75 - "Community 75"
 Cohesion: 0.17
-Nodes (11): [1.0.0] — 2026-04-10, [1.3.1] — 2026-05-16, [1.5.1] — 2026-06-03, [1.6.0] — 2026-06-03, Added, Added, Added, Changelog (+3 more)
+Nodes (11): [1.0.0] — 2026-04-10, [1.11.0] — 2026-06-09, [1.3.1] — 2026-05-16, [1.4.0] — 2026-06-02, Added, Added, Added — scaffolds (mined from the 51-game corpus), Changed — Cookbook fully re-mined (+3 more)
 
 ### Community 76 - "Community 76"
-Cohesion: 0.17
-Nodes (11): 1. Shot cooldown with `TimeUntil` + `AddShootDelay`, 2. Fire a hitscan shot (modern fluent trace + broadcast effects), 3. Physical (travel-time) projectile as a per-step integrating mover, 4. Radial explosion: sphere query → falloff → per-body knockback → networked damage, 5. Ballistic arc prediction (aim reticle / trajectory line / AI targeting), 6. Cancellable reload/channel/build — capture-then-compare the token, Combat & Weapons, Gotcha table (+3 more)
+Cohesion: 0.09
+Nodes (21): 1. Shot cooldown with `TimeUntil` + `AddShootDelay`, 2. Fire a hitscan shot (modern fluent trace + broadcast effects), 3. Physical (travel-time) projectile as a per-step integrating mover, 4. Radial explosion: sphere query → falloff → per-body knockback → networked damage, 5. Ballistic arc prediction (aim reticle / trajectory line / AI targeting), 6. Cancellable reload/channel/build — capture-then-compare the token, A. Anim-event damage windows instead of timers (aethercore.versus), B. `[Rpc.Owner]` damage routing preserves private timers (aethercore.versus) (+13 more)
 
 ### Community 77 - "Community 77"
-Cohesion: 0.17
-Nodes (11): Data Assets & Content Pipelines, Gotcha table, Mental model, Pattern: data-drive content with `GameResource` + `[AssetType]`, Pattern: discover assets at runtime — and FILTER the suffix collision, Pattern: editor-live custom visuals — `[ExecuteInEditor]` + raw scene objects, Pattern: prefab registry — pre-clone, BreakFromPrefab, index by id, Pattern: render-to-texture surface (CCTV / scope / minimap / mirror) (+3 more)
+Cohesion: 0.10
+Nodes (19): Corpus refresh (2026): more reference implementations, Counter-pattern: reflection-driven catalog as an alternative to ResourceLibrary (facepunch.ss2), Counter-pattern: when NOT to use GameResource (facepunch.ss2), Data Assets & Content Pipelines, Gotcha table, Mental model, Pattern: data-drive content with `GameResource` + `[AssetType]`, Pattern: discover assets at runtime — and FILTER the suffix collision (+11 more)
 
 ### Community 78 - "Community 78"
-Cohesion: 0.17
-Nodes (11): Gotcha table, Mental model, Pattern: applying forces to a real Rigidbody, Pattern: CharacterController with manual gravity (leapfrog), Pattern: conveyor — scroll a material from `Collider.SurfaceVelocity`, Pattern: fluent Scene.Trace world query, Pattern: going kinematic to own your velocity, Pattern: multi-point spring-damper buoyancy (floating boats/props) (+3 more)
+Cohesion: 0.08
+Nodes (23): Corpus refresh (2026): more reference implementations, Gotcha table, Mental model, Pattern: `ApplyImpulse` for a shot controller + `ICollisionListener` for impact audio (alcoholics.nice_putt_idiot), Pattern: applying forces to a real Rigidbody, Pattern: boat self-righting torque + seat mount (pldr.duck_pond), Pattern: CharacterController with manual gravity (leapfrog), Pattern: conveyor — scroll a material from `Collider.SurfaceVelocity` (+15 more)
 
 ### Community 79 - "Community 79"
-Cohesion: 0.17
-Nodes (11): 1. The interaction dispatcher (most portable recipe), 2. Rules roller mirrored into world props, 3. Verdict as two reason-lists (not a bool), 4. Generate forgeries coherently, Build order, Core loop, Document-Sim (Papers-Please-like) Genre Recipe, How the real game does it (+3 more)
+Cohesion: 0.10
+Nodes (20): 1. The interaction dispatcher (most portable recipe), 2. Rules roller mirrored into world props, 3. Verdict as two reason-lists (not a bool), 4. Generate forgeries coherently, A. Named-event delta table as the entire progression system, B. `TaskCompletionSource` as a "wait for all animations to settle" barrier, Build order, C. Clock-driven day (simulated time in `OnUpdate`, not a wave count) (+12 more)
 
 ### Community 80 - "Community 80"
-Cohesion: 0.17
-Nodes (11): Ambiguous Edges - Review These, Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Report - .  (2026-06-08), Hyperedges (group relationships), Import Cycles, Knowledge Gaps (+3 more)
+Cohesion: 0.18
+Nodes (10): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - sbox-claude  (2026-06-09), Import Cycles, Knowledge Gaps, Suggested Questions (+2 more)
 
 ### Community 81 - "Community 81"
 Cohesion: 0.17
@@ -511,16 +517,16 @@ Cohesion: 0.17
 Nodes (12): BuildHash, Child Panel, File Structure, Generic Panels, Key Rules, Panel References, PanelComponent (Root), Passing Properties (+4 more)
 
 ### Community 83 - "Community 83"
-Cohesion: 0.17
-Nodes (11): 1. A recipe is a `GameResource`, 2. Each step matches an ingredient by id + bit-flag state, 3. Complete: consume inputs, spawn output, host-authoritative, 4. Fusion variant: validate, consume, generate, 5. Steer output with a `[Flags]` ingredient-effect enum, Canonical modern approach, Crafting, Gotchas (+3 more)
+Cohesion: 0.11
+Nodes (18): 1. A recipe is a `GameResource`, 2. Each step matches an ingredient by id + bit-flag state, 3. Complete: consume inputs, spawn output, host-authoritative, 4. Fusion variant: validate, consume, generate, 5. Steer output with a `[Flags]` ingredient-effect enum, Anti-patterns flagged in these games, Canonical modern approach, Conveyor-trigger transmutation chain (enum-keyed, no recipe asset) (+10 more)
 
 ### Community 84 - "Community 84"
-Cohesion: 0.17
-Nodes (11): 1. The idle-tick generator (host-authoritative, capped store), 2. Upgrade levels live on the earner, not the player, 3. Live-frame accrual variant (no per-instance component), 4. Offline durability part A — persistent identity for placed earners, 5. Offline durability part B — at-least-once reward delivery (ACK pattern), Canonical approach, Gotchas, Idle / Offline Income Systems (+3 more)
+Cohesion: 0.10
+Nodes (19): 1. The idle-tick generator (host-authoritative, capped store), 2. Upgrade levels live on the earner, not the player, 3. Live-frame accrual variant (no per-instance component), 4. Offline durability part A — persistent identity for placed earners, 5. Offline durability part B — at-least-once reward delivery (ACK pattern), A. UTC-tick scheduling — the correct way to do true offline accrual (klibatocorp.phenodex), B. Dual-faucet offline reconciliation with penalty + fuel bounds (lavagame.sandmoney_), C. Bracket-based prestige currency + full-wipe reset (lavagame.sandmoney_) (+11 more)
 
 ### Community 85 - "Community 85"
-Cohesion: 0.17
-Nodes (11): Collision & physics props, Composition & blockout, How a level decomposes into the scene graph, Level Design & Mapping (modern s&box), Lighting & atmosphere, Mental model: four ways to source a level's geometry, Navmesh, Performance & budgets (+3 more)
+Cohesion: 0.11
+Nodes (18): Atmospheric level dressing: 3-state flicker light (mishmaps.backrooms), Auto-classifying map size from spawn-point geometry (despawn.murder), Collision & physics props, Composition & blockout, Corpus refresh (2026): more reference implementations, Document/object inspection interaction (dimmies.terryspapers), How a level decomposes into the scene graph, Level Design & Mapping (modern s&box) (+10 more)
 
 ### Community 86 - "Community 86"
 Cohesion: 0.18
@@ -535,16 +541,16 @@ Cohesion: 0.18
 Nodes (10): A Reference Component (Shape Only — Not the Content), Architecture in 30 Seconds, Gotchas Captured From Real Builds, Project Structure (s&box Game), READ BEFORE WRITING CODE, Routing Table — "I need to…", s&box Skill — Router, The Ten Rules You Must Not Break (+2 more)
 
 ### Community 89 - "Community 89"
-Cohesion: 0.18
-Nodes (10): 1. The cadence gate — `TimeUntil` self-rearming, curve-escalated, 2. The selection roll — weighted table with anti-streak "pity", 3. The population cap — refuse/throttle when full, 4. The spawn itself — clone, configure, then `NetworkSpawn`, Canonical modern recipe, Gotchas, Notable variations across games, Seen in (+2 more)
+Cohesion: 0.11
+Nodes (17): 1. The cadence gate — `TimeUntil` self-rearming, curve-escalated, 2. The selection roll — weighted table with anti-streak "pity", 3. The population cap — refuse/throttle when full, 4. The spawn itself — clone, configure, then `NetworkSpawn`, Anti-patterns flagged in these games, Canonical modern recipe, Corpus refresh (2026): more reference implementations, DOOM Resurrection — difficulty-filtered entity table from WAD data (ataco.sdoomresurrection) (+9 more)
 
 ### Community 91 - "Community 91"
-Cohesion: 0.20
-Nodes (9): Build order, Gacha-Crawler Genre Recipe, Netcode you'll need (sim posture only), Standout patterns worth copying, The defining UI-binding pattern: one Component, `event Action`, Razor reads it, The system stack to compose, Things NOT to copy, Verify live (+1 more)
+Cohesion: 0.09
+Nodes (22): 10. [Sync] social feed for "recent wins" (lavagame.multis_cases), 1. Reflection-driven gacha pool (facepunch.ss2), 2. Stat-modifier stack for equipment-derived stats (facepunch.ss2), 3. Single-axis multi-outcome leaderboard encoding (facepunch.ss2), 4. EV-preserving economy normalization (lavagame.multis_cases), 5. Wear/float as a secondary value axis (lavagame.multis_cases), 6. Save integrity without a crypto library (lavagame.multis_cases), 7. Cloud-authoritative load + _saveReady guard (lavagame.multis_cases) (+14 more)
 
 ### Community 92 - "Community 92"
-Cohesion: 0.20
-Nodes (9): Build order, Death, progression, AI, Economy, shop, inventory (the social meta), Social-Hub Genre Recipe, Standout patterns worth copying, The interaction loop (shared verb), The system stack to compose, Verify live (+1 more)
+Cohesion: 0.12
+Nodes (16): 1. `GameObjectSystem<T>` as the network bootstrap — no scene object required (facepunch.jumper), 2. Diff-based per-connection lobby preview reconciler (gabreusenra.wjse), 3. One-player-per-station with a 30-second reservation grace (sino.s_sino), 4. Ping-corrected shared game clock for timed rounds (barrelproto.ragroll), 5. `NetworkOrphaned.ClearOwner` for drop-in mode objects (barrelproto.ragroll), Build order, Corpus refresh (2026): more reference implementations, Death, progression, AI (+8 more)
 
 ### Community 93 - "Community 93"
 Cohesion: 0.20
@@ -555,20 +561,20 @@ Cohesion: 0.20
 Nodes (10): Built-in Controls, Button, Checkbox, DropDown, Image, Label, Other Controls, SliderControl (+2 more)
 
 ### Community 95 - "Community 95"
-Cohesion: 0.20
-Nodes (9): 1. Author lines as a GameResource, 2. Trigger on the player entering a zone, 3. Reveal it with a typewriter PanelComponent, Canonical modern-s&box recipe, Dialogue & Speech-Bubble Systems, Gotchas, Seen in, Variations seen across games (+1 more)
+Cohesion: 0.13
+Nodes (14): 1. Author lines as a GameResource, 2. Trigger on the player entering a zone, 3. Reveal it with a typewriter PanelComponent, Canonical modern-s&box recipe, Corpus refresh (2026): more reference implementations, Dialogue & Speech-Bubble Systems, Gotchas, How these three compose (+6 more)
 
 ### Community 96 - "Community 96"
-Cohesion: 0.20
-Nodes (9): Decide first, animate second (CS:GO-style spin), Gacha / Loot Tables in modern s&box, Gotchas, Host-authoritative grant (the multiplayer recipe), Notable variations, Seen in (open the real code), The canonical weighted pick (copy this), What it IS / when you need it (+1 more)
+Cohesion: 0.09
+Nodes (22): Class-weighted generation — biasing drops toward the player's build (namicry.gacha_crawler), Client-side static-registry hydration (facepunch.ss2), Collection album — completing a set gives a persistent multiplier (lavagame.multis_cases), Corpus refresh (2026): more reference implementations, Decide first, animate second (CS:GO-style spin), Gacha / Loot Tables in modern s&box, Gotchas, Host-authoritative grant (the multiplayer recipe) (+14 more)
 
 ### Community 97 - "Community 97"
-Cohesion: 0.20
-Nodes (9): 1. The immutable genome struct, 2. The cross — Gaussian inheritance around the parents' mean, 3. Hash identity + best-of registry, Canonical approach, Genetics / Breeding (heritable, mutating procedural variation), Gotchas, Notable variations, Seen in (+1 more)
+Cohesion: 0.13
+Nodes (14): 1. The immutable genome struct, 2. The cross — Gaussian inheritance around the parents' mean, 3. Hash identity + best-of registry, Canonical approach, Corpus refresh (2026): more reference implementations, facepunch.fair — animal trait persistence stub (ready-to-wire pattern), facepunch.ss2, despawn.murder, barrelproto.ragroll, Genetics / Breeding (heritable, mutating procedural variation) (+6 more)
 
 ### Community 98 - "Community 98"
-Cohesion: 0.22
-Nodes (8): Gotcha table, Mental model, Pattern 1 — Destructible 2D terrain with facepunch.libsdf, Pattern 2 — Deadlock-proof procedural placement, Pattern 3 — Runtime procedural mesh + the weld/constraint gotcha, Pattern 4 — `[Sync]` day/night cycle with smoothstep twilight + sunrise/sunset events, Pattern 5 — Self-instanced scatter field (GPU `DrawModelInstanced` + frustum cull + async respawn), Worldgen & Rendering
+Cohesion: 0.12
+Nodes (16): Additional gotchas, Corpus refresh (2026): more reference implementations, Gotcha table, Mental model, Pattern 10 — Frame-budgeted chunk streamer with global cross-instance cap, Pattern 11 — Spatial-grid registry + shared update-runner (the OnUpdate cost fix), Pattern 1 — Destructible 2D terrain with facepunch.libsdf, Pattern 2 — Deadlock-proof procedural placement (+8 more)
 
 ### Community 99 - "Community 99"
 Cohesion: 0.22
@@ -632,7 +638,7 @@ Nodes (5): Built on the current API — verified by reflection, Get it, s&box Cl
 
 ### Community 114 - "Community 114"
 Cohesion: 0.33
-Nodes (5): AssignPatrolRouteHandler, CreateNpcBrainHandler, CreateNpcSpawnerHandler, PlacePatrolRouteHandler, SimulateNpcPerceptionHandler
+Nodes (3): CaptureViewHandler, GetRuntimePropertyHandler, SetRuntimePropertyHandler
 
 ### Community 115 - "Community 115"
 Cohesion: 0.33
@@ -690,17 +696,21 @@ Nodes (4): [1.5.0] — 2026-06-03, Added, Notes & Known Issues, Security & Fixed
 Cohesion: 0.50
 Nodes (4): [1.8.0] — 2026-06-06, Added / improved, Fixed, Known issues
 
+### Community 129 - "Community 129"
+Cohesion: 0.32
+Nodes (4): Lcg, RandomizeTransformsHandler, ScatterPropsHandler, uint
+
 ### Community 130 - "Community 130"
 Cohesion: 0.50
 Nodes (3): ColorObject, ColorSchema, registerObjectTools()
 
 ### Community 132 - "Community 132"
 Cohesion: 0.67
-Nodes (3): [1.4.0] — 2026-06-02, Added, Notes
+Nodes (3): [1.6.0] — 2026-06-03, Added, Notes
 
 ### Community 133 - "Community 133"
-Cohesion: 0.67
-Nodes (3): [1.5.2] — 2026-06-03, Added, Notes
+Cohesion: 0.33
+Nodes (6): [1.5.1] — 2026-06-03, [1.5.2] — 2026-06-03, Added, Added, Notes, Notes
 
 ### Community 136 - "Community 136"
 Cohesion: 0.67
@@ -711,24 +721,24 @@ Cohesion: 0.67
 Nodes (3): Key Layout Properties, Layout System, Length Units
 
 ## Knowledge Gaps
-- **1518 isolated node(s):** `$schema`, `name`, `description`, `name`, `url` (+1513 more)
+- **1854 isolated node(s):** `$schema`, `name`, `description`, `name`, `url` (+1849 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `IBridgeHandler` connect `Community 0` to `Community 1`, `Community 3`, `Community 69`, `Community 134`, `Community 10`, `Community 11`, `Community 16`, `Community 144`, `Community 114`, `Community 21`, `Community 120`, `Community 121`, `Community 29`, `Community 25`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
-- **Why does `JsonElement` connect `Community 1` to `Community 121`, `Community 3`, `Community 134`, `Community 20`, `Community 21`, `Community 25`, `Community 29`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
-- **Why does `Task` connect `Community 1` to `Community 121`, `Community 3`, `Community 134`, `Community 16`, `Community 20`, `Community 21`, `Community 25`, `Community 29`?**
+- **Why does `IBridgeHandler` connect `Community 0` to `Community 1`, `Community 121`, `Community 3`, `Community 129`, `Community 69`, `Community 134`, `Community 36`, `Community 10`, `Community 11`, `Community 16`, `Community 114`, `Community 21`, `Community 120`, `Community 25`, `Community 29`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+- **Why does `JsonElement` connect `Community 1` to `Community 0`, `Community 121`, `Community 129`, `Community 3`, `Community 134`, `Community 16`, `Community 114`, `Community 20`, `Community 21`, `Community 25`, `Community 29`?**
   _High betweenness centrality (0.008) - this node is a cross-community bridge._
+- **Why does `Task` connect `Community 0` to `Community 1`, `Community 121`, `Community 3`, `Community 129`, `Community 134`, `Community 16`, `Community 114`, `Community 20`, `Community 21`, `Community 25`, `Community 29`?**
+  _High betweenness centrality (0.007) - this node is a cross-community bridge._
 - **What connects `$schema`, `name`, `description` to the rest of the system?**
-  _1518 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1854 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.027302786962683043 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.031853925096628016 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.05714285714285714 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06072874493927125 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.03278688524590164 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.015267175572519083 - nodes in this community are weakly interconnected._
