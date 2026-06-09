@@ -1076,3 +1076,171 @@ public sealed class {className} : Component
 ";
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// I. create_round_phase_machine — a host-authoritative round/phase machine.
+//    [Sync(FromHost)] CurrentPhase cycled on a per-phase timer; a static
+//    OnPhaseChanged event fires on every machine. The easy single-component
+//    variant of the most-requested mined scaffold (round/match flow, day-night
+//    cycles, match phases). Mined from despawn.murder / suspectra / minigolf / etc.
+// ═══════════════════════════════════════════════════════════════════════════
+public class CreateRoundPhaseMachineHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "GameDirector", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			var phases = new System.Collections.Generic.List<string>();
+			if ( p.TryGetProperty( "phases", out var ph ) && ph.ValueKind == JsonValueKind.Array )
+			{
+				foreach ( var e in ph.EnumerateArray() )
+				{
+					var s = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+					if ( string.IsNullOrWhiteSpace( s ) ) continue;
+					var id = ClaudeBridge.SanitizeIdentifier( s );
+					if ( !string.IsNullOrEmpty( id ) && !phases.Contains( id ) ) phases.Add( id );
+				}
+			}
+			if ( phases.Count == 0 ) { phases.Add( "Lobby" ); phases.Add( "Active" ); phases.Add( "Ended" ); }
+
+			float dur = p.TryGetProperty( "duration", out var dv ) && dv.TryGetSingle( out var df ) ? df : 60f;
+			bool loop = !( p.TryGetProperty( "loop", out var lv ) && lv.ValueKind == JsonValueKind.False );
+
+			var code = BuildCode( className, phases, dur, loop );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, phases = phases.ToArray(), placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_round_phase_machine failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, System.Collections.Generic.List<string> phases, float dur, bool loop )
+	{
+		string d = dur.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
+		string enumBody = string.Join( ", ", phases );
+		string firstPhase = phases[0];
+
+		string durationProps = "";
+		foreach ( var ph in phases )
+			durationProps += $"\n\t[Property] public float {ph}Duration {{ get; set; }} = {d};";
+
+		string durationSwitch = "";
+		foreach ( var ph in phases )
+			durationSwitch += $"\n\t\t\tPhase.{ph} => {ph}Duration,";
+
+		string nextSwitch = "";
+		for ( int i = 0; i < phases.Count; i++ )
+		{
+			string nxt = ( i + 1 < phases.Count ) ? phases[i + 1] : ( loop ? phases[0] : phases[phases.Count - 1] );
+			nextSwitch += $"\n\t\t\tPhase.{phases[i]} => Phase.{nxt},";
+		}
+
+		return $@"using Sandbox;
+using System;
+
+/// <summary>
+/// {className} — a host-authoritative round / phase machine for any GameObject.
+///
+/// Cycles a [Sync(SyncFlags.FromHost)] CurrentPhase through your named phases on a
+/// per-phase timer (host-only). Other systems react via the static OnPhaseChanged
+/// event, which fires on EVERY machine when the phase replicates. Single-player safe.
+///
+/// Usage:
+///   {className}.OnPhaseChanged += p => Log.Info( $""phase -> {{p}}"" );
+///   GetComponent<{className}>()?.StartPhase( {className}.Phase.{firstPhase} );  // host-only jump
+/// </summary>
+public sealed class {className} : Component
+{{
+	public enum Phase {{ {enumBody} }}
+
+	// Host-authoritative current phase + its countdown.
+	[Sync( SyncFlags.FromHost )] public Phase CurrentPhase {{ get; set; }}
+	[Sync( SyncFlags.FromHost )] public TimeUntil PhaseTimer {{ get; set; }}
+
+	// Per-phase durations in seconds — tune in the inspector.{durationProps}
+
+	[Property] public bool Loop {{ get; set; }} = {(loop ? "true" : "false")};
+
+	// Fires on every machine when the phase changes (host writes it, all detect it). Hook game systems here.
+	public static Action<Phase> OnPhaseChanged {{ get; set; }}
+
+	private Phase _lastSeen;
+	private bool _started;
+
+	protected override void OnStart()
+	{{
+		if ( !IsProxy ) StartPhase( default );   // 'default' = the first phase
+	}}
+
+	protected override void OnUpdate()
+	{{
+		// Change-detect so OnPhaseChanged fires uniformly on host + proxies.
+		if ( !_started || CurrentPhase != _lastSeen )
+		{{
+			_started = true;
+			_lastSeen = CurrentPhase;
+			OnPhaseChanged?.Invoke( CurrentPhase );
+		}}
+
+		if ( IsProxy ) return;
+		if ( PhaseTimer <= 0f ) Advance();
+	}}
+
+	/// <summary>Host-only: jump to a phase and arm its timer.</summary>
+	public void StartPhase( Phase phase )
+	{{
+		if ( IsProxy ) return;
+		CurrentPhase = phase;
+		PhaseTimer = DurationFor( phase );
+	}}
+
+	private void Advance()
+	{{
+		if ( IsProxy ) return;
+		var next = NextPhase( CurrentPhase );
+		if ( !Loop && next == CurrentPhase ) return;   // not looping: hold on the last phase
+		CurrentPhase = next;
+		PhaseTimer = DurationFor( CurrentPhase );
+	}}
+
+	private float DurationFor( Phase p ) => p switch
+	{{{durationSwitch}
+		_ => {d}
+	}};
+
+	private Phase NextPhase( Phase p ) => p switch
+	{{{nextSwitch}
+		_ => p
+	}};
+}}
+";
+	}
+}

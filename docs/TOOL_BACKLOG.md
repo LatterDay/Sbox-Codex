@@ -3,6 +3,7 @@
 The 51-game corpus mining (`sbox-lessons/mining-v2/`) surfaced **352 candidate bridge tools**, **188 flagged "ship-worthy"** by the per-game miners. This is the ranked, de-duplicated roadmap. The single biggest signal: the same **scaffold-a-system** tools were independently requested by many games — those are the highest-confidence additions.
 
 **Folded into v1.10.0:** `create_economy_wallet` (the most-requested gap with no existing scaffold; see below).
+**Built since (v1.11.0 wip, unreleased):** `create_round_phase_machine` — host-authoritative `[Sync(FromHost)]` phase machine with a per-phase timer + static `OnPhaseChanged` event (the easy single-component variant of `create_round_state_machine`; great for round/match flow + day-night cycles). Generated code compile-verified live.
 **Queued for v1.11.0+:** everything else here, grouped by theme. Full raw list: `sbox-lessons/` mining output.
 
 Legend: **(Nx)** = independently proposed by N games · `easy`/`medium` = miner-estimated build risk.

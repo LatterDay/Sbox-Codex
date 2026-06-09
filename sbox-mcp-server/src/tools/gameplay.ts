@@ -254,6 +254,39 @@ export function registerGameplayTools(
     }
   );
 
+  // ── create_round_phase_machine ────────────────────────────────────
+  server.tool(
+    "create_round_phase_machine",
+    "Generate a host-authoritative round/phase machine: a [Sync(SyncFlags.FromHost)] CurrentPhase cycled through your named phases on a per-phase timer (host-only), with a static OnPhaseChanged event that fires on every machine. Great for round/match flow, match phases, or a day/night cycle. Single-player safe. Optionally attached to an existing GameObject by GUID (after a hotload). Mined from the round-flow pattern across the 51 games.",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'GameDirector'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      phases: z
+        .array(z.string())
+        .optional()
+        .describe('Ordered phase names (become an enum), e.g. ["Lobby","Day","Night","Payout"]. Defaults to ["Lobby","Active","Ended"]'),
+      duration: z
+        .number()
+        .optional()
+        .describe("Default seconds per phase (each phase also gets its own tunable [Property]). Defaults to 60"),
+      loop: z
+        .boolean()
+        .optional()
+        .describe("Loop back to the first phase after the last (true) or hold on the last phase (false). Defaults to true"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to attach to (only if the type is already loaded — hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_round_phase_machine", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
   // ── create_pickup ─────────────────────────────────────────────────
   server.tool(
     "create_pickup",
