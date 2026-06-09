@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build MCP server
+        run: cd sbox-mcp-server && npm ci && npm run build
+
+      - name: Parity audit (TS tools ↔ C# handlers + version lock)
+        run: node scripts/audit-parity.mjs
