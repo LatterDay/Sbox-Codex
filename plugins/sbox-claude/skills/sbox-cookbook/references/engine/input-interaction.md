@@ -192,3 +192,173 @@ protected override void OnMouseDown( MousePanelEvent e )
 Verify live: API names drift between SDK builds — confirm `IPressable` signatures, `ClientInput`/`PushScope`, `Input.AnalogMove`/`GetAnalog`, and `[InputAction]` against the installed SDK with `describe_type`/`search_types` (reflection is authoritative), or `search_docs` for `gameplay/input/raw-input`, `ui/interactions`, `scene/components/component-interfaces`.
 
 See also: **sbox-api** (resolve the exact installed signatures) and **sbox-build-feature** (the screenshot-driven loop to confirm a prompt actually renders, since the bridge can't keypress).
+
+---
+
+## Corpus refresh (2026): more reference implementations
+
+### 9. Custom `IUse` interface with per-frame focus-tracking (`LookingAt`)
+
+`IPressable` is the engine's built-in flow. For games that want full control over the "look at → hover highlight → interact" loop, define a project interface and drive it yourself. `gabreusenra.wjse` (`Cooking/IUse.cs`, `Player/PlayerInventory.cs`) does the minimal version:
+
+```csharp
+// Cooking/IUse.cs
+public interface IUse
+{
+    bool CanUse( GameObject user );
+    void OnUse( GameObject user );
+    void LookingAt( bool isLooking );   // called every frame focus changes
+}
+
+// PlayerInventory.RaycastDetection() — called in OnUpdate
+var tr = Scene.Trace.Ray( eyeRay, MaxRange )
+              .UseHitboxes()
+              .WithoutTags( "player" )
+              .Run();
+
+var hit = tr.GameObject?.GetComponent<IUse>();
+if ( hit != _currentUsable )
+{
+    _currentUsable?.LookingAt( false );
+    _currentUsable = hit;
+    _currentUsable?.LookingAt( true );   // fires highlight/balloon on the station
+}
+
+if ( Input.Pressed( "use" ) )
+{
+    if ( _currentUsable != null && _currentUsable.CanUse( GameObject ) )
+        _currentUsable.OnUse( GameObject );
+    else if ( IsHoldingItem )
+        DropHeldItem();
+}
+```
+
+The `LookingAt` callback lets stations show/hide world-space inspect UI exactly once on enter/exit, avoiding per-frame panel checks. The "drop held item when using on nothing" fallback is a nice ergonomic default for any carry game.
+
+Anti-pattern (`gabreusenra.wjse`): `LabelStation.ApplyLabel` is `[Rpc.Broadcast]` with no host-authority check, so last-writer wins. For any competitive game, validate `Rpc.Caller` inside the broadcast body before mutating state.
+
+---
+
+### 10. Drag-to-aim in Razor: screen-space `MousePanelEvent` + `Hud.DrawLine`, no `InputAction`
+
+Some mechanics (slingshot, pool cue, golf putt) are better expressed as screen-space drag gestures than named input actions. `alcoholics.nice_putt_idiot` (`Code/UI/Hud.razor`) does this entirely in a Razor panel with no `Input.Pressed`/`Input.Down` call:
+
+```csharp
+// Hud.razor — runs on the local client only
+Vector2 _dragStart;
+bool _isDragging;
+
+protected override void OnMouseDown( MousePanelEvent e )
+{
+    if ( golfBall.IsMoving ) return;               // gate: don't aim while ball is rolling
+    _dragStart = e.LocalPosition;
+    _isDragging = true;
+}
+
+protected override void OnMouseUp( MousePanelEvent e )
+{
+    if ( !_isDragging ) return;
+    _isDragging = false;
+    var drag = _dragStart - e.LocalPosition;       // pull-back = shoot direction
+    golfBall.Putt( drag.Normal, drag.Length, MaxLineLength );
+}
+
+public override void Tick()
+{
+    if ( !_isDragging || golfBall.IsMoving ) return;
+
+    // project the world object to screen, draw the aim line
+    var origin = Camera.PointToScreenPixels( golfBall.WorldPosition );
+    var dir    = _dragStart - Mouse.Position;
+    // lerp line color by power fraction:
+    var t      = MathX.Clamp( dir.Length / MaxLineLength, 0f, 1f );
+    var col    = Color.Lerp( Color.Green, Color.White, t );
+    Scene.Camera.Hud.DrawLine( origin, origin + dir, col, 2f );
+}
+```
+
+Key points: `Camera.PointToScreenPixels` converts a world position to panel coordinates; `Scene.Camera.Hud.DrawLine` draws immediate-mode each frame (no retained geometry). The `IsMoving` gate on `OnMouseDown` prevents queuing a shot while the ball is still rolling. Anti-pattern: using `MathF.Min` here — use `MathX.Clamp` instead (`MathF` is unavailable in the s&box sandbox).
+
+---
+
+### 11. Hold-to-confirm with `TimeSince`/`Remap` + `Input.ReleaseAction` to consume the key
+
+A "hold E for 1s to confirm" prompt that doesn't re-fire the moment it completes. `alcoholics.nice_putt_idiot` (`Code/UI/RestartPrompt/RestartPrompt.razor`):
+
+```csharp
+TimeSince _timeHeld;
+bool _isHolding;
+
+public override void Tick()
+{
+    var holding = Input.Down( "restart" );
+
+    if ( holding && !_isHolding ) { _timeHeld = 0; _isHolding = true; }
+    if ( !holding ) { _isHolding = false; return; }
+
+    var progress = MathX.Clamp( (float)_timeHeld, 0f, HoldDuration );
+    BarPanel.Style.Width = Length.Fraction( progress / HoldDuration );
+
+    if ( _timeHeld >= HoldDuration )
+    {
+        _isHolding = false;
+        Input.ReleaseAction( "restart" );   // consume the held press so it doesn't re-fire
+        OnConfirmed?.Invoke();
+    }
+}
+```
+
+`Input.ReleaseAction` is the key call: without it, the action is still "held" next frame and the confirmation fires again immediately. Also suppress while the scene is mid-transition (`ball.IsInTransition`) so a held key across a respawn doesn't chain restarts.
+
+---
+
+### 12. Controller-agnostic key glyphs with `Input.GetGlyph`
+
+Render the correct key icon or gamepad button texture for any named action at runtime:
+
+```csharp
+// InputHint.razor — refreshed each Tick
+protected override void Tick()
+{
+    var tex = Input.GetGlyph(
+        Action,                                        // e.g. "use", "jump"
+        InputGlyphSize.Small,
+        GlyphStyle.Light.WithNeutralColorABXY()        // ABXY buttons neutral color
+    );
+    GlyphImage.Texture = tex;
+    GlyphImage.Style.Width  = tex.Width;
+    GlyphImage.Style.Height = tex.Height;
+}
+```
+
+`Input.GetGlyph` returns a `Texture` that reflects the *currently bound* device (keyboard or gamepad), so the prompt updates automatically on controller connect/disconnect. Anti-pattern: hardcoding a key name as a string in the hint panel — always go through `GetGlyph` on the action name. (alcoholics.nice_putt_idiot `Code/UI/InputHint/InputHint.razor`)
+
+Bonus trick: for a gesture (like a drag) that has no single "pressed" state, drive the "pressed" visual from your own flag (`Hud.Instance._isDragging`) rather than from `Input.Down`, so the glyph reflects the *gesture*, not the raw button.
+
+---
+
+### 13. Block game input while a UI panel is open: `UseInputControls` + `Mouse.Visibility`
+
+When a UI panel (shop, inventory, dialogue) is open, two things need to happen: the game's input system must stop reading movement/action keys, and the mouse cursor must appear. `bublic.stone_by_stone` (`Code/PlayerComponent.cs`) uses the built-in `PlayerController` toggle for both:
+
+```csharp
+void OpenPanel( Panel panel )
+{
+    panel.Style.Display = DisplayMode.Flex;
+    Controller.UseInputControls = false;    // PlayerController stops reading Input.*
+    Mouse.Visibility = MouseVisibility.Visible;
+}
+
+void ClosePanel( Panel panel )
+{
+    panel.Style.Display = DisplayMode.None;
+    Controller.UseInputControls = true;
+    Mouse.Visibility = MouseVisibility.Hidden;
+}
+```
+
+`UseInputControls = false` is the one-line way to freeze a `PlayerController`'s movement/camera without nulling the component or gating every input site. Pair it with `Mouse.Visibility` so the cursor appears for clicking UI. Anti-pattern: setting each `Input.Down("move")` to zero manually — it's fragile and misses jump/attack/use.
+
+---
+
+**Read these games** for further input-interaction patterns: `gabreusenra.wjse` (trace→IUse focus loop, carry/drop routing), `alcoholics.nice_putt_idiot` (drag-to-aim, hold-to-confirm, `GetGlyph`), `bublic.stone_by_stone` (`UseInputControls` + `Mouse.Visibility`, single-trace multi-tag dispatch). Prior corpus: `wirebox` (IPressable poll-for-release), `dxrp` (PressablePropagate + IContextualObject), `sbox-vehicle-kit` (analog rise/fall filter), `sandbox` (ClientInput.PushScope), `SBox-Visual-Novel-Base` ([InputAction] binding field + UI passthrough guard).

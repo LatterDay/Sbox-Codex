@@ -217,3 +217,120 @@ When revealing **rich text** (`IsRich` labels), chunk whole `<tag>` / `&entity;`
 | `Connection`/`GameObject` field won't sync | They're local handles, not `[Sync]`-able | Sync a `Guid`, resolve via `Connection.All` / `Scene.Directory.FindByGuid` |
 
 Verify live: API names drift between SDK builds — confirm types/members with `describe_type`, `search_types`, and `get_method_signature` (reflection is authoritative for the installed SDK) before writing, especially `WorldPanel.ScreenToWorldScale`, `ScreenPanel.AutoScale`, and `Style.SetBackgroundImage` overloads. Cross-link: see the **sbox-api** skill for reflection lookups and the **sbox-build-feature** skill for the screenshot-driven iteration loop that proves a HUD re-renders only on the intended state changes.
+
+## Corpus refresh (2026): more reference implementations
+
+### Recipe: event-bus singleton → StateHasChanged (namicry.gacha_crawler)
+
+When your game state lives in a plain singleton (not networked), expose `Action` events for each mutation and subscribe in `OnStart`/unsubscribe in `OnDestroy`. The panel calls `StateHasChanged()` in each handler. `BuildHash` still gates the actual rebuild — include every displayed field, exclude raw frame counters.
+
+```csharp
+// GameManager.cs (singleton)
+public Action OnInventoryUpdated;
+public Action OnFightUpdated;
+
+// MyHud.razor.cs
+protected override void OnStart()  { GameManager.Instance.OnFightUpdated   += Refresh; }
+protected override void OnDestroy() { GameManager.Instance.OnFightUpdated  -= Refresh; }
+
+void Refresh() => StateHasChanged();   // imperative push; BuildHash below gates the rebuild
+
+protected override int BuildHash()
+    => HashCode.Combine( GameManager.Instance.State, GameManager.Instance.Turn,
+                         GameManager.Instance.PlayerHealth );
+```
+
+Anti-pattern caught: `GameManager` advances `SpinProgress` every `OnUpdate`. The razor panel reads `GetStripOffset()` (derived from progress) — do **not** put raw `SpinProgress` in `BuildHash` or you get 60 rebuilds/sec. Instead fold it as `(int)(SpinProgress * 60f)` so the hash only ticks when the display would visibly change. (namicry.gacha_crawler: `Code/UI/LootboxPanel.razor`, `Code/GameManager.cs`)
+
+### Recipe: full-game diegetic WorldPanel with modal input gating (simalami.15_puzzle_master)
+
+When the entire game lives on a `WorldPanel` (no ScreenPanel at all), camera-ray input goes through `WorldInput`. Multiple overlapping modals (leaderboard, settings, win screen) must co-exist without stealing clicks from each other. The fix is a **cascade gate**: each controller calls peer controllers' `refreshModalGate()` first, then enables/disables its own `WorldInput.Enabled`. Only the topmost active overlay should have input enabled.
+
+```csharp
+// ClassicLeaderboardController.cs
+public void Open()
+{
+    seedController.refreshModalGate();      // inner modal closes first
+    settingsController.refreshModalGate();  // inner modal closes first
+    leaderboardPanel.WorldInput.Enabled = true;
+    levelsPanel.WorldInput.Enabled      = false;
+}
+
+public void refreshModalGate()
+{
+    if ( !_isOpen ) leaderboardPanel.WorldInput.Enabled = false;
+}
+```
+
+Clean architecture that enables this: `BusinessLogic/` (pure C#, no `using Sandbox`) → `Controller/` (thin Component shells) → `Visual/` (Razor + view components). Panels subscribe to model events from `Interfaces/Events/` in `OnStart`, unsubscribe in `OnDestroy`, and call `StateHasChanged()`. HUDs share a `HudPanelBase` abstract class that owns subscribe/unsubscribe lifecycle so individual panels never misplace cleanup. (simalami.15_puzzle_master: `Code/ClassicMode/.../Visual/UI/HudPanelBase.cs`, `Code/ClassicMode/Controller/ClassicLeaderboardController.cs`)
+
+### Recipe: WorldPanel batching collision avoidance (sino.s_sino)
+
+The s&box UI batcher merges `WorldPanel`s that share the same render scale, producing visual desync when panels need distinct transforms. Fix: give every panel a **deterministic unique micro-offset** (`baseScale + bucketIndex * 0.0001f`), bucketed by stable hash with linear probing among 1000 buckets per base-scale group. Pair with `StableWorldPanelAnchor`, which re-snaps the panel to absolute world-space every `OnUpdate` and `OnPreRender` to defeat nested-hierarchy batching drift.
+
+```csharp
+// WorldPanelBatchRenderScale.cs — abbreviated concept
+static Dictionary<float, int> _buckets = new();
+
+public static float UniqueScale( float baseScale )
+{
+    int bucket = 0;
+    float candidate;
+    do { candidate = baseScale + bucket++ * 0.0001f; }
+    while ( _buckets.ContainsValue( /* stable hash → bucket */ bucket ) && bucket < 1000 );
+    _buckets[candidate] = bucket;
+    return candidate;
+}
+
+// StableWorldPanelAnchor.cs
+protected override void OnUpdate()    => SnapToWorld();
+protected override void OnPreRender() => SnapToWorld();
+void SnapToWorld() => WorldPanel.WorldPosition = _target.WorldPosition;
+```
+
+Apply to any game with multiple in-world UI screens that jitter or overlap unexpectedly. (sino.s_sino: `Code/Util/WorldPanelBatchRenderScale.cs`, `Code/Util/StableWorldPanelAnchor.cs`)
+
+### Recipe: message-driven reactive panel / "dumb view-model" (sino.s_sino)
+
+When game state is pushed from an external WebSocket (or any event source), the Razor panel is a **dumb view-model**: it holds local mirror fields, and each message handler patches a field then calls `StateHasChanged()`. For large state, also re-request a full snapshot to stay consistent rather than trusting incremental patches.
+
+```csharp
+// FloorPanel.razor.cs (partial)
+void HandleFloorTick( JsonElement msg )
+{
+    RevenuePerSecond = msg.GetProperty("rps").GetDouble();
+    StateHasChanged();   // imperative push — BuildHash will prevent a rebuild if nothing renders
+}
+
+void HandleLevelUp( JsonElement msg )
+{
+    Level = msg.GetProperty("level").GetInt32();
+    Send("floorGetState");   // re-sync to authoritative snapshot; don't trust delta alone
+    StateHasChanged();
+}
+```
+
+**Instant-boot cache**: seed a string-keyed balance from `FileSystem.Data` so the HUD shows a plausible value before the socket replies `init`. Regex-validate the cached value (`^\d+$`) and treat it as cosmetic only — the server's first message overwrites it. (sino.s_sino: `Code/UI/BalanceHud.razor`, `Code/Core/FloorPanel/FloorPanelWebSocket.cs`)
+
+**Localization triggers StateHasChanged**: when language switches, each panel re-renders by subscribing to `OnLanguageChanged` and calling `StateHasChanged()`. The `BuildHash` does not need to include the language key — the subscription is imperative and causes an unconditional rebuild, which is correct because every string on screen changes. (sino.s_sino: `Code/Util/Localize.cs`)
+
+### Recipe: production HUD suite decomposition (despawn.murder)
+
+A shipped social-deduction game ships ~10 distinct panels as separate `.razor` files, each with a single responsibility: `Scoreboard`, `CombatFeed`, `RoleReveal`, `WinScreen`, crosshair per-weapon, `Nameplate` world panels. Two panels (`MapVote.razor`, `TextChat/`) are fully self-contained subsystems (own RPC + data + view) reusable across game modes. The lesson: decompose by lifecycle (persistent HUD vs. transient overlay vs. end-of-round screen vs. world tag), not by visual region. Each is a small independently testable unit. `Nameplate` panels are the world-tag pattern from the existing recipe (follow a Transform in `OnUpdate`, hash only the data they display). (despawn.murder: `murder/Code/UI/`)
+
+### Gotcha additions
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| WorldPanel screens jitter / merge visually | UI batcher groups panels at the same render scale | Add micro-scale offset per panel (`baseScale + bucket*0.0001f`) + re-snap in `OnUpdate`/`OnPreRender` |
+| HUD shows `$0` flash before socket connects | No local seed value | Seed from a validated `FileSystem.Data` cache; server's first message overwrites |
+| Modal overlays steal clicks from each other | `WorldInput.Enabled` set by one modal, not coordinated | Cascade-gate: each controller calls peers' `refreshModalGate()` before toggling its own |
+| Razor rebuild on every frame of an animation | Raw progress float in `BuildHash` | Quantize: `(int)(progress * 60f)` or read a derived display-only getter |
+| Event subscription leaks on scene reload | Subscribe in constructor or OnEnabled without unsubscribe | Always subscribe in `OnStart`, unsubscribe in `OnDestroy` (use a base class to enforce this) |
+
+### Read these games
+
+- `sino.s_sino` — WorldPanel batching fix, message-driven view-model, instant-boot cache, localization → StateHasChanged
+- `simalami.15_puzzle_master` — full-game diegetic WorldPanel, modal-gate cascade, MVC folder discipline, BuildHash + event-subscribe in OnStart/OnDestroy
+- `namicry.gacha_crawler` — Action event-bus → StateHasChanged, roulette-spin animation quantization anti-pattern
+- `despawn.murder` — production HUD suite decomposition, self-contained reusable subsystems

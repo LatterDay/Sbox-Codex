@@ -227,3 +227,208 @@ Verified against bublic.stone_by_stone `Code/RecourcesGeneratorComponent.cs`: `M
 **Verify live:** the SDF and mesh APIs drift between SDK builds — `describe_type Sdf2DWorld` and `search_types Sdf` (plus `get_method_signature` for `AddAsync`/`SubtractAsync`/`VertexMeshBuilder.CreateRectangle`) are authoritative for *your* installed SDK. Reflection over memory, always.
 
 See also: **sbox-api** (resolve exact type/method signatures via bridge reflection) and **sbox-build-feature** (the screenshot-driven loop to validate generated geometry and spawn distribution).
+
+---
+
+## Corpus refresh (2026): more reference implementations
+
+These techniques appear in the 2026 mining pass and are not covered above.
+
+### Pattern 6 — GPU clipmap water: compute-generated mesh with CommandList + resource barrier
+
+`pldr.duck_pond` implements a complete custom-rendering pipeline for animated water that composes four low-level pieces most devs never use together: `GameObjectSystem`, `SceneCustomObject`, `CommandList`, and a compute shader.
+
+The pattern: a scene-singleton (`WaterManager : GameObjectSystem<WaterManager>`) owns one `SceneCustomObject` whose `RenderOverride` runs only on the `Translucent` layer. It **(a)** calls `Graphics.GrabFrameTexture()` for refraction, **(b)** dispatches a compute shader to build vertex data in a `GpuBuffer<WaterVertex>`, **(c)** issues a `ResourceBarrierTransition(UnorderedAccess → VertexOrIndexBuffer)` to hand the buffer to the draw pipeline, then **(d)** draws with `m_CommandList.DrawIndexed(...)`. The **barrier between compute and draw is the load-bearing step** — omitting it causes GPU read-after-write hazards that produce flickering or silent corruption.
+
+```csharp
+// WaterManager attaches its command list to the active camera at AfterTransparent.
+camera.AddCommandList( m_CommandList, RenderStage.AfterTransparent );
+
+// RenderOverride runs only on Translucent layer to avoid overdraw on opaque geometry.
+void RenderAll( SceneObject so )
+{
+    if ( so.RenderLayer != SceneRenderLayer.Translucent ) return;
+    Graphics.GrabFrameTexture();           // copy backbuffer for refraction texture
+    foreach ( var surface in _surfaces )
+    {
+        Graphics.DispatchCompute( surface.ComputeShader, surface.VertexBuffer );
+        // CRITICAL: transition the buffer before the draw or the GPU reads stale data.
+        Graphics.ResourceBarrierTransition( surface.VertexBuffer,
+            ResourceState.UnorderedAccess, ResourceState.VertexOrIndexBuffer );
+        m_CommandList.DrawIndexed( surface.IndexCount, surface.VertexBuffer );
+    }
+}
+```
+
+The **clipmap** produces an infinite, camera-following ocean at bounded vertex cost: concentric square rings, cell size doubling per ring (`BaseCellSize * (1 << ring)`), inner ring blocks skipped in the index buffer (`UploadIndexBuffer` continues over `innerStart..innerEnd`) so rings never overdraw. Vertices snap to the grid in the compute shader via `MathF.Floor(cameraXY / cellSize) * cellSize`. `GpuBuffer` is rebuilt only when a `ComputeConfigHash()` changes, not every frame.
+
+`GpuBuffer<WaterVertex>` uses a custom vertex struct with `[VertexLayout.Position/Normal/Tangent/TexCoord/Color]` attributes — the same pattern works for any GPU-generated mesh (terrain, fluid, cloth).
+
+Add `[Component.DontExecuteOnServer]` on any renderer component — water visuals must never run headless and the attribute is the canonical guard.
+
+Verified: `duck_pond/Code/Water/WaterManager.cs`, `WaterQuad.cs`, `WaterBodyRenderer.cs`.
+
+---
+
+### Pattern 7 — CPU/GPU-shared Gerstner waves: physics that matches the pixels
+
+The hardest correctness problem in water games is making floating objects rest *at the visible surface*, not at a flat plane. `pldr.duck_pond` solves it by implementing the exact same multi-octave Gerstner sum on the CPU (`Code/Water/WaterWaveUtility.cs`) that the vertex shader runs.
+
+```csharp
+// WaterWaveUtility.ComputeDisplacementAt — mirrors the GPU Gerstner shader, CPU-side.
+// Consumers call the static API on WaterManager:
+float h  = WaterManager.GetWaterHeightAt( worldPos );        // vertical surface height
+Vector3 d = WaterManager.GetWaveDisplacementAt( worldPos );  // full X/Y/Z displacement
+Vector3 v = WaterManager.GetWaveVelocityAt( worldPos );      // analytic time-derivative
+bool inside = WaterManager.IsPositionInsideAny( worldPos );  // hull-containment test
+```
+
+Per octave the CPU model rotates the wave direction by `oct * 1.2f`, scales amplitude by persistence and frequency by lacunarity, and normalises by `maxAmp` — identical constants to the shader. The same `WaterDefinition` GameResource (`ApplyTo(RenderAttributes)`) feeds both sides so tuning one tunes the other.
+
+`treehaven.sdiver` ships the identical library (`namespace RedSnail.WaterTool`) confirming this is a reusable, battle-tested module. Any buoyancy, swim-level, or camera-lift component can query the static API without knowing the wave configuration.
+
+Anti-pattern: sampling a flat `y = WaterPlane.WorldPosition.z` for buoyancy while the shader displaces vertices — objects float visibly above or below the surface at wave crests.
+
+Verified: `duck_pond/Code/Water/WaterWaveUtility.cs`, `WaterManager.Displacement.cs`; confirmed in `sdiver/Code/Water/`.
+
+---
+
+### Pattern 8 — Water exclusion volumes: carve a hole in the surface for boat interiors
+
+To suppress the water mesh inside a hull (submarine cabin, boat cockpit) without disturbing buoyancy physics, `pldr.duck_pond` uploads exclusion geometry to the GPU each frame and tests it in the vertex shader.
+
+**Box exclusion** (`WaterExclusionVolume`, a `VolumeComponent`): each volume contributes a 3-row OBB (forward/up/center axes, half-extents packed into the `.w` lane) to a `GpuBuffer<Vector4>`. The renderer sorts volumes by distance and uploads the nearest 512 per frame. The vertex shader skips any vertex inside an OBB. Physics (buoyancy, swim-level checks) are untouched — only the visual surface is suppressed.
+
+**Mesh-hull exclusion** (`HullWaterExclusionVolume`): extracts the model's physics collision mesh *once* at startup (`model.Physics.Parts[…].Meshes[…].GetTriangles()`), uploads it as a flat triangle list + AABB, and each frame refreshes only a packed `WorldToLocal` matrix for the GPU ray test. Includes a **convex-hull triangulator** (`TriangulateConvexHull`) that fan-triangulates all coplanar vertices per face — naive `C(n,3)` triangulation flips ray-parity and marks exterior points as inside.
+
+```csharp
+// Per-frame update cost is just one matrix upload, not a mesh re-upload.
+void UpdateExclusionTransform()
+{
+    var rows = GetWorldToLocalRows();   // 3×4 matrix packed into 3 Vector4s
+    _gpuBuffer.SetData( rows );         // cheap: 48 bytes per hull
+}
+```
+
+Lifecycle gotcha: `OnValidate` sets a flag so `OnDisabled` does NOT unregister the volume during a scene save — the editor re-runs validate+disable on save and would incorrectly remove a still-active volume.
+
+Verified: `duck_pond/Code/Water/WaterExclusionVolume.cs`, `HullWaterExclusionVolume.cs`.
+
+---
+
+### Pattern 9 — Client→host voxel-edit pipeline: predict locally, validate on host, batch-clamp RPCs
+
+`clearlyy.s_miner` implements host-authoritative destructible voxel terrain with client-side prediction. The pipeline has four stages and avoids the two most common failure modes (silent desync from unvalidated edits; frame spikes from oversized RPC payloads).
+
+```csharp
+// VoxelTerrain.cs — simplified pipeline sketch.
+public void BreakBlocks( Vector3[] positions )
+{
+    var ops = BuildEditOps( positions );
+
+    if ( Networking.IsHost )
+    {
+        var validated = TryBuildValidatedEdits( ops );  // drop out-of-bounds / no-ops
+        ApplyEditsLocally( validated );
+        BroadcastVoxelEdits( validated );
+    }
+    else
+    {
+        PredictClientVoxelEdits( ops );     // instant local feedback — may be wrong, host corrects
+        // Target host only; fall back to broadcast if host connection is gone.
+        using ( Rpc.FilterInclude( Connection.Host ) )
+            RpcRequestVoxelEdits( ops );
+    }
+}
+
+[Rpc.Broadcast]
+public void RpcRequestVoxelEdits( VoxelEditOp[] edits )
+{
+    if ( !Networking.IsHost ) return;                              // re-check on entry
+    if ( edits.Length > GetMaxSafeNetworkEditBatchSize() ) return; // anti-flood
+    if ( !IsIncomingTerrainMessageForThisTerrain( edits ) ) return;
+    var validated = TryBuildValidatedEdits( edits );
+    ApplyEditsLocally( validated );
+    RpcApplyVoxelEdits( validated );   // authoritative rebroadcast
+}
+```
+
+Large explosions are **chunked** by `MaxBreakBlocksPerRpc` (clamped 16–512) before the initial call so no single RPC exceeds the payload limit. `IsIncomingTerrainMessageForThisTerrain` lets multiple terrain instances coexist without cross-talk.
+
+The seeded worldgen (`Rift.cs`) pairs with this: Pass 1 stamps a Voronoi-anchored biome map (anchor blend + 2-octave Perlin), Pass 2 places an *exact ore count* per biome by shuffling candidate positions and filling to target — guaranteed density regardless of noise distribution. Cave carving uses random-walk sphere erasure (z-height guard protects the surface ceiling). All passes consume one `Random(Seed)`, so `ServerManager` distributes 16 seeds and every client regenerates an identical world independently.
+
+Verified: `s_miner/Code/VoxelTerrain.cs:1311–1740`, `Rift.cs GenerateVoxelData:518`.
+
+---
+
+### Pattern 10 — Frame-budgeted chunk streamer with global cross-instance cap
+
+`vault77.chop_the_forest`'s `GrassFieldStreamer.cs` (2786 lines) extends the instanced scatter from Pattern 5 with two mechanisms that prevent frame spikes on large maps.
+
+**Dual budget**: each frame it runs at most `ChunkCandidateTimeBudgetMs ≈ 2.4ms` (measured with `Stopwatch.GetTimestamp`) AND at most N raycasts. When either budget expires the streamer defers remaining chunks to the next frame. A **global static cap** (`GlobalMaxChunksPerFrame = 2`) is shared across all `GrassFieldStreamer` instances — so two overlapping fields can't collectively spend 4.8ms in one frame.
+
+**Movement prediction**: the streamer smooths recent camera velocities and preloads chunks `MovementPreloadSeconds` ahead of the current position, cutting visible pop-in at run speed.
+
+```csharp
+// Per-frame chunk generation — exits early on either budget.
+var deadline = Stopwatch.GetTimestamp() + _msToTicks * ChunkCandidateTimeBudgetMs;
+int globalBudget = GlobalMaxChunksPerFrame;
+foreach ( var cell in _priorityQueue )
+{
+    if ( Stopwatch.GetTimestamp() >= deadline ) break;
+    if ( --globalBudget < 0 ) break;
+    GenerateChunk( cell );
+}
+```
+
+GPU rendering reuses the `DrawModelInstanced` pattern but sorts instances by `(model, lodGroup)` first so each LOD bucket is a contiguous span — one `DrawModelInstanced` call per LOD bucket with `transforms.AsSpan(start, lodCount)`, zero per-frame alloc beyond the sort.
+
+Terrain-material exclusion (`GetMaterialAtWorldPosition`) prevents grass from spawning on rock/path tiles, using the terrain's own material-query API rather than raycasts.
+
+The existing Pattern 5 footnote cites this file; this fills in the frame-budget and prediction detail.
+
+Verified: `chop_the_forest/Code/GrassField/GrassFieldStreamer.cs:1224`.
+
+---
+
+### Pattern 11 — Spatial-grid registry + shared update-runner (the OnUpdate cost fix)
+
+When hundreds of harvestable objects each run `OnUpdate`, frame time tanks. `vault77.chop_the_forest` fixes this with a static spatial registry and a single shared update-runner.
+
+```csharp
+// HarvestableResource — registers into a cell grid, does NOT run its own OnUpdate.
+static Dictionary<ResourceGridCell, List<HarvestableResource>> _grid = new();
+static ResourceGridCell CellOf( Vector3 p ) => new( (int)(p.x / 512), (int)(p.z / 512) );
+
+protected override void OnStart()   => _grid.GetOrCreate( CellOf(WorldPosition) ).Add( this );
+protected override void OnDestroy() => _grid[CellOf(WorldPosition)].Remove( this );
+
+// O(1) range query — used by the harvesting trace to find candidates nearby.
+public static IEnumerable<HarvestableResource> GetActiveResourcesNear( Vector3 pos, float radius )
+    => CellsInRadius( pos, radius ).SelectMany( c => _grid.GetValueOrDefault( c ) ?? [] );
+```
+
+One `HarvestableResourceUpdateRunner` component per scene maintains a round-robin cursor (`_idleCursor`) and a per-frame budget (`IdleChecksPerUpdate = 128`). Resources with active visual state (shake, shrink, hit flash) get a full update; idle ones are visited a handful at a time. **Sync via sequence counter, not RPC**: hit effects use `[Sync] int HitEffectSequence` incremented on each hit; observers diff the counter each frame and fire a local effect — cheaper and more robust than `[Rpc.Broadcast]` per hit.
+
+Anti-pattern: `OnUpdate` on 300+ `HarvestableResource` components — all 300 run every frame even when idle, wasting ~1ms/frame on a modest scene.
+
+Verified: `chop_the_forest/Code/World/HarvestableResource.cs`.
+
+---
+
+### Additional gotchas
+
+| Gotcha | Why it bites | Fix | Source |
+| --- | --- | --- | --- |
+| Compute→draw without barrier | GPU reads vertex buffer while compute is still writing; produces flickering/corruption | `ResourceBarrierTransition(UnorderedAccess → VertexOrIndexBuffer)` between dispatch and draw | duck_pond `WaterManager.cs` |
+| CPU buoyancy vs GPU wave surface | Objects float above/below the visible surface because physics samples a flat plane | Share the exact same Gerstner sum on CPU (`WaterWaveUtility`) that the vertex shader runs; query via static `WaterManager.GetWaterHeightAt` | duck_pond `WaterWaveUtility.cs` |
+| Naive `C(n,3)` mesh triangulation for GPU exclusion | Every triple of vertices forms a triangle; coplanar verts on a convex face flip ray-parity and mark exterior points inside | Fan-triangulate per face after collecting all coplanar vertices | duck_pond `HullWaterExclusionVolume.cs` |
+| `OnValidate`/`OnDisabled` during scene save | s&box re-runs validate+disable on every save; a volume unregisters itself while still active | Guard `OnDisabled` with a flag set in `OnValidate` | duck_pond `WaterExclusionVolume.cs` |
+| Unvalidated client voxel edits | A client sends `BreakBlocks` with out-of-bounds coords; host applies them → terrain desync | Re-validate every edit on the host entry point before applying or rebroadcasting | s_miner `VoxelTerrain.cs:1311` |
+| Oversized voxel-edit RPC | A single dynamite blast sends 500 edits in one RPC; exceeds payload limit → packet drop | Chunk by `MaxBreakBlocksPerRpc` (16–512) before the call | s_miner `VoxelTerrain.cs:1740` |
+| Multiple chunk streamers competing | Two `GrassFieldStreamer` instances each spend their per-frame budget → doubled spike | Share a `static int GlobalMaxChunksPerFrame` decremented across all instances | chop_the_forest `GrassFieldStreamer.cs` |
+| `OnUpdate` on every prop | 300 harvestables each calling `OnUpdate` wastes ~1ms/frame | Static spatial-grid registry + one `UpdateRunner` with round-robin idle cursor | chop_the_forest `HarvestableResource.cs` |
+
+---
+
+**Read these games** for worldgen/rendering depth: `pldr.duck_pond` (GPU clipmap water, Gerstner CPU/GPU parity, exclusion volumes), `clearlyy.s_miner` (voxel worldgen authority pipeline, biome worldgen), `vault77.chop_the_forest` (frame-budgeted chunk streaming, spatial-grid update pattern), `treehaven.sdiver` (confirms `RedSnail.WaterTool` as a reusable water library). The existing `sbox-grubs` / `wirebox` / `intercrusstudio.sneguborka` / `bublic.stone_by_stone` citations above remain the primary references for SDF terrain, mesh building, day/night, and scatter instancing.

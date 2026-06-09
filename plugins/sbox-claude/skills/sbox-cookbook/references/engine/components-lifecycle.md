@@ -211,3 +211,177 @@ A pawn balloons into a thousand-line monster. Keep one file per concern with a c
 SDK API drifts between builds — confirm against the installed SDK before writing: `describe_type` / `search_types` / `get_method_signature` on `Component`, `GameObject`, `GameObjectSystem`, `FindMode`, `GameObjectFlags`, `CloneConfig`, `OwnerTransfer`, `Stage`. Reflection is the source of truth, not memory.
 
 Cross-links: networking/`[Sync]`/`[Rpc.*]`/`NetworkSpawn` authority rules live in the **sbox-api** reference; the screenshot-driven build loop and bridge gotchas live in the **sbox-build-feature** skill.
+
+## Corpus refresh (2026): more reference implementations
+
+### 10. Hotload-safe singleton via `IHotloadManaged`
+
+`Singleton<T> : Component` alone loses its static `Instance` across a hotload. Implement `IHotloadManaged` and round-trip through the hotload state dictionary to rebind it:
+
+```csharp
+public class Singleton<T> : Component, IHotloadManaged where T : Singleton<T>
+{
+    public static T Instance { get; private set; }
+
+    protected override void OnAwake()
+    {
+        if ( Instance != null && Instance != this ) { GameObject.Destroy(); return; }
+        Instance = (T)this;
+    }
+    protected override void OnDestroy() => Instance = null;
+
+    // IHotloadManaged — called by the engine around a hotload
+    void IHotloadManaged.Destroyed( Dictionary<string,object> state )
+        => state["IsActive"] = Instance == this;
+
+    void IHotloadManaged.Created( Dictionary<string,object> state )
+    {
+        if ( state.TryGetValue( "IsActive", out var v ) && v is true )
+            Instance = (T)this;
+    }
+}
+```
+(meteorlab.vehicle_tool_example: Code/Singleton.cs; identical pattern in alcoholics.nice_putt_idiot: Code/Components/Singleton.cs)
+
+Without `IHotloadManaged`, `Instance` goes null after every code save, silently breaking every `Singleton<T>.Instance` caller until the scene reloads.
+
+### 11. `OnEnabled`/`OnDisabled` for component registration
+
+Use `OnEnabled`/`OnDisabled`/`OnDestroy` to maintain a controller's owned-component list during hot edits and runtime toggles:
+
+```csharp
+public class WheelCollider : Component
+{
+    [Property] public VehicleController Controller { get; set; }
+
+    protected override void OnEnabled()  => Controller?.Wheels.Add( this );
+    protected override void OnDisabled() => Controller?.Wheels.Remove( this );
+    protected override void OnDestroy()  => Controller?.Wheels.Remove( this );
+}
+```
+(meteorlab.vehicle_tool_example: Code/Vehicle/Wheel/WheelCollider.cs — implied by "registers/unregisters with its controller in OnEnabled/OnDisabled/OnDestroy")
+
+This pattern generalises to any "parent holds a list of child subsystems" design. `OnDisabled` alone is not sufficient — `OnDestroy` fires when the component is removed entirely and `OnDisabled` may not precede it.
+
+### 12. `StartEnabled=false` → configure → `NetworkSpawn` to prevent first-frame uninitialized state
+
+Spawn networked objects with `StartEnabled = false` in the `CloneConfig`, configure all properties, then enable and network-spawn:
+
+```csharp
+// from facepunch.fair: AI/Guests/GuestManager.cs
+var go = guestPrefab.Clone( new CloneConfig { StartEnabled = false, Transform = spawnPoint } );
+var guest = go.Components.Get<Guest>();
+guest.IsRich = Random.Float() < 0.04f;
+go.Enabled = true;
+go.NetworkSpawn();
+```
+(facepunch.fair: AI/Guests/GuestManager.cs; same principle in enifun.shop_manager: Code/AI/CustomerSpawner.cs — `Clone()` → `Dresser.Randomize()` → `NetworkSpawn()`)
+
+Without `StartEnabled = false`, `OnEnabled`/`OnStart` fire before you have set the component's properties, and proxy clients receive one frame of uninitialized `[Sync]` values. This is the networked complement of the `OnAwake` off-screen-park pattern (recipe #1).
+
+### 13. Proxy initialization bundle in `OnStart`
+
+All proxy-side presentation setup belongs in `OnStart` under a single `if ( IsProxy )` block. Do not scatter it across multiple hooks:
+
+```csharp
+protected override void OnStart()
+{
+    if ( IsProxy )
+    {
+        // 1. Disable local-player-only components
+        Components.Get<CameraComponent>().Enabled = false;
+
+        // 2. Dim the model so proxies read as "other players"
+        var renderer = Components.Get<SkinnedModelRenderer>();
+        renderer.Tint = renderer.Tint.WithAlpha( 0.3f );
+
+        // 3. Zero out cosmetic components that shouldn't pulse on proxies
+        Components.Get<HighlightOutline>( FindMode.EverythingInSelfAndDescendants ).Width = 0;
+
+        // 4. Spawn a floating WorldPanel nametag above the object
+        var tag = Components.GetOrCreate<GolfBallTag>();
+        tag.Client = Components.GetInAncestors<Client>( true );
+    }
+}
+```
+(alcoholics.nice_putt_idiot: Code/Pawns/GolfBall.cs — "proxy presentation in GolfBall.OnStart")
+
+The nametag then positions itself each `OnUpdate` by reading `WorldPosition`. This is a composable proxy-presentation recipe: camera off + alpha dim + component zero + floating nametag.
+
+### 14. Centralized `GameObjectSystem` tick — agents must NOT override `OnUpdate`
+
+When simulating hundreds of agents, do not give each agent its own `OnUpdate`. Instead, inherit `GameObjectSystem` and iterate all agents once per frame from a single system:
+
+```csharp
+public class AgentTickSystem : GameObjectSystem
+{
+    public AgentTickSystem( Scene scene ) : base( scene )
+    {
+        Listen( Stage.StartUpdate,      0, TickUpdate,      "AgentUpdate" );
+        Listen( Stage.StartFixedUpdate, 0, TickFixedUpdate, "AgentFixedUpdate" );
+    }
+
+    private void TickUpdate()
+    {
+        foreach ( var agent in Scene.GetAll<Agent>() )
+        {
+            if ( !agent.Active ) continue;
+            agent.Controller?.Tick();   // movement + animation
+            agent.Tick();
+        }
+    }
+
+    private void TickFixedUpdate()
+    {
+        foreach ( var agent in Scene.GetAll<Agent>() )
+        {
+            if ( !agent.Active ) continue;
+            agent.ActionController?.Tick();   // AI scoring
+            agent.FixedTick();
+        }
+    }
+}
+```
+(facepunch.fair: AI/AgentTickSystem.cs — "agents do NOT override OnUpdate themselves … one cache-friendly loop")
+
+Anti-pattern: giving 500 `Agent` components their own `OnUpdate` creates 500 separate engine callbacks. The `GameObjectSystem` single-pass is O(n) over a contiguous list, skips inactive objects cheaply, and centralises a `Stopwatch` for timing. Stagger the first AI-scoring tick with `NextTick = Random.Float(0, FixedRate)` so 500 agents don't score on frame 1 simultaneously.
+
+### 15. `[Sync, Change("MethodName")]` — callback on sync value change
+
+Combine `[Sync]` with `[Change]` to fire a method whenever the synced property changes on any machine:
+
+```csharp
+[Sync, Change( "OnGameStateChanged" )]
+public RagRollState GameState { get; set; }
+
+private void OnGameStateChanged( RagRollState oldState, RagRollState newState )
+{
+    // runs on host AND all clients when GameState is updated
+    Log.Info( $"State: {oldState} → {newState}" );
+}
+```
+(barrelproto.ragroll: Code/mode/RollMode.cs — `[Sync, Change("OnGameStateChanged")] public RagRollState _gameState`)
+
+The callback fires on the machine that received (or made) the change, so you can update UI, start coroutines, or reconfigure components without polling every frame. Pair with an `IsProxy` guard inside the callback if the reaction differs between host and clients.
+
+### 16. `!IsValid()` guard in tick methods
+
+Any `Component` or `GameObject` can become invalid mid-tick (destroyed during iteration, round ended, owner disconnected). Guard every tick method that accesses external references:
+
+```csharp
+// abstract RoundState base — despawn.murder: Systems/Rounds/RoundState.cs
+protected override void OnFixedUpdate()
+{
+    if ( !IsValid )   return;   // component was destroyed
+    if ( HasEnded )   return;   // round already over
+    if ( IsProxy )    return;   // host-only logic
+    OnTick();
+}
+```
+(despawn.murder: Systems/Rounds/RoundState.cs — "Tick() early-returns on client, on HasEnded, on !IsValid")
+
+`GameObject.IsValid()` and `Component.IsValid` are the safe null-equivalent checks for s&box objects. A raw `!= null` check does NOT catch a destroyed `GameObject`/`Component` — it still reports non-null while being invalid. Add the `!IsValid` guard at the top of any tick that dereferences synced references.
+
+---
+
+**Read these games** for additional lifecycle patterns: `meteorlab.vehicle_tool_example` (hotload-safe singleton, feature-toggle `[FeatureEnabled]`), `facepunch.fair` (centralized agent tick, `StartEnabled=false` spawn, interface-discovered save), `barrelproto.ragroll` (`[Sync,Change]`, `NetworkOrphaned.ClearOwner` host migration), `despawn.murder` (host-migration-safe `TimeUntil` re-arm, `!IsValid` guards), `alcoholics.nice_putt_idiot` (proxy setup in `OnStart`), `enifun.shop_manager` (`AllSingletonsReady()` deferred apply gate).

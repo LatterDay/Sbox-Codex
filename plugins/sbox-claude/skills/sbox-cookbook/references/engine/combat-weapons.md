@@ -215,3 +215,214 @@ protected virtual async Task ReloadAsync( CancellationToken ct )
 **Verify live:** API names drift between SDK builds — confirm against the installed SDK with `describe_type`/`search_types`/`get_method_signature` (reflection is authoritative) before writing, e.g. `describe_type SceneTrace`, `describe_type CharacterController`, `search_types BulletInfo`. Wrap genuinely volatile calls in try/catch with a safe fallback.
 
 Cross-links: see the **sbox-api** skill for reflection-verified type/method signatures, and **sbox-build-feature** for the screenshot-driven iteration loop that proves a weapon actually fires in-scene.
+
+## Corpus refresh (2026): more reference implementations
+
+### A. Anim-event damage windows instead of timers (aethercore.versus)
+
+Opening a hit trigger based on elapsed time is fragile — if a flinch or guard-break interrupts the swing before `hit_end` fires, the trigger stays active and grants free hits. The correct pattern is to open a **collider trigger on the `hit_start` anim event** and close it on `hit_end`, then re-validate attacker state inside `OnTriggerEnter`.
+
+`versus/Code/WeaponDamage.cs` — `Component.ITriggerListener`; `OnAttackHitStart` enables the collider, `OnAttackHitEnd` disables it. Inside `OnTriggerEnter` it dedupes with a `HashSet<GameObject>` (one hit per target root per swing) and refuses damage if the attacker's state flags are wrong:
+
+```csharp
+// Wire in PlayerAnimator: Model.OnGenericEvent += OnAnimEvent
+void OnAnimEvent( string name ) {
+    if ( name == "hit_start" ) WeaponDamage.StartDamageWindow( damage, shieldDmg, knockbackMult );
+    else if ( name == "hit_end" ) WeaponDamage.EndDamageWindow();
+}
+
+// WeaponDamage : Component, Component.ITriggerListener
+HashSet<GameObject> _hitThisSwing = new();
+void OnTriggerEnter( Collider other ) {
+    var root = other.GameObject.Root;
+    if ( _hitThisSwing.Contains( root ) ) return;           // dedupe per swing
+    if ( !inAttack || IsGuardBroken || IsParrying ) return; // re-check — collider may be stale
+    if ( targetFaction == myFaction ) return;               // friendly fire guard
+    _hitThisSwing.Add( root );
+    root.Components.GetInAncestorsOrSelf<IDamageable>()?.OnDamage( ... );
+}
+```
+
+Anti-pattern: using `TimeUntil hitWindowEnd > 0` as the gate — timer doesn't know the swing was interrupted.
+
+### B. `[Rpc.Owner]` damage routing preserves private timers (aethercore.versus)
+
+When melee combat depends on non-synced private state (parry window timer, i-frame flag, guard meter) that is only correct on the victim's owning machine, routing damage through `[Rpc.Owner]` ensures the victim's own authoritative logic runs the outcome. On the attacker's proxy the victim's timer is always stale.
+
+`versus/Code/HealthComponent.cs` + `PlayerController.cs`:
+
+```csharp
+public void TakeDamage( DamageInfo info ) {
+    // any machine may call this, but mutate only on owner
+    TakeDamageRpc( info );
+}
+
+[Rpc.Owner]
+void TakeDamageRpc( DamageInfo info ) {
+    // runs on victim's owner — parryWindowTimer is correct here
+    if ( parryWindowTimer > 0 && IsParryAngle( info ) ) { DoParrySuccess( info ); return; }
+    if ( IsGuarding ) { shield.AbsorbDamage( info ); return; }
+    health -= info.Damage;
+    OnDamageReceived( info );
+}
+```
+
+Anti-pattern: reading `parryWindowTimer` or an i-frame flag on the attacker's machine — proxy values are always 0/stale.
+
+### C. Penetrating hitscan — `IEnumerable<SceneTraceResult>` (ataco.sdoomresurrection)
+
+The standard `.Run()` returns only the first hit. For weapons that pierce multiple targets (SSG pellets, energy beams, chain-lightning), call `.RunAll()` which returns `IEnumerable<SceneTraceResult>` sorted by distance. Apply damage to each; break on the first solid (non-passthrough) surface.
+
+`sdoomresurrection/Code/weapon/Weapon.cs`:
+
+```csharp
+var results = Scene.Trace.Ray( ray, range )
+    .WithAnyTags( "monster", "player", "bulletclip", "blocking" )
+    .Size( radius )
+    .RunAll();
+
+foreach ( var tr in results ) {
+    tr.GameObject?.Components.GetAll<IDamageable>( FindMode.EverythingInSelfAndAncestors )
+        .FirstOrDefault()?.TakeDamage( DamageInfo.FromBullet( ... ) );
+    if ( tr.Tags.Has( "blocking" ) ) break;   // stop at solid wall
+}
+```
+
+Spread is applied per-pellet as `Rotation.FromYaw( rand * spread.x ) * Rotation.FromPitch( rand * spread.y )` applied to the base aim ray — cleaner than `WithAimCone` when you need asymmetric X/Y spread.
+
+### D. Frame-table weapon state machine without an animgraph (ataco.sdoomresurrection)
+
+When a weapon must match a sprite-sheet or HUD animation frame-by-frame (retro FPS, 2D sidebar weapon), drive state with a `switch(State)` tic counter instead of an animation graph. Each case sets the sprite, queues the next frame timer, and fires side-effects.
+
+`sdoomresurrection/Code/weapon/DoomShotgun.cs` (condensed):
+
+```csharp
+enum WeaponState { Ready, Fire, Flash, Reload, Empty }
+[Sync] WeaponState State;
+TimeUntil NextFrame;
+
+protected override void OnFixedUpdate() {
+    if ( IsProxy || NextFrame > 0 ) return;
+    switch ( State ) {
+        case WeaponState.Fire:
+            SetHudSprite( "SHTGA0" ); MuzzleFlash();
+            FirePellets( 7, spreadX, spreadY );
+            NextFrame = TicsToSeconds( 3 );
+            State = WeaponState.Flash; break;
+        case WeaponState.Flash:
+            SetHudSprite( "SHTGB0" );
+            NextFrame = TicsToSeconds( 7 );
+            State = WeaponState.Reload; break;
+        // ...
+    }
+}
+```
+
+Anti-pattern: using `Task.DelaySeconds` chains for frame pacing — they accumulate uncancellable continuations if the weapon is dropped mid-sequence.
+
+### E. Combo cancel windows from a `WeaponDefinition` GameResource (aethercore.versus)
+
+Hardcoding attack durations makes re-timing animations break the cancel system. Store combo durations and cancel windows as **normalized fractions** in a `[GameResource]` so re-exporting animations never requires code changes.
+
+`versus/Code/Data/WeaponDefinition.cs` (key fields):
+
+```csharp
+[GameResource( "Weapon Definition", "weapon", "Melee weapon data" )]
+public class WeaponDefinition : GameResource {
+    public List<float> AttackDurations { get; set; }        // abs seconds per combo hit
+    public List<float> AttackDamages { get; set; }
+    public List<float> AttackCancelStartsNormalized { get; set; } // 0-1 fraction of clip
+}
+
+// At runtime, resolve to absolute cancel time:
+float cancelStart = def.AttackCancelStartsNormalized[comboIndex] * def.AttackDurations[comboIndex];
+// After elapsed >= cancelStart, open the cancel window for input-buffered chain/dodge-cancel
+```
+
+Input buffering: pressing the next attack during a swing sets `attackBuffer = bufferDuration`; the cancel window polls `attackBuffer > 0` and consumes it. Dodge-cancel has higher priority than combo-chain.
+
+### F. Floating damage numbers via static pub/sub + `PointToScreenPixels` (aethercore.versus)
+
+Decouple floating combat text from any specific HUD component. A static queue accepts world-space events; the HUD's `OnUpdate` projects and fades them.
+
+`versus/Code/CombatEvents.cs` + `uicodes/PlayerHud.razor`:
+
+```csharp
+// Zero-dependency emitter — any combat code calls this
+public static class CombatEvents {
+    record DamagePopup( Vector3 WorldPos, float Amount, string Type, RealTimeSince Age );
+    static List<DamagePopup> _popups = new();
+    public static void AddPopup( Vector3 pos, float amount, string type )
+        => _popups.Add( new( pos, amount, type, 0 ) );
+}
+
+// In HUD OnUpdate (Razor panel):
+foreach ( var p in CombatEvents.Popups ) {
+    var screen = Scene.Camera.PointToScreenPixels( p.WorldPos );
+    // render at screen + offset by age, fade alpha by age
+}
+```
+
+Anti-pattern: passing a UI reference into combat code — creates circular dependencies and breaks when the HUD is rebuilt.
+
+### G. Per-recipient outline via ghost-clone + `Rpc.FilterInclude` (despawn.murder)
+
+To show a wallhack/radar outline only to specific players (radar buyer + dead spectators) without revealing it to others, clone the target's `SkinnedModelRenderer` into a tagged ghost and `NetworkSpawn` it with a restricted audience. The real model is untouched.
+
+`murder/Code/Systems/EquipmentShop/Items/Radar.cs` (`RadarOutlineFactory`):
+
+```csharp
+void CreateOutlineFor( Connection buyer ) {
+    var ghost = target.SkinnedModelRenderer.GameObject.Clone();
+    ghost.Tags.Add( "outline" );
+    ghost.Components.Create<HighlightOutline>(); // or equivalent tint/postfx
+    ghost.NetworkSpawn();
+    // only buyer + any dead spectators see the ghost
+    using ( Rpc.FilterInclude( c => c == buyer || IsSpectator( c ) ) )
+        ShowOutlineRpc( ghost );
+}
+
+[Rpc.Broadcast]
+void ShowOutlineRpc( GameObject ghost ) { ghost.Enabled = true; }
+```
+
+Clean up by tag on radar expiry: `Scene.GetAllObjects().Where(o => o.Tags.Has("outline")).ToList().ForEach(o => o.Destroy())`.
+
+Anti-pattern: recoloring the real player's renderer — visible to everyone.
+
+### H. `[Rpc.Host]` purchase re-validation — price from ConVar, not the item (despawn.murder)
+
+Never trust the client's claimed item price. Re-validate the full purchase server-side; read the price from a server ConVar so live rebalancing requires no asset rebuild.
+
+`murder/Code/Systems/EquipmentShop/EquipmentShopManager.cs`:
+
+```csharp
+[Rpc.Host]
+public void PurchaseHost( string itemKey ) {
+    var caller = Rpc.Caller;
+    if ( !_items.TryGetValue( itemKey, out var item ) ) return;
+    if ( !item.IsEnabled ) return;
+    var pawn = GetPawn( caller );
+    if ( pawn is null || !item.CanPurchase( pawn ) ) return;
+    int price = GameConVars.GetPowerupPrice( itemKey, fallback: 3 );  // from ConVar, not item
+    if ( pawn.CluesCollected < price ) return;
+    pawn.CluesCollected -= price;
+    item.OnPurchase( pawn );
+}
+```
+
+Anti-pattern: `price = item.Price` (client-authored field) — a cheater can call the RPC without paying.
+
+---
+
+### Updated "read these games" pointer
+
+For weapon combat, hitscan, projectiles, melee, and combos, the most instructive codebases are:
+
+| Game | Strength |
+|---|---|
+| `sandbox` / `simple-weapon-base` | Canonical base-class hierarchy, hitscan trace, physical projectile, cancellable reload |
+| `sbox-grubs` | Radial explosion, ballistic arc prediction |
+| `aethercore.versus` | Full melee kernel: anim-event damage windows, combo cancel windows (normalized GameResource), input buffering, `[Rpc.Owner]` damage routing, damage popups |
+| `ataco.sdoomresurrection` | Penetrating hitscan (`RunAll`), frame-table weapon FSM, `IDamageable` via `GetAll` |
+| `despawn.murder` | Per-recipient outlines (ghost clone + `Rpc.FilterInclude`), host re-validated shop purchases |

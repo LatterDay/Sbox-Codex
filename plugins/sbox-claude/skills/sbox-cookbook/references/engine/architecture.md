@@ -298,3 +298,186 @@ var tr = Game.ActiveScene.Trace.Ray( start, end )
 API names drift between SDK builds — reflection on the installed SDK is authoritative. Before writing code against any type here, confirm it with `describe_type` / `search_types` / `get_method_signature` (e.g. `describe_type GameObjectSystem`, `search_types ISceneEvent`, `describe_type Component.INetworkListener`).
 
 Cross-link: pair with the **sbox-api** skill (reflection lookups for exact signatures) and the **sbox-build-feature** skill (screenshot-driven iteration to prove a change works).
+
+## Corpus refresh (2026): more reference implementations
+
+Patterns below are net-new vs the sections above — not covered by any existing pattern. Sources: `facepunch.ss2`, `despawn.murder`, `bublic.stone_by_stone`.
+
+### Pattern: per-source keyed stat-modifier stack (facepunch.ss2)
+
+For any RPG/roguelite/upgrade system, key modifiers by their *source object* (perk, item, ability) instead of storing flat deltas. This lets removal be a single dict drop with no bookkeeping, and `RefreshProperty` recomputes one stat from scratch in a deterministic `Set → Add → Mult → clamp` pass. The `IStatModifier` marker interface is the only thing all item kinds share (ss2: `Code/Player.Stats.cs`).
+
+```csharp
+// Caller (a Perk, Gun, Gem — any IStatModifier):
+Player.Modify( this, PlayerStat.BulletDamage, value, ModifierType.Mult );
+
+// Engine — recompute one stat from scratch:
+void RefreshProperty( PlayerStat stat )
+{
+    float v = OriginalStatValues[stat];
+    // highest-priority Set wins; then sum all Add; then product all Mult; then clamp
+    foreach ( var mod in ModifiersFor( stat ).OrderBy( m => m.Priority ) )
+        v = mod.Type switch {
+            ModifierType.Set  => mod.Value,
+            ModifierType.Add  => v + mod.Value,
+            ModifierType.Mult => v * mod.Value,
+            _ => v
+        };
+    Stats[stat] = MathX.Clamp( v, StatMin[stat], StatMax[stat] );
+    ModifierHash++;   // drives Razor reactivity (see below)
+}
+// Removal is one line: _statModifiers.Remove(caller); RefreshEachTouchedStat();
+```
+
+Anti-pattern: storing flat `+5 speed` deltas with no source tag — then you cannot remove a perk cleanly and re-stacking is undefined.
+
+### Pattern: hash-counter reactivity instead of deep diffing (facepunch.ss2, bublic.stone_by_stone)
+
+Plain int counters incremented on mutation are cheaper than deep object comparison and avoid per-frame allocations. `ModifierHash`, `PerkHash`, `StateVersion` are incremented in mutation methods; Razor `BuildHash()` combines them via `HashCode.Combine` so panels only rebuild when something actually changed (ss2: `Code/Player.Stats.cs`, `ProgressManager.cs`).
+
+Anti-pattern (`bublic.stone_by_stone`): `BuildHash() => HashCode.Combine(Time.Delta)` — this always returns a different value every frame, forcing a full re-render every tick. Fine for resource bars that genuinely update each frame; a perf problem for anything that changes rarely (stone_by_stone: `Code/Ui/*.razor`).
+
+```csharp
+// Good — rebuild only when data changes:
+public override int BuildHash() => HashCode.Combine( Player.ModifierHash, Player.PerkHash );
+
+// Bad — always dirty:
+public override int BuildHash() => HashCode.Combine( Time.Delta );
+```
+
+### Pattern: whitelist-synced stats — only replicate what the UI needs (facepunch.ss2)
+
+Of ~250 `PlayerStat` values, ss2 replicates only a hand-curated `_syncedStats` subset via `[Sync] NetDictionary<PlayerStat,float>`. Proxies read `GetSyncStat(stat)`; the host reads the full `Stats[]`. Everything else stays host-authoritative and is never sent — deliberate bandwidth control that most s&box games miss (ss2: `Code/Player.Stats.cs`).
+
+```csharp
+static readonly HashSet<PlayerStat> _syncedStats = new() {
+    PlayerStat.MaxHp, PlayerStat.Speed, PlayerStat.BulletDamage, /* ... */
+};
+public float GetUiStat( PlayerStat stat )
+    => IsProxy ? SyncedStats.GetValueOrDefault( stat ) : Stats[stat];
+```
+
+### Pattern: client-side static-registry hydration via TypeDescription.Create (facepunch.ss2)
+
+Static constructor data (icons, descriptions, display names registered on a type's first use) is NOT run on clients that have never instantiated the type. Call `TypeLibrary.GetType(type).Create<T>()` once purely to trigger the static ctor and fill lookup tables, then discard the instance. Gate with a `_registered` flag (ss2: `Code/perks/Perk.cs`).
+
+```csharp
+public static void EnsureRegistered( TypeDescription type )
+{
+    if ( _registered.Contains( type ) ) return;
+    type.Create<Perk>();   // fires static ctor → fills _names/_icons/_descriptions
+    _registered.Add( type );
+}
+```
+
+This fixes the silent "proxy sees no perk name/icon" bug that appears when the host pre-renders display strings into `[Sync] NetList<string>` and the client only gets the identity int.
+
+### Pattern: abstract RoundState base + TransitionTo<T> + host-mirror RPC (despawn.murder)
+
+For round-based games, make each phase its own class inheriting a base with `Begin/Tick/Finish` + a `[Sync(SyncFlags.FromHost)] TimeUntil TimeLeft`. `RoundManager` holds a `[Sync] RoundState State` and transitions via `TransitionTo<T>(Action<T> init)` (jump) or `TransitionNext()` (index-wrap, skips `CanEnter()==false` states). **Fire the state-change event on the host AND via `[Rpc.Broadcast]` so client systems react identically** — the canonical "event on host + mirror RPC" pattern (murder: `Systems/Rounds/RoundManager.cs`).
+
+```csharp
+void TransitionTo<T>( Action<T> init ) where T : RoundState
+{
+    State?.Finish();
+    State = States.OfType<T>().First();
+    init?.Invoke( (T)State );
+    State.Begin();
+    IRoundStateEvents.Post( x => x.OnRoundStateChanged( State ) );   // host systems
+    BroadcastStateChanged( State.Identifier );                         // → clients fire same event
+}
+
+[Rpc.Broadcast( HostOnly = true )]
+void BroadcastStateChanged( string id )
+    => IRoundStateEvents.Post( x => x.OnRoundStateChanged( ResolveByIdentifier( id ) ) );
+```
+
+### Pattern: host-migration-safe round timer (despawn.murder)
+
+`TimeUntil` stores time relative to the *old* host's clock. After host migration, read `State.TimeLeft.Relative` (remaining seconds) and **re-arm** it against the new host: `State.TimeLeft = Math.Max(remaining, 0)`. Also handle edge cases: migrated mid-`PostRound` → skip to a fresh round; stale `State` component ref → reset index to -1 (murder: `Systems/Rounds/RoundManager.ValidateStateAfterMigration`).
+
+### Pattern: copy volatile state BEFORE Finish() destroys it (despawn.murder)
+
+Components that hold round timeline data are destroyed when `Finish()` runs. Copy everything you need for the post-round screen *before* calling `Finish()` and stash it in the next state via a `TransitionTo` init callback (murder: `RoundManager.PreparePostRoundData`).
+
+```csharp
+// WRONG: data is gone after Finish()
+State.Finish();
+var data = CollectTimelineData( State );   // null refs
+
+// RIGHT: copy first, then transition
+var data = PreparePostRoundData( (InProgressRoundState)State );
+TransitionTo<PostRoundState>( s => ApplyPostRoundData( s, data ) );
+```
+
+### Pattern: async generation guard for respawning (bublic.stone_by_stone)
+
+When an async respawn task can be made stale by a reset, capture an integer generation counter at launch time and bail if it has changed by the time the `await` resolves. Increment the counter in `OnDisabled` / on any reset path (stone_by_stone: `Code/RecourcesGeneratorComponent.cs`, `Code/SpawnGoblinsComponent.cs`).
+
+```csharp
+int _spawnGeneration;
+
+void StartRespawn( ResourceSlot slot )
+{
+    slot.IsRespawning = true;
+    _ = RespawnAsync( slot, _spawnGeneration );
+}
+
+async Task RespawnAsync( ResourceSlot slot, int generation )
+{
+    await Task.DelaySeconds( slot.RespawnDelay );
+    if ( generation != _spawnGeneration ) return;   // reset happened — abort silently
+    slot.Spawn();
+    slot.IsRespawning = false;
+}
+
+protected override void OnDisabled() => _spawnGeneration++;
+```
+
+Anti-pattern: `async void` respawn with no guard — a scene reset leaves zombie tasks that resurrect objects into a cleared level.
+
+### Pattern: zero-networking architecture for single-player games (bublic.stone_by_stone)
+
+A complete content-rich s&box game needs no `[Sync]`, `[Rpc]`, `NetworkHelper`, or `INetworkListener` at all. Every system is a plain `Component` reading local state; `Sandbox.Connection` appears only to identify the local player in leaderboard highlights (`Connection.Local.SteamId`). Steam Services (`Stats.Increment`, `Leaderboards.GetFromStat`, `Achievements.Unlock`) work entirely client-side with no server code. Use this shape for single-player, local-co-op, or any game where simplicity beats scale (stone_by_stone: entire codebase).
+
+### Pattern: Storage-entry save with meta + JSON files (bublic.stone_by_stone)
+
+Prefer `Storage` entries over raw `FileSystem.Data` for player saves. Store scalars as entry meta (fast, typed), and variable-length collections as JSON files inside the entry. Multi-slot save by integer index. Reconcile scene objects by GUID on load: destroy objects present in the scene but absent from the save, re-hydrate survivors, and explicitly skip objects that should regenerate from data (stone_by_stone: `Code/SaveSystemComponent.cs`).
+
+```csharp
+// Save
+var entry = Storage.CreateEntry( "save" );
+entry.SetMeta( "wood", Player.Wood );
+entry.SetMeta( "position", Player.WorldPosition );
+entry.Files.WriteJson( "inventory.json", Inventory.InventoryList );
+
+// Load + GUID reconciliation
+var save = Storage.GetAll( "save" )
+    .FirstOrDefault( s => s.GetMeta<int>( "index" ) == slotIndex );
+Player.Wood = save.GetMeta<int>( "wood" );
+var savedBoxIds = save.Files.ReadJson<List<Guid>>( "boxes.json" );
+foreach ( var box in Scene.GetAllComponents<BoxComponent>() )
+    if ( !savedBoxIds.Contains( box.GameObject.Id ) )
+        box.GameObject.Destroy();   // was looted — remove from scene
+```
+
+---
+
+**Gotcha additions from this corpus:**
+
+| Gotcha | Why it bites | Fix |
+| --- | --- | --- |
+| `BuildHash() => HashCode.Combine(Time.Delta)` | Always dirty — panel re-renders every frame even for rarely-changing data | Combine the actual mutated fields or use a counter incremented only on real changes |
+| `async` respawn task with no generation guard | Stale task resurrects objects into a reset/disabled scene | Capture `_spawnGeneration` int at task start; bail if it changed after the await |
+| Copying round state AFTER `Finish()` | Components destroyed in Finish — timeline/role data is null | `PreparePostRoundData(state)` before `State.Finish()`; pass via TransitionTo init callback |
+| `TimeUntil` timer across host migration | Timer is relative to old host's clock — clients see wrong countdown | On migration, read `State.TimeLeft.Relative` and re-arm against new host's clock |
+| Static perk/item display data missing on proxies | Static ctors only fire when a type is first instantiated — proxies that never instantiate a perk type see null icons/names | `TypeLibrary.GetType(t).Create<T>()` once to trigger the static ctor; cache via a registered-set guard |
+| Syncing all 250+ stats to every client | Wastes bandwidth on stats only the host reads | Maintain a `_syncedStats` whitelist; proxies read `SyncedStats[stat]`, host reads `Stats[stat]` |
+
+---
+
+**Read these games for architecture examples:**
+- `facepunch.ss2` — modifier-stack engine, whitelist-synced stats, hash-counter reactivity, identity-keyed networked perk state
+- `despawn.murder` — `RoundState` abstract base + `TransitionTo<T>`, host-mirror RPC, host-migration-safe timer, copy-before-Finish lifecycle
+- `bublic.stone_by_stone` — zero-networking single-player architecture, `Storage`-entry saves + GUID reconciliation, async generation guard, always-repaint anti-pattern
+- Earlier corpus (already in sections above): `sandbox`, `sandbox-plus-plus`, `garryware`, `lowkeynetworks.newrp`, `sbox-grubs`, `dxrp`, `ttt-reborn`, `simple-weapon-base`, `sbox-vehicle-kit`

@@ -263,3 +263,151 @@ You **cannot** `FixedJoint`/weld a ragdoll to the built-in `PlayerController` �
 API names drift between SDK builds — reflection is authoritative. Before writing, confirm member names with `describe_type CharacterController` / `describe_type Sandbox.Movement.MoveMode` / `search_types PlayerController` and `get_method_signature` for `Punch`/`Accelerate`/`NetworkSpawn`. Visuals (view-model framing, ragdoll) verify with `screenshot_from`; input/possession/multiplayer behavior needs `execute_csharp` or a human playtest — the single-client bridge can't synthesize key presses.
 
 See also: **sbox-api** (input/physics/networking primitives reference) and **sbox-build-feature** (the screenshot-driven iteration workflow this controller is built with).
+
+## Corpus refresh (2026): more reference implementations
+
+### Pattern: host-migration-safe active-fighter refs — use `[Sync] GameObject`, not private fields
+
+A documented bug from `aethercore.versus` (`ArenaManager.cs`): when fighters were stored as private `PlayerController` fields, host migration reset them to `null` on the new host, and `CheckRoundOver` concluded both fighters died → infinite draw loop. Fix: promote the ref to a `[Sync] GameObject` with a private property wrapper so call-sites are unchanged:
+
+```csharp
+// aethercore.versus: ArenaManager.cs — host-migration-safe participant refs
+[Sync] public GameObject ActivePlayer1Obj { get; set; }
+private PlayerController activePlayer1 {
+    get => ActivePlayer1Obj?.GetComponent<PlayerController>();
+    set => ActivePlayer1Obj = value?.GameObject;
+}
+```
+
+**Rule:** any host-only field that names a participant in a round FSM must be `[Sync]` — or it vanishes on host migration. Applies to spectator targets, match fighters, and round-win counters alike.
+
+### Pattern: `[Rpc.Owner]` damage routing — let the victim's machine decide
+
+`aethercore.versus` (`HealthComponent.cs`, `PlayerController.cs`) routes damage through `[Rpc.Owner]` so the mutation executes on the **victim's owner**, not the attacker. The reason is subtle: parry detection reads a private non-synced `parryWindowTimer` that is only correct on the owner's machine — on the attacker's proxy the timer is always 0 so parries would never fire.
+
+```csharp
+// Attacker calls: victim.TakeDamage(info)
+// HealthComponent.TakeDamage immediately bounces to:
+[Rpc.Owner]
+public void TakeDamageRpc( float amount, Vector3 force )
+{
+    // runs on victim's owner — parryWindowTimer, i-frame timers, etc. are all valid here
+    Controller.OnDamageReceived( amount, force );
+}
+```
+
+Use `[Rpc.Owner]` (not `[Rpc.Host]`) whenever the mutation needs **private per-owner state** that a proxy or host cannot know. Guard amount/force server-side before calling if cheat-resistance matters.
+
+### Pattern: disconnect grace to avoid false draws
+
+`aethercore.versus` (`ArenaManager.cs`) waits `DisconnectGrace = 3f` seconds before awarding a win when exactly one fighter ref is null — filters transient sync nulls that can appear the frame a client drops. When **both** are null it bails (`return`) instead of declaring a draw, assuming a host-migration sync frame.
+
+```csharp
+// In CheckRoundOver() — called every OnUpdate on host
+if ( activePlayer1 == null && activePlayer2 == null ) return; // host migration frame
+if ( activePlayer1 == null && _disconnectGraceTimer <= 0f )
+    { Player2Wins++; EnterState( MatchState.RoundEnded ); }
+```
+
+Pair with `INetworkListener.OnDisconnected(Connection)` to compare `player.GameObject.Root.Network.Owner == channel` for an immediate authoritative forfeit.
+
+### Pattern: trauma/Perlin screenshake as a GameResource
+
+`aethercore.versus` (`PlayerCamera.cs`, `CameraShakeProfile.cs`) makes camera shake a designer-tunable `.shake` asset. The accumulator is `shakeTrauma = MathX.Clamp( trauma + intensity / 30f, 0f, 1f )`; each frame `shake = trauma * trauma` (squared for a natural feel), three independent `Noise.Perlin( Time.Now * freq + seedOffset )` samples drive pitch/yaw/roll offsets. Trauma decays by `Time.Delta / decayRate`.
+
+```csharp
+// aethercore.versus: PlayerCamera.cs — drop-in trauma shake
+float shakeTrauma;
+public void AddShake( CameraShakeProfile p ) =>
+    shakeTrauma = MathX.Clamp( shakeTrauma + p.Intensity / 30f, 0f, 1f );
+
+protected override void OnUpdate()
+{
+    shakeTrauma = MathX.Max( 0f, shakeTrauma - Time.Delta / p.DecayTime );
+    float shake = shakeTrauma * shakeTrauma;             // square for natural curve
+    Camera.WorldRotation *= Rotation.From(
+        Noise.Perlin( Time.Now * p.Frequency + 0f ) * shake * p.Intensity,
+        Noise.Perlin( Time.Now * p.Frequency + 1f ) * shake * p.Intensity,
+        p.IncludeRoll ? Noise.Perlin( Time.Now * p.Frequency + 2f ) * shake * p.Intensity : 0f );
+}
+```
+
+Assign one `CameraShakeProfile` per event (`HitShake`, `GuardShake`, `ParryShake`) so designers can tune feel without code changes. `Noise.Perlin` requires no import — it is in the s&box core API. Use `MathX.Max`/`MathX.Clamp` — not `MathF`.
+
+### Pattern: OTS "virtual aim point" camera framing
+
+`aethercore.versus` (`PlayerCamera.cs`) avoids the common OTS problem (character glued to screen-edge) by always looking at an **aim point**: the lock-on target's head bone position when locked, or a virtual point `IdleAimDistance = 400` units ahead along the player's yaw otherwise. Wall-collision pull-in uses a `Scene.Trace.Ray(...).Radius(8).IgnoreGameObjectHierarchy(target)` probe from player to ideal camera position, shortening the arm on hit.
+
+```csharp
+Vector3 aimPoint = lockOnTarget.IsValid()
+    ? lockOnTarget.GetBoneTransform("head").Position
+    : EyePosition + EyeRotation.Forward * IdleAimDistance;
+
+cam.WorldRotation = Rotation.LookAt( aimPoint - cam.WorldPosition );
+// wall pull-in: shorten arm along -Forward if trace hits
+```
+
+Root-motion-driven movement (for attacks/dodges) feeds `Controller.Velocity = Model.RootMotion.Position.WithZ(0) / Time.Delta` so animation displacement drives the body — no hand-coded lunge constants.
+
+### Pattern: `UseInputControls = false` to freeze a player (admin / UI modal)
+
+`lowkeynetworks.newrp` (`AdminService.cs`) implements admin "freeze" as `controller.UseInputControls = false` with a velocity zero-out. It also instantiates noclip mode with `GetOrAddComponent<MoveModeNoClip>()` — a simpler alternative to the full `MoveMode.Score()` bid system for programmatic one-off mode switches:
+
+```csharp
+// lowkeynetworks.newrp: AdminService.cs
+void FreezePlayer( PlayerController controller )
+{
+    controller.UseInputControls = false;
+    if ( controller.Body.IsValid() ) controller.Body.Velocity = Vector3.Zero;
+}
+
+void EnableNoclip( PlayerController controller ) =>
+    controller.GetOrAddComponent<MoveModeNoClip>().IsNoclipping = true;
+```
+
+`bublic.stone_by_stone` (`PlayerComponent.cs`) uses the same toggle (`UseInputControls = false`) to suppress player input while a shop/upgrade panel is open, then restores it on close. This is the idiomatic "lock movement while a UI modal is active" pattern.
+
+### Pattern: viewmodel wall-clip pullback via forward trace
+
+`bublic.stone_by_stone` (`FastSlotsComponent.cs`) prevents the held weapon clipping through walls with a short forward `Scene.Trace.Ray(...).Radius(ClipRadius)` from the camera. When it hits, `LocalPosition` is lerped backward along a configurable axis proportional to proximity:
+
+```csharp
+// bublic.stone_by_stone: FastSlotsComponent.cs
+var tr = Scene.Trace.Ray( cam.WorldPosition, cam.WorldPosition + cam.WorldRotation.Forward * ClipCheckDist )
+    .UsePhysicsWorld().Radius( ClipRadius ).Run();
+if ( tr.Hit )
+{
+    float pullback = 1f - (tr.Fraction);            // 0 = at wall, 1 = full extension
+    heldModel.LocalPosition = Vector3.Lerp( heldModel.LocalPosition,
+        ClipPullbackAxis * -pullback * MaxPullback, Time.Delta * PullbackSpeed );
+}
+```
+
+This is the additive-offset extension of the view-model recipe (combine with the existing `targetVectorPos` reset-and-add pattern).
+
+### Anti-pattern: "first proxy player" scan for opponent resolution
+
+`aethercore.versus` (`ArenaManager.cs`) documents a real multiplayer bug: code scanned the scene for the first proxy `PlayerController` and picked the wrong person when a spectator was present. Fix is `ArenaManager.GetOpponentOf(player)` reading the synced active-fighter refs. General lesson: **never rely on scene scan order** to identify "the other player" — always look up from authoritative synced state.
+
+### Gotcha: stats `Flush()` is mandatory for leaderboard propagation
+
+`aethercore.versus` (`PlayerStats.cs`) documents that without `Stats.Flush()` the s&box backend buffers increments and leaderboard changes can take minutes to appear. Always pair `Stats.Increment(key, amt)` with `Stats.Flush()`:
+
+```csharp
+Stats.Increment( key, amount );
+Stats.Flush();   // omit this and leaderboard updates lag minutes, not seconds
+```
+
+Also maintain a `Dictionary<string,double> sessionCache` so UI reads update instantly without waiting for a backend round-trip.
+
+### Gotcha: hot-reload does not reinitialize static fields - use properties for condition tables
+
+`aethercore.versus` (`SkinUnlock.cs`) exposes unlock conditions as a **property** (fresh `new Dictionary` each call), not a static field, because s&box hot-reload does not re-init static fields. If a condition table is a static field you will test against stale values until you restart. This applies to any data-table or registry populated at type-init time.
+
+---
+
+**Read these games for player-controller / camera / movement patterns:**
+- `aethercore.versus` - host-migration-safe FSM refs, `[Rpc.Owner]` damage routing, trauma/Perlin shake, OTS virtual-aim framing, disconnect grace, root-motion attacks
+- `lowkeynetworks.newrp` - `UseInputControls` freeze/unfreeze, `GetOrAddComponent<MoveMode>()` programmatic mode switch, admin noclip
+- `bublic.stone_by_stone` - viewmodel pullback trace, `UseInputControls` UI-modal lock, `PlayerController.IEvents` integration
+- `ataco.sdoomresurrection` - hand-rolled `DoomController` (gravity/friction/step-up/slide without `CharacterController`); wall-crossing segment trigger as alternative to trigger volumes

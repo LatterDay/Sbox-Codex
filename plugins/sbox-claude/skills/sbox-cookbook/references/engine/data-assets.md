@@ -252,3 +252,99 @@ When a tool must hand-edit text-based asset source (`.vmdl`/`.vmat` is KeyValues
 Verify live: editor-namespace types (`AssetList`, `FolderContextMenu`, `AssetContextMenu`, `EditorUtility`, `Option`) and render-object APIs (`SceneLight`, `Texture.CreateRenderTarget`, `Graphics.RenderToTexture`) shift between SDK builds — confirm signatures with `describe_type`/`search_types`/`get_method_signature` against the installed SDK; reflection is authoritative, not training data.
 
 See also: **sbox-api** (resolve exact types/signatures before writing) and **sbox-build-feature** (screenshot-driven iteration to verify render targets and inspector authoring visually).
+
+## Corpus refresh (2026): more reference implementations
+
+### Pattern: GameResource carries both a data sheet AND a behavior prefab (despawn.murder)
+
+`SubRoleResource` (`.subrole`, `Systems/SubRoles/SubRoleResource.cs`) stores display data *and* an optional `GameObject BehaviorPrefab`. The round-state reads the resource generically: `Give(resource.Equipment)` then `GameObject.Clone(NetworkSpawn=true)` for `BehaviorPrefab`. Zero per-role branching in the spawn path — adding a role = author a `.subrole` + a behavior prefab, no C# (despawn.murder: SubRoleResource.cs, InProgressRoundState.Roles.cs).
+
+Also demonstrates `PostReload()` cache invalidation: a `static Dictionary<string,SubRoleResource> _cache` is populated on first access and cleared in an override of `PostReload()` so the editor's asset-hot-reload flushes stale entries without a restart.
+
+```csharp
+[AssetType( Name = "SubRole", Extension = "subrole", Category = "Despawn" )]
+public sealed class SubRoleResource : GameResource
+{
+    [Property] public string Key       { get; set; }   // "clairvoyant"
+    [Property] public bool   Enabled   { get; set; } = true;
+    [Property] public bool   AlwaysAssigned { get; set; }  // one per murderer
+    [Property] public EquipmentResource Equipment { get; set; }
+    [Property] public GameObject        BehaviorPrefab { get; set; }
+
+    static Dictionary<string, SubRoleResource> _cache;
+    public static SubRoleResource Find( string key ) =>
+        ( _cache ??= ResourceLibrary.GetAll<SubRoleResource>()
+            .Where( r => r.Enabled )
+            .ToDictionary( r => r.Key ) )
+        .GetValueOrDefault( key );
+
+    protected override void PostReload() { _cache = null; }  // flush on hot-reload
+}
+```
+
+Anti-pattern: building a cache in a static property without a `PostReload()` flush. In the editor, designers hot-reload assets constantly; a stale `_cache` means code keeps reading the old values until the game is restarted.
+
+### Pattern: per-asset metadata resource matched at runtime by scene identity (despawn.murder)
+
+`MapResource` (`.mapvote`) stores per-map metadata including Director knobs (`ClueSpawnMultiplier`, `ClueSpawnMultiplierMax`). `GetCurrent(scene)` matches by `scene.Source` — the loaded scene file path — so map-specific tuning never requires a switch statement in game code (despawn.murder: MapResource.cs).
+
+```csharp
+public static MapResource GetCurrent( Scene scene ) =>
+    ResourceLibrary.GetAll<MapResource>()
+        .FirstOrDefault( m => m.SceneFile?.ResourcePath == scene.Source );
+```
+
+### Pattern: GameResource as a pure data sheet for a modifier bus (thefancylads.farm_land)
+
+`Buff` (`.buff`) is a `GameResource` whose only payload is `Dictionary<string, BuffEffectData>`, where each entry is `{ float Value; BuffOperationType Multiply | Add | Set }`. The dotted key namespace (`farming.yield.vegetable`, `economy.market.{itemId}.sellprice`) is documented in the source. Gameplay code never names a buff; it calls `BuffManager.Instance.GetModifier("farming.mutation.chance")` and folds the stack. Designers author buffs as assets; code reads by key. The `[Icon("eco")]` decorator on `CropResource` and `[Icon("backpack")]` on `ItemResource` add recognizable icons to the asset browser (thefancylads.farm_land: Buff.cs, BuffManager.cs, CropResource.cs).
+
+```csharp
+[AssetType( Name = "Buff", Extension = "buff", Icon = "auto_awesome" )]
+public sealed class Buff : GameResource
+{
+    [Property] public string DisplayName { get; set; }
+    [Property] public Dictionary<string, BuffEffectData> Effects { get; set; } = new();
+}
+
+// runtime read — no enum, no switch, no per-buff code
+float yield = baseYield * BuffManager.Instance.GetModifier( "farming.yield.vegetable" );
+```
+
+### Pattern: `[Flags]` enum category mask on GameResource items (thefancylads.farm_land)
+
+`ItemCategory` is a `[Flags]` enum. `ItemResource` carries `ItemCategory Category`. A composite value `Crop = Vegetable | Salad | Grain | Berry | Special` lets a single filter match any crop subtype without enumerating each one. Extension helpers `IsIncludedInAny(mask)` / `Includes(flag)` keep call sites readable (thefancylads.farm_land: ItemResource.cs, ItemCategory.cs).
+
+```csharp
+[Flags] public enum ItemCategory { None=0, Vegetable=1, Salad=2, Grain=4, Berry=8, Special=16,
+    Crop = Vegetable | Salad | Grain | Berry | Special }
+
+// filter a ResourceLibrary lookup to only crop items:
+var crops = ResourceLibrary.GetAll<ItemResource>().Where( i => i.Category.IsIncludedInAny( ItemCategory.Crop ) );
+```
+
+### Counter-pattern: when NOT to use GameResource (facepunch.ss2)
+
+`facepunch.ss2` intentionally uses **zero `GameResource` types** for meta-progression data. All shop items, gem definitions, quest defs, and achievement defs live as `static` C# structs/POCOs (`ShopItemDef`, `QuestDef`) assembled in partial-class builders and serialized to `progress.json` via `FileSystem.Data.ReadJsonSafe<T>` / `WriteJson`. The reason: the catalog is code-bound (upgrade behavior = overriding a base class method), not designer-editable, so a `.vcfg` file per perk would add zero value and hundreds of files. **Rule of thumb: prefer GameResource when content is designer-editable and behavior-free; prefer code+JSON when content and behavior are inseparable** (facepunch.ss2: ProgressManager.cs, ShopItemDef.cs).
+
+### Counter-pattern: reflection-driven catalog as an alternative to ResourceLibrary (facepunch.ss2)
+
+When all variants of a type are defined in code (not files), use `TypeLibrary.GetTypes<T>()` + an attribute to build the pool rather than `ResourceLibrary.GetAll<T>()`. `[Perk(Rarity, curse, locked, ...)]` decorates each of 300+ perk classes; `PerkManager` builds the weighted pool at startup via `TypeLibrary.GetTypes<Perk>()`. Adding a perk = adding a file; no registry, no hand-list. The `[AssetType]`+`ResourceLibrary` path is for file assets; the `[Attribute]`+`TypeLibrary` path is for code-only catalogs (facepunch.ss2: PerkManager.cs, Perk.cs).
+
+```csharp
+// code-only catalog — no .vcfg files, no ResourceLibrary
+var pool = TypeLibrary.GetTypes<Perk>()
+    .Where( t => !t.IsAbstract )
+    .Select( t => t.GetAttribute<PerkAttribute>() )
+    .Where( a => a is not null && !a.Locked );
+```
+
+### Updated gotcha table additions
+
+| Gotcha | Fix |
+| --- | --- |
+| `GameResource` cache not flushed on hot-reload; designers see stale values in-editor | Override `PostReload()` and null/clear the cache (despawn.murder: SubRoleResource.cs) |
+| Per-role/per-type branching in spawn/assignment code explodes as content grows | Store `BehaviorPrefab` on the resource; clone + `NetworkSpawn` generically; zero branching (despawn.murder: SubRoleResource.cs) |
+| Adding 300 perk files as `.vcfg` assets for code-bound upgrades is busywork | Use `TypeLibrary.GetTypes<Perk>()` + `[PerkAttribute]` for code-only catalogs (facepunch.ss2: PerkManager.cs) |
+| Per-map tuning requires a switch in game code | Author a `MapResource` per map; resolve at runtime with `GetCurrent(scene)` by `scene.Source` (despawn.murder: MapResource.cs) |
+
+**Read these games** for data-asset patterns: `despawn.murder` (multi-type GameResource DSL, behavior-prefab dispatch, `PostReload` cache, map metadata), `thefancylads.farm_land` (GameResource as modifier-bus data sheet, `[Flags]` category mask, `[Icon]` decorator), `facepunch.ss2` (code-only catalog via `TypeLibrary`, explicit no-GameResource meta-progression). Prior: `sbox-vehicle-kit` (suffix-filter gotcha), `simple-weapon-base` (prefab registry + `BreakFromPrefab`), `SBox-Visual-Novel-Base` (editor tooling).

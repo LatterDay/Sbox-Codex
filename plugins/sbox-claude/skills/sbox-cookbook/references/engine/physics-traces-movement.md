@@ -293,3 +293,251 @@ Verbatim from stellawisps.lumberyard `Code/Tycoon/Conveyor.cs:14`. One source of
 Verify live: reflection is authoritative for the installed SDK — confirm volatile members (`Body.MotionEnabled`, `CharacterController.ReleaseFromGround`, `SceneTraceResult` fields, `Rigidbody.ApplyForceAt`) with `describe_type` / `search_types` / `get_method_signature` before relying on a name, and wrap genuinely version-volatile calls in try/catch with a one-shot warning.
 
 See also: **sbox-api** (look up exact signatures via reflection) and **sbox-build-feature** (the screenshot-driven build loop — note the bridge can't synthesize input, so verify movement/grab with `execute_csharp` or a human playtest).
+
+---
+
+## Corpus refresh (2026): more reference implementations
+
+### Pattern: manual CCD via `IScenePhysicsEvents.PrePhysicsStep` (slamdunk.minigolf)
+
+For small fast bodies (golf balls, projectiles, marbles) the built-in Rigidbody CCD is not enough. Implement `IScenePhysicsEvents.PrePhysicsStep` — it runs *after* `OnFixedUpdate` but *before* the solver, so you can detect a tunnel and redirect the body before the engine ever sees the penetration. Owner-only; proxies let the host's result replicate.
+
+```csharp
+// slamdunk.minigolf: Player/Ball.cs → PrePhysicsStep
+public void PrePhysicsStep()
+{
+    if ( IsProxy || Rigidbody.Velocity.Length < 100f ) return;
+    var start = WorldPosition;
+    var tr = Scene.Trace.Sphere( 2f, start, start + Rigidbody.Velocity * Time.Delta )
+        .WithTag( "entity" ).IgnoreGameObject( GameObject ).Run();
+    if ( !tr.Hit ) return;
+    WorldPosition = tr.HitPosition + tr.Normal * 2f;
+    Rigidbody.Velocity = Vector3.Reflect( Rigidbody.Velocity, tr.Normal ) * 0.8f; // energy loss
+}
+```
+
+Anti-pattern: running CCD inside `OnFixedUpdate` instead. The solver runs *after* `OnFixedUpdate`, so the body is already penetrating when you redirect it — you get a one-frame overlap pop. `PrePhysicsStep` intercepts before that.
+
+---
+
+### Pattern: runtime welded collision mesh from a subtree (slamdunk.minigolf)
+
+A fast body tunnels/snags on seams between many separate convex colliders. Build one `ModelCollider` for the whole level from a `ModelBuilder` that ingests every `ModelRenderer`'s verts, welds duplicates with `worldPos.SnapToGrid(0.1f)`, then optionally stitches T-junctions (vertex on another triangle's edge — `|dist(p1,p2)-(dist(p1,p3)+dist(p2,p3))| < 0.01`). Make the result `Static = true` and `NetworkMode.Never` (each client builds its own; collision is deterministic). Pair with `Network.ClearInterpolation()` after any teleport so the ball doesn't lerp across the map.
+
+```csharp
+// slamdunk.minigolf: CollisionManager.cs (condensed)
+var mb = new ModelBuilder();
+var weldMap = new Dictionary<Vector3, int>();
+var tris = new List<int>();
+var verts = new List<Vector3>();
+foreach ( var mr in hole.GetComponentsInChildren<ModelRenderer>() )
+{
+    foreach ( var v in mr.Model.GetVertices() )
+    {
+        var w = mr.WorldTransform.PointToWorld( v ).SnapToGrid( 0.1f );
+        if ( !weldMap.TryGetValue( w, out int i ) ) { i = verts.Count; verts.Add(w); weldMap[w]=i; }
+        tris.Add( i );
+    }
+}
+mb.AddCollisionMesh( verts.ToArray(), tris.ToArray() );
+var go = Scene.CreateObject(); go.Static = true;
+go.NetworkMode = NetworkMode.Never;
+go.AddComponent<ModelCollider>().Model = mb.Create();
+```
+
+---
+
+### Pattern: `ModelBuilder.AddTraceMesh` — shoot-through procedural geometry (ataco.sdoomresurrection)
+
+When procedural geometry must also be *traceable* (bullets, LOS, ground-checks) add a trace mesh alongside the render and collision meshes in the same `ModelBuilder`. One model, one GameObject, all three channels.
+
+```csharp
+// ataco.sdoomresurrection: DoomMap.cs (condensed)
+var mb = new ModelBuilder();
+mb.AddMesh( renderMesh );                              // visible
+mb.AddCollisionMesh( triVerts, triIndices );           // physics bodies walk on it
+mb.AddTraceMesh( tracePoints, traceIndices );          // Scene.Trace rays hit it
+var mr = go.AddComponent<ModelRenderer>();
+mr.Model = mb.Create();
+go.AddComponent<ModelCollider>();                      // static; no Rigidbody
+```
+
+---
+
+### Pattern: `ApplyImpulse` for a shot controller + `ICollisionListener` for impact audio (alcoholics.nice_putt_idiot)
+
+Use `ApplyImpulse` (instantaneous momentum change, mass-aware) rather than `ApplyForce` (continuous) for a single-shot putt/kick/slingshot. Gate all input on `Rigidbody.Velocity.Length > threshold` so you can't re-hit a moving ball. Wire `ICollisionListener.OnCollisionStart` for impact sounds without a polling trace.
+
+```csharp
+// alcoholics.nice_putt_idiot: GolfBall.cs (condensed)
+bool IsMoving => Rigidbody.Velocity.Length > MaxVelocityForPutt;
+
+void Putt( Vector2 direction, float dragDistance, float maxDrag )
+{
+    if ( IsMoving ) return;
+    var power = MinPower + MathX.Clamp( dragDistance / maxDrag, 0f, 1f ) * (MaxPower - MinPower);
+    Rigidbody.ApplyImpulse( new Vector3( 0f, direction.x * power, direction.y * power ) );
+    Client?.IncrementStrokes();
+}
+
+// ICollisionListener — no trace polling needed for audio
+public void OnCollisionStart( Collision c )
+    => Sound.Play( PuttSound, c.Contact.Point );
+```
+
+---
+
+### Pattern: non-linear charge-power curve + stuck-ball watchdog (slamdunk.minigolf)
+
+Shape shot power non-linearly so the low end is still useful. Track `TimeSince AlmostStill`; a ball creeping at 0.1–5 u/s for more than ~3 s is force-stopped with `Rigidbody.ClearForces()` + zero linear/angular velocity, preventing a slow roller from stalling a round. On respawn/teleport call `GameObject.Network.ClearInterpolation()` so the remote proxy doesn't visually lerp across the map.
+
+```csharp
+// slamdunk.minigolf: Ball.cs (condensed)
+// Non-linear power: designer-intuitive, low-end responsive
+float shaped = 2.78f * MathX.Pow( 2f * rawPower + 0.4f, 2f );
+Rigidbody.ApplyForceAt( WorldPosition, dir * shaped * 9500f );
+
+// Stuck watchdog in OnUpdate
+if ( Rigidbody.Velocity.Length is > 0.1f and < 5f )
+    _almostStillTime += Time.Delta;
+else _almostStillTime = 0f;
+if ( _almostStillTime > 3f )
+{
+    Rigidbody.Velocity = Vector3.Zero;
+    Rigidbody.AngularVelocity = Vector3.Zero;
+    Rigidbody.ClearForces();
+    _almostStillTime = 0f;
+}
+```
+
+Note: `MathX.Pow` — NOT `MathF.Pow` (which does not exist in the s&box sandbox).
+
+---
+
+### Pattern: mass-compensated jetpack thrust with ground-ray gate (master.digging_simulator)
+
+A jetpack that feels consistent regardless of the player's physics mass multiplies thrust by `_rb.Mass` so the acceleration is mass-independent. Gate the thrust on a short downward ray finding no ground — this prevents draining fuel while standing still, and correctly re-engages as soon as the player leaves the floor.
+
+```csharp
+// master.digging_simulator: JetpackController.cs (condensed)
+protected override void OnFixedUpdate()
+{
+    if ( !Input.Down( "jump" ) ) return;
+    if ( _rb == null ) _rb = Components.GetInAncestorsOrSelf<Rigidbody>();
+    // Only thrust when airborne
+    var groundRay = Scene.Trace.Ray( WorldPosition, WorldPosition + Vector3.Down * 8f )
+        .IgnoreGameObjectHierarchy( GameObject ).Run();
+    if ( groundRay.Hit ) return;
+    var force = Vector3.Up * ThrustAccel * _rb.Mass * Time.Delta; // mass-compensated
+    _rb.ApplyForce( force );
+    ConsumeBattery( Time.Delta );
+}
+```
+
+---
+
+### Pattern: two-range trace for aim feedback (master.digging_simulator)
+
+Fire a long trace for a visual ghost cursor (green = in range, red = too far) and a short trace for the actual action. They share one call site but have different `WithoutTags` masks: the long trace can hit ore (show it), the short one excludes ore (dig behind it). This makes targeting readable without any UI distance calculation.
+
+```csharp
+// master.digging_simulator: DrillTool.cs (condensed)
+var visualTr = Scene.Trace.Ray( ray ).WithTag( "terrain" ).Run(); // long range, any tag
+var digTr    = Scene.Trace.Ray( ray ).WithoutTags( "ore", "player", "tool" ).Run(); // short range
+
+if ( visualTr.Hit )
+{
+    _cursor.WorldPosition = visualTr.HitPosition;
+    _cursor.Tint = (visualTr.Distance <= DigDistance) ? Color.Green : Color.Red;
+}
+if ( Input.Pressed( "attack1" ) && digTr.Hit && digTr.Distance <= DigDistance )
+    zone.Dig( digTr.HitPosition, DigRadius );
+```
+
+---
+
+### Pattern: boat self-righting torque + seat mount (pldr.duck_pond)
+
+Apply a constant self-righting torque `Vector3.Cross(WorldRotation.Up, Vector3.Up) * Stability` so a physics boat can't capsize under waves or player movement. When a player mounts, disable their `Body` and collider, reparent to the seat, and decouple the camera (use the player's own eye angles in world space, not the boat's rotation) so pitch/roll don't cause seasickness. On dismount, teleport to an `ExitPoint` before re-enabling physics so they don't spawn inside the hull.
+
+```csharp
+// pldr.duck_pond: BoatController.cs (condensed)
+protected override void OnFixedUpdate()
+{
+    if ( !Buoyancy.IsTouchingWater ) return;
+    // self-right
+    var uprightTorque = Vector3.Cross( WorldRotation.Up, Vector3.Up ) * Stability;
+    Rigidbody.ApplyTorque( uprightTorque );
+    // drive
+    float speed = Rigidbody.Velocity.Length;
+    float speedLimit = MathX.Min( 1f, TerminalSpeed / (speed + 0.001f) );
+    Rigidbody.ApplyForceAt( BowPoint.WorldPosition,
+        WorldRotation.Forward * ThrottleInput * ThrustForce * speedLimit );
+}
+
+void Mount( PlayerController player )
+{
+    player.Body.Enabled = false;
+    player.ColliderObject.Enabled = false;
+    player.SetParent( Seat, false );
+    player.LocalTransform = Transform.Zero;
+}
+```
+
+---
+
+### Pattern: `MoveMode` to add swimming to the stock `PlayerController` (pldr.duck_pond)
+
+Rather than hand-rolling a swimming controller, plug into s&box's `MoveMode` scoring system. Override `Score()` to win when the player is submerged past a threshold, and `UpdateRigidBody()` to zero gravity and add damping for the water feel. The swim mode activates against the real animated wave surface, not a flat trigger.
+
+```csharp
+// pldr.duck_pond: FixedSwim.cs
+public sealed class MoveModeSwimFixed : MoveMode
+{
+    [Property] public int Priority { get; set; } = 10;
+    [Property, Range(0,1)] public float SwimLevel { get; set; } = 0.7f;
+
+    public override void UpdateRigidBody( Rigidbody b )
+    {
+        b.Gravity = false;
+        b.LinearDamping = 3.3f;
+        b.AngularDamping = 1f;
+    }
+    public override int Score( PlayerController c ) => WaterLevel > SwimLevel ? Priority : -100;
+    public override void OnModeBegin() => Controller.IsSwimming = true;
+    public override void OnModeEnd( MoveMode next )
+    {
+        Controller.IsSwimming = false;
+        if ( Input.Down( "Jump" ) ) Controller.Jump( Vector3.Up * 300f ); // hop out
+    }
+}
+```
+
+Add this component alongside a `PlayerController`. `WaterLevel` must be computed each `OnFixedUpdate` from the actual wave surface (sample wave height at head position, then `Vector3.InverseLerp(surface, foot, head, true)`).
+
+---
+
+### Updated gotcha table entries (2026 additions)
+
+| Gotcha | Why it bites | Fix |
+| --- | --- | --- |
+| Fast ball tunnels even with Rigidbody CCD | CCD inside `OnFixedUpdate` runs after penetration | Implement `IScenePhysicsEvents.PrePhysicsStep`; redirect before the solver sees the overlap |
+| Ball slowly rolls forever, stalling a round | No idle-velocity floor | `TimeSince` watchdog: zero `Velocity`/`AngularVelocity` + `ClearForces()` after ~3 s at 0.1–5 u/s |
+| Teleport visually lerps across the map | Network interpolation not flushed | Call `GameObject.Network.ClearInterpolation()` immediately after the teleport |
+| Seams between course pieces catch a fast ball | Many separate convex colliders, T-junctions | Weld all verts via `SnapToGrid(0.1f)` into one `ModelBuilder.AddCollisionMesh()`, stitch T-junctions |
+| Procedural mesh not hittable by rays | Trace mesh not added | `ModelBuilder.AddTraceMesh(pts, idx)` alongside `AddCollisionMesh` — one model, all three channels |
+| Jetpack thrust feels different at different masses | Fixed force, not mass-compensated | `force = Up * accel * _rb.Mass * Time.Delta`; also gate on a short downward ray (no drain while grounded) |
+| Boat capsizes under waves | No restoring force | `Rigidbody.ApplyTorque(Vector3.Cross(WorldRotation.Up, Vector3.Up) * Stability)` each fixed tick |
+| Player view tilts with boat pitch/roll | Camera parented to boat | Decouple camera: use player's eye angles in *world* space, not the boat's rotation |
+| `MathX.Pow` not found | Used `MathF.Pow` | `MathF` does not exist in the s&box sandbox; use `MathX.Pow` (and `MathX.Clamp`, etc.) throughout |
+
+---
+
+### Read these games for physics/trace/movement patterns
+
+- `slamdunk.minigolf` — manual CCD (`IScenePhysicsEvents.PrePhysicsStep`), runtime welded collision mesh, charge-and-release `ApplyForceAt` with non-linear power, stuck-ball watchdog, `Network.ClearInterpolation` on teleport
+- `alcoholics.nice_putt_idiot` — `ApplyImpulse` shot controller, `ICollisionListener` for impact audio, 2.5D orthographic follow camera on a physics body
+- `pldr.duck_pond` — `MoveMode` swim integration, boat self-righting torque, seat mount (disable-player-physics + reparent), `SuctionPoint` attractor, decoupled camera on a vehicle
+- `master.digging_simulator` — mass-compensated jetpack with ground-ray gate, two-range trace aim feedback
+- `ataco.sdoomresurrection` — `ModelBuilder.AddTraceMesh` for shoot-through procedural geometry, moving extruded geometry by translating a GameObject (no mesh rebuild)
+- Previously cited: `sbox-vehicle-kit` (kinematic vehicle, suspension, wall feelers), `sbox-grubs` (CharacterController + leapfrog gravity), `pldr.duck_pond` (buoyancy), `stellawisps.lumberyard` (conveyor)
