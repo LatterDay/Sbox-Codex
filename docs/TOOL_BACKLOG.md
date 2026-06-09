@@ -3,7 +3,13 @@
 The 51-game corpus mining (`sbox-lessons/mining-v2/`) surfaced **352 candidate bridge tools**, **188 flagged "ship-worthy"** by the per-game miners. This is the ranked, de-duplicated roadmap. The single biggest signal: the same **scaffold-a-system** tools were independently requested by many games — those are the highest-confidence additions.
 
 **Folded into v1.10.0:** `create_economy_wallet` (the most-requested gap with no existing scaffold; see below).
-**Built since (v1.11.0 wip, unreleased):** `create_round_phase_machine` — host-authoritative `[Sync(FromHost)]` phase machine with a per-phase timer + static `OnPhaseChanged` event (the easy single-component variant of `create_round_state_machine`; great for round/match flow + day-night cycles). Generated code compile-verified live.
+**Built since (v1.11.0 wip, unreleased — all generated code compile-verified live via describe_type):**
+- `create_round_phase_machine` — host-authoritative `[Sync(FromHost)]` phase machine (per-phase timer + static `OnPhaseChanged`); the easy variant of `create_round_state_machine`.
+- `create_day_night_clock` — synced `TimeOfDay`/`Day` + `IsDay`/`IsNight` + `OnNewDay`/`OnDayNightChanged` events.
+
+With v1.10.0's `create_economy_wallet` these three form a **"game director" trio** (currency + round-flow + time) — directly useful for a tycoon like Gravehold. Ready to fold into a v1.11.0 release whenever (bump version + counts + CHANGELOG, then publish). Handler count is now 173.
+
+**Next tools need attended API-verification** (left for a directed session, not unattended grinding): `create_save_system` (`FileSystem.Data.ReadJson/WriteJson`), `create_weighted_loot_table` (the s&box RNG API), `create_interactable` (`IPressable`'s exact members). Verify each with `describe_type` first, then they slot in like the three above.
 **Queued for v1.11.0+:** everything else here, grouped by theme. Full raw list: `sbox-lessons/` mining output.
 
 Legend: **(Nx)** = independently proposed by N games · `easy`/`medium` = miner-estimated build risk.
