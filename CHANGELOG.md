@@ -2,6 +2,23 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.11.0] — 2026-06-09
+
+**Two host-authoritative "game director" scaffolds, and the cookbook fully re-mined across all 51 games. 173 handlers (was 171). Additive — no existing tool contract changed.**
+
+### Added — scaffolds (mined from the 51-game corpus)
+
+- **`create_round_phase_machine`** — a host-authoritative `[Sync(SyncFlags.FromHost)]` phase machine: a `CurrentPhase` enum cycled on a per-phase `TimeUntil` timer (host-only), per-phase duration `[Property]`s, a `Loop` toggle, a `StartPhase(Phase)` host-jump, and a static `OnPhaseChanged` event firing uniformly on host + proxies. The easy single-component variant of the 5×-requested `create_round_state_machine`. Generated code compile-verified live (`describe_type` confirmed the enum / `TimeUntil` / switch-expressions loaded).
+- **`create_day_night_clock`** — a host-authoritative time-of-day clock: `[Sync(SyncFlags.FromHost)]` `TimeOfDay` (0–24) + `Day` advancing by `Time.Delta`, `IsDay`/`IsNight` from sunrise/sunset hours, and static `OnNewDay` / `OnDayNightChanged` events. Generated code compile-verified live.
+
+With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio** (currency + round-flow + time). ~180 more mined tool ideas remain queued in `docs/TOOL_BACKLOG.md`.
+
+### Changed — Cookbook fully re-mined
+
+- v1.10.0 added 8 new references + corpus-refreshed 10 high-traffic ones. **v1.11.0 finishes the job:** the remaining **20 system/genre references + all 11 engine references** now carry a "Corpus refresh (2026)" section grounded in the 51-game findings — so **all 41 existing references** (plus the 8 new ones + `CORPUS-INDEX.md`) are refreshed across the full corpus.
+
+---
+
 ## [1.10.0] — 2026-06-09
 
 **Four new tools (call a method with args, define input actions, drive the player in play mode, scaffold a currency wallet), eight authoring-tool fixes, two newly auto-detected editor gotchas, a known-issues doc, and a big cookbook expansion (51 games re-mined, +8 references). 171 handlers (was 166). Additive — no existing tool contract changed.**

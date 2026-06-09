@@ -2,13 +2,22 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.10.0 — 171 handlers (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.11.0 — 173 handlers (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-09 (v1.10.0)
+**Last updated:** 2026-06-09 (v1.11.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.11.0
+
+**+2 "game director" scaffolds → 173 handlers (was 171), and the cookbook fully re-mined across all 51 games.** Additive — no existing tool contract changed.
+
+- **`create_round_phase_machine`** — scaffold a host-authoritative `[Sync(SyncFlags.FromHost)]` phase machine: a `CurrentPhase` enum cycled on a per-phase `TimeUntil` timer (host-only), per-phase duration `[Property]`s, a `Loop` toggle, a `StartPhase(Phase)` host-jump, and a static `OnPhaseChanged` event that fires uniformly on host + proxies. Round/match flow, day-night gates, match phases. Generated code compile-verified live.
+- **`create_day_night_clock`** — scaffold a host-authoritative time-of-day clock: `[Sync(SyncFlags.FromHost)]` `TimeOfDay` (0–24) + `Day` advancing by `Time.Delta`, `IsDay`/`IsNight` from sunrise/sunset hours, and static `OnNewDay` / `OnDayNightChanged` events. Generated code compile-verified live.
+- With v1.10.0's `create_economy_wallet`, these form a **"game director" trio** (currency + round-flow + time). The remaining ~180 mined tool ideas stay queued in `docs/TOOL_BACKLOG.md`.
+- **Cookbook fully re-mined:** the v1.10.0 release corpus-refreshed 18 references; v1.11.0 finishes the job — **all 41 existing references** (engine + systems + genres) now carry a "Corpus refresh (2026)" section grounded in the 51-game findings, alongside the 8 new references + `CORPUS-INDEX.md`.
 
 ### What's new in v1.10.0
 
