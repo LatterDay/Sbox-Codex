@@ -406,6 +406,7 @@ public static class ClaudeBridge
 		Register( "create_pickup",               () => new CreatePickupHandler() );
 		Register( "create_economy_wallet",       () => new CreateEconomyWalletHandler() );
 		Register( "create_round_phase_machine",  () => new CreateRoundPhaseMachineHandler() );
+		Register( "create_day_night_clock",      () => new CreateDayNightClockHandler() );
 
 		// ── Batch 36: NPC brains ────────────────────────────────────────
 		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
@@ -443,7 +444,7 @@ public static class ClaudeBridge
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
 		"set_component_reference", "add_component_to_new_object",
-		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine",
+		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock",
 		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",

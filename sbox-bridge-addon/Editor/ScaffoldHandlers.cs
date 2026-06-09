@@ -1244,3 +1244,126 @@ public sealed class {className} : Component
 ";
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// J. create_day_night_clock — a host-authoritative time-of-day clock.
+//    [Sync(FromHost)] TimeOfDay (0..24) + Day advancing by Time.Delta; IsDay/
+//    IsNight + static OnNewDay / OnDayNightChanged events. Pairs with
+//    create_round_phase_machine for continuous time (lighting, NPC schedules).
+// ═══════════════════════════════════════════════════════════════════════════
+public class CreateDayNightClockHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "DayNightClock", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			float dayLen  = p.TryGetProperty( "dayLengthSeconds", out var dl ) && dl.TryGetSingle( out var dlf ) ? dlf : 600f;
+			float startHr = p.TryGetProperty( "startHour", out var sh ) && sh.TryGetSingle( out var shf ) ? shf : 8f;
+			float sunrise = p.TryGetProperty( "sunriseHour", out var sr ) && sr.TryGetSingle( out var srf ) ? srf : 6f;
+			float sunset  = p.TryGetProperty( "sunsetHour", out var ss ) && ss.TryGetSingle( out var ssf ) ? ssf : 20f;
+
+			var code = BuildCode( className, dayLen, startHr, sunrise, sunset );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_day_night_clock failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, float dayLen, float startHr, float sunrise, float sunset )
+	{
+		var ci = System.Globalization.CultureInfo.InvariantCulture;
+		string dl = dayLen.ToString( ci ) + "f";
+		string sh = startHr.ToString( ci ) + "f";
+		string sr = sunrise.ToString( ci ) + "f";
+		string ssH = sunset.ToString( ci ) + "f";
+
+		return $@"using Sandbox;
+using System;
+
+/// <summary>
+/// {className} — a host-authoritative time-of-day clock for any GameObject.
+///
+/// TimeOfDay (0..24) and Day advance on the host by Time.Delta; both are
+/// [Sync(SyncFlags.FromHost)] so clients agree. IsDay/IsNight derive from the
+/// sunrise/sunset hours. Subscribe to the static events to drive lighting, NPC
+/// schedules, spawns, etc. Single-player safe.
+///
+/// Usage:
+///   {className}.OnNewDay += day => Log.Info( $""day {{day}}"" );
+///   {className}.OnDayNightChanged += isDay => SetLights( isDay );
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public float DayLengthSeconds {{ get; set; }} = {dl};   // real seconds per in-game day
+	[Property] public float StartHour {{ get; set; }} = {sh};
+	[Property] public float SunriseHour {{ get; set; }} = {sr};
+	[Property] public float SunsetHour {{ get; set; }} = {ssH};
+
+	[Sync( SyncFlags.FromHost )] public float TimeOfDay {{ get; set; }}   // 0..24
+	[Sync( SyncFlags.FromHost )] public int Day {{ get; set; }} = 1;
+
+	public bool IsNight => TimeOfDay < SunriseHour || TimeOfDay >= SunsetHour;
+	public bool IsDay => !IsNight;
+
+	/// <summary>Fires (every machine) when the day number increments.</summary>
+	public static Action<int> OnNewDay {{ get; set; }}
+	/// <summary>Fires (every machine) when crossing sunrise/sunset. Arg = isDay.</summary>
+	public static Action<bool> OnDayNightChanged {{ get; set; }}
+
+	private bool _started;
+	private int _lastDay;
+	private bool _lastIsNight;
+
+	protected override void OnStart()
+	{{
+		if ( !IsProxy ) {{ TimeOfDay = MathX.Clamp( StartHour, 0f, 24f ); Day = 1; }}
+	}}
+
+	protected override void OnUpdate()
+	{{
+		if ( !IsProxy )
+		{{
+			// 24 in-game hours elapse per DayLengthSeconds.
+			TimeOfDay += ( 24f / MathX.Clamp( DayLengthSeconds, 1f, 86400f ) ) * Time.Delta;
+			while ( TimeOfDay >= 24f ) {{ TimeOfDay -= 24f; Day++; }}
+		}}
+
+		// Change-detect so the events fire uniformly on host + proxies.
+		if ( !_started ) {{ _started = true; _lastDay = Day; _lastIsNight = IsNight; }}
+		if ( Day != _lastDay ) {{ _lastDay = Day; OnNewDay?.Invoke( Day ); }}
+		bool night = IsNight;
+		if ( night != _lastIsNight ) {{ _lastIsNight = night; OnDayNightChanged?.Invoke( !night ); }}
+	}}
+}}
+";
+	}
+}

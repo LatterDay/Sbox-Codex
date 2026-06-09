@@ -287,6 +287,28 @@ export function registerGameplayTools(
     }
   );
 
+  // ── create_day_night_clock ────────────────────────────────────────
+  server.tool(
+    "create_day_night_clock",
+    "Generate a host-authoritative time-of-day clock: [Sync(SyncFlags.FromHost)] TimeOfDay (0–24) + Day advancing by Time.Delta, IsDay/IsNight from sunrise/sunset hours, and static OnNewDay / OnDayNightChanged events to drive lighting, NPC schedules, or spawns. Single-player safe. Pairs with create_round_phase_machine. Optionally attached to a GameObject by GUID (after a hotload).",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'DayNightClock'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      dayLengthSeconds: z.number().optional().describe("Real seconds per in-game day. Defaults to 600 (10 min)"),
+      startHour: z.number().optional().describe("Hour the clock starts at (0–24). Defaults to 8"),
+      sunriseHour: z.number().optional().describe("Hour day begins. Defaults to 6"),
+      sunsetHour: z.number().optional().describe("Hour night begins. Defaults to 20"),
+      targetId: z.string().optional().describe("GUID of an existing GameObject to attach to (hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_day_night_clock", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
   // ── create_pickup ─────────────────────────────────────────────────
   server.tool(
     "create_pickup",
