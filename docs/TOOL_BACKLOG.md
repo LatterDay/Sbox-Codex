@@ -3,13 +3,17 @@
 The 51-game corpus mining (`sbox-lessons/mining-v2/`) surfaced **352 candidate bridge tools**, **188 flagged "ship-worthy"** by the per-game miners. This is the ranked, de-duplicated roadmap. The single biggest signal: the same **scaffold-a-system** tools were independently requested by many games — those are the highest-confidence additions.
 
 **Folded into v1.10.0:** `create_economy_wallet` (the most-requested gap with no existing scaffold; see below).
-**Built since (v1.11.0 wip, unreleased — all generated code compile-verified live via describe_type):**
-- `create_round_phase_machine` — host-authoritative `[Sync(FromHost)]` phase machine (per-phase timer + static `OnPhaseChanged`); the easy variant of `create_round_state_machine`.
-- `create_day_night_clock` — synced `TimeOfDay`/`Day` + `IsDay`/`IsNight` + `OnNewDay`/`OnDayNightChanged` events.
+**Built in v1.11.0:** `create_round_phase_machine`, `create_day_night_clock` (with v1.10.0's `create_economy_wallet` these form the "game director" trio). Handler count: 173.
 
-With v1.10.0's `create_economy_wallet` these three form a **"game director" trio** (currency + round-flow + time) — directly useful for a tycoon like Gravehold. Ready to fold into a v1.11.0 release whenever (bump version + counts + CHANGELOG, then publish). Handler count is now 173.
+**Built in v1.12.0 (Wave 1 + Wave 2, all verify-gated live -- handler count now 179):**
+- `create_interactable` (`Component.IPressable` surface confirmed via describe_type; generated component compile-verified)
+- `create_weighted_loot_table` (cumulative-weight pick + optional pity; compile-verified)
+- `sandbox_lint` (whitelist pre-compile scan; tuned against live deliberate-failure -- Math/MathF NOW whitelisted, Array.Clone() still blocked)
+- `create_save_system` (`FileSystem.Data.ReadJsonOrDefault/WriteJson` confirmed + compile-verified; the #1 corpus demand, 7x)
+- `razor_lint` (static Razor/SCSS transpiler footgun scan; pure MCP-server-side text scan)
+- `copy_asset_with_dependencies` (`Editor.Asset.GetReferences(deep:true)` + shadow-guard against core trees; kills gotchas #4 and #5)
 
-**Next tools need attended API-verification** (left for a directed session, not unattended grinding): `create_save_system` (`FileSystem.Data.ReadJson/WriteJson`), `create_weighted_loot_table` (the s&box RNG API), `create_interactable` (`IPressable`'s exact members). Verify each with `describe_type` first, then they slot in like the three above.
+**Next up per the plan (Wave 3):** `create_leaderboard_panel` (verify `Sandbox.Services.Leaderboards` first), `create_inventory`, `create_stat_modifier_system`, `create_placement_mode`. See `docs/plans/2026-06-09-next-10-tools.md`.
 **Queued for v1.11.0+:** everything else here, grouped by theme. Full raw list: `sbox-lessons/` mining output.
 
 Legend: **(Nx)** = independently proposed by N games · `easy`/`medium` = miner-estimated build risk.
@@ -59,5 +63,4 @@ Legend: **(Nx)** = independently proposed by N games · `easy`/`medium` = miner-
 
 ## Notes for whoever builds these
 - Model them on the existing scaffold generators (`create_health_system`, `create_pickup`, `create_objective_system`, `create_npc_brain`) in `sbox-bridge-addon/Editor/ScaffoldHandlers.cs` — separate handler file, register in `MyEditorMenu.cs`, TS tool in `sbox-mcp-server/src/tools/`.
-- **ALWAYS live-compile-verify the generated code** (the NPC-brain generator shipped 2 bugs that passed inspection: a `virtual` in a `sealed` class, and an `int = MathX.Clamp(...)` needing an `(int)` cast). Generated game code is SANDBOXED — `MathX` not `System.Math`.
-- Each tool's grounding (which games, which files, exact pattern) is in the per-game findings under `sbox-lessons/mining-v2/games/<game>.md`.
+- **ALWAYS live-compile-verify the generated 

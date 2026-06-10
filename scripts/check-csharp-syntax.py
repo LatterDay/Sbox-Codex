@@ -10,6 +10,11 @@ will not retry until a manual restart).
 Usage:  python3 scripts/check-csharp-syntax.py [files...]
         (no args = all .cs under sbox-bridge-addon/Editor)
 Requires: pip install tree-sitter tree-sitter-c-sharp
+
+Known false positive: tree-sitter mis-flags the $@-template region inside
+CreateSaveSystemHandler (the verbatim interpolated string that holds the
+generated C# scaffold). The real Roslyn compiler accepts this without issue.
+Treat any ERROR report on that region as advisory -- do not block a sync on it.
 """
 import sys
 import glob

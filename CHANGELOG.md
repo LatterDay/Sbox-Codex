@@ -2,6 +2,47 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.12.0] -- 2026-06-09
+
+**Six new tools across two waves (lint + scaffolds + asset ops), a CI parity gate, a C# syntax gate, a full semantic bridge-map rebuild, and a whitelist correction. 179 handlers (was 173). Additive -- no existing tool contract changed.**
+
+### Added -- Wave 1 tools (compile-verified live)
+
+- **`create_interactable`** -- scaffold a `Component, Component.IPressable` stub: `Press(Event)` host-validated action, `Look`/`Hover`/`Blur` prompt hooks, `CanPress` gate, `GetTooltip` text, and an `IsProxy` guard so only the owner fires the action. The missing primitive between "scene exists" and "player can do something." `IPressable` surface confirmed via `describe_type` (8 members); generated code compile-verified live.
+- **`create_weighted_loot_table`** -- scaffold a loot-table component: parallel `Names`/`Weights` lists, cumulative-weight `Roll()`, optional pity counter (`PityAfter` flag), host-authoritative, static `OnLoot` event. The canonical weighted-pick shape that 7 corpus games hand-rolled independently -- now one tool call. Compile-verified live.
+- **`sandbox_lint`** -- pre-compile static scan of project `Code/*.cs` for API whitelist violations before hotload: flags `Array.Clone()` (still blocked), `System.Net.*`, other known-blocked BCL members with file+line and a suggested fix. Catches whitelist rejections that the compiler would surface with no file path, masked by the broken-reference cascade. Tuned against a deliberate live compile-failure test.
+
+### Added -- Wave 2 tools (compile-verified live)
+
+- **`create_save_system`** -- scaffold a versioned `PersistenceManager`: POCO DTO + `FileSystem.Data.WriteJson`/`ReadJsonOrDefault`, version field + delete-on-version-mismatch, dirty-flag debounced autosave, clamp-on-load `Sanitize()`, `IsProxy` guard so only the owner loads/saves. The single most-demanded tool in the 51-game corpus mining (7x independent demand). `BaseFileSystem.ReadJsonOrDefault<T>/WriteJson<T>` confirmed via `describe_type`; generated code compile-verified live.
+- **`razor_lint`** -- static scan of project `.razor`/`.razor.scss` files for every known Razor transpiler footgun: switch-expressions in `@code` blocks, non-ASCII characters in `@code`, `PanelComponent` missing `BuildHash`, root type-selector SCSS rules. Reports file+line with a plain-English fix. Direct sibling of `networking_lint`/`scene_validate`; catches the "valid code, opaque crash/silent no-op" class of Razor bugs where `get_compile_errors` shows nothing useful.
+- **`copy_asset_with_dependencies`** -- copy a model/material into the project with its full dependency closure (`Editor.Asset.GetReferences(deep:true)`): skips cloud/procedural/transient assets, shadow-guards both the dependency paths and the destination directory against core asset trees (`models/citizen`, `models/dev`, `materials/dev`, `materials/default`). Kills gotchas #4 (ERROR mesh from shadowed asset) and #5 (shadow-induced endless recompile loop) in one tool call.
+
+### Added -- CI & gates
+
+- **`scripts/audit-parity.mjs`** -- zero-dependency Node CI script: checks for duplicate `server.tool()` names in TS, duplicate `Register()` names in C#, full TS<->C# command parity (every `bridge.send()` has a handler; every handler is referenced), and a 4-way version lock (`package.json`, `plugin.json`, `BridgeVersion` const, CHANGELOG first heading). Exits 0 on pass, 1 on any failure.
+- **`.github/workflows/ci.yml`** -- GitHub Actions workflow: runs the parity audit on every push and PR to `main`. Catches drift before it ships.
+- **`scripts/check-csharp-syntax.py`** -- tree-sitter pre-sync syntax gate: parses every `.cs` file in `sbox-bridge-addon/Editor` and fails on any `ERROR`/`MISSING` node (unbalanced braces, truncated files, broken interpolated-string escaping) before the code is synced into a live s&box editor where a failed compile takes the whole bridge down.
+
+### Changed -- Whitelist correction (affects all s&box devs reading stale advice)
+
+- **`System.Math` and `System.MathF` NOW COMPILE** in s&box game code on the current SDK -- the old "MathX only" rule documented in `CLAUDE.md` and `docs/BRIDGE_GOTCHAS.md` was stale. Both files corrected. `sandbox_lint` does NOT flag `Math`/`MathF` usage.
+- **`Array.Clone()` is STILL whitelist-blocked** (verified via deliberate live compile failure: "System.Array.Clone() is not allowed when whitelist is enabled"). Use `.ToArray()`. `sandbox_lint` flags this with the fix.
+- `sandbox_lint` tuned accordingly: `Math`/`MathF` removed from the advisory list; `Array.Clone()` is the canonical blocked-clone example.
+
+### Changed -- Bridge map (semantic rebuild)
+
+- Full semantic bridge-map rebuilt **without an API key** (Claude subagent extraction via the graphify skill): **3548 nodes / 4473 edges / 257 communities** with 50 human-named communities. Previous graph was code/AST only. `docs/graph/` updated (`graph.json`, `graph.html`, `GRAPH_REPORT.md`).
+
+### Notes
+
+- **`copy_asset_with_dependencies` destination shadow-guard:** the tool refuses any destination path that is or descends from the core asset trees (`models/citizen/**`, `models/dev/**`, `materials/dev/**`, `materials/default/**`) -- both for the copied asset AND every resolved dependency. This is the gotcha #5 fix; the guard is intentionally conservative.
+- **`check-csharp-syntax.py` known false positive:** tree-sitter mis-flags the `$@`-template region in `CreateSaveSystemHandler` that the real Roslyn compiler accepts without issue. Treat any report on that region as advisory; the generated code is correct.
+- The 6 new tools need both the updated MCP server (`sbox-mcp-server@1.12.0`) and the republished addon (`BridgeVersion` `1.12.0`). The CI/parity scripts and whitelist correction are server/docs-side only.
+- **No breaking changes** to existing tool contracts.
+
+---
+
 ## [1.11.0] — 2026-06-09
 
 **Two host-authoritative "game director" scaffolds, and the cookbook fully re-mined across all 51 games. 173 handlers (was 171). Additive — no existing tool contract changed.**

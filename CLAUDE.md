@@ -2,13 +2,28 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.11.0 — 173 handlers (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.12.0 -- 179 handlers / 188 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-09 (v1.11.0)
+**Last updated:** 2026-06-09 (v1.12.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.12.0
+
+**+6 tools across two waves, a CI parity gate, a C# syntax gate, a semantic bridge-map rebuild, and a whitelist correction. 179 handlers / 188 tools (was 173/182).** Additive -- no existing tool contract changed.
+
+- **`create_interactable`** -- `Component.IPressable` scaffold: `Press`/`Look`/`Hover`/`Blur`/`CanPress`/`GetTooltip` + `IsProxy` guard. The interaction primitive every genre recipe depends on. Compile-verified live.
+- **`create_weighted_loot_table`** -- parallel `Names`/`Weights` lists, cumulative-weight `Roll()`, optional pity via `PityAfter`. The canonical weighted-pick that 7 corpus games hand-rolled independently. Compile-verified live.
+- **`sandbox_lint`** -- pre-compile whitelist scan of `Code/*.cs`: flags `Array.Clone()` (still blocked), `System.Net.*`, other known-blocked BCL members with file+line + fix suggestion. Catches whitelist errors before hotload, with a line number.
+- **`create_save_system`** -- versioned POCO + `FileSystem.Data.WriteJson`/`ReadJsonOrDefault`, dirty-flag autosave, clamp-on-load `Sanitize()`, delete-on-version-mismatch, `IsProxy` guard. The #1 corpus demand (7x). Compile-verified live.
+- **`razor_lint`** -- static scan of `.razor`/`.razor.scss` for Razor transpiler footguns: switch-expressions in `@code`, non-ASCII in `@code`, `PanelComponent` missing `BuildHash`, root type-selector SCSS. The "valid code, opaque crash" bug class.
+- **`copy_asset_with_dependencies`** -- copies an asset + full dependency closure (`Editor.Asset.GetReferences(deep:true)`), shadow-guards both dependency paths and destination against core trees (`models/citizen`, `models/dev`, `materials/dev`, `materials/default`). Kills gotchas #4 and #5 (ERROR mesh + endless recompile from shadowing).
+- **CI gate:** `scripts/audit-parity.mjs` (TS<->C# parity + 4-way version lock) + `.github/workflows/ci.yml` (runs on push/PR to main).
+- **Syntax gate:** `scripts/check-csharp-syntax.py` (tree-sitter pre-sync parse of all `.cs` addon files; known FP on `CreateSaveSystemHandler` `$@`-template region -- treat advisory).
+- **Whitelist correction:** `System.Math` and `System.MathF` NOW COMPILE in s&box game code on the current SDK -- the old "MathX only" rule was stale. `Array.Clone()` is still blocked. `CLAUDE.md` and `docs/BRIDGE_GOTCHAS.md` corrected; `sandbox_lint` tuned accordingly.
+- **Bridge map:** full semantic rebuild without an API key (3548 nodes / 4473 edges / 257 communities, 50 human-named). Previous graph was code/AST only.
 
 ### What's new in v1.11.0
 
@@ -390,4 +405,11 @@ Project.Current.Config.Title / .Org / .Ident / .Type
 # Build MCP Server
 cd sbox-mcp-server && npm install && npm run build
 
-# The Bridge Addon i
+# The Bridge Addon is compiled automatically by s&box
+# Just edit MyEditorMenu.cs and restart s&box
+
+# Test IPC manually:
+echo '{"id":"test","command":"get_project_info","params":{}}' > %TEMP%/sbox-bridge-ipc/req_test.json
+# Check response:
+cat %TEMP%/sbox-bridge-ipc/res_test.json
+```
