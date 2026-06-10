@@ -69,6 +69,18 @@ public class CopyAssetWithDependenciesHandler : IBridgeHandler
 			if ( !ClaudeBridge.TryResolveProjectPath( targetDir, out var absTargetDir, out var pathErr ) )
 				return Task.FromResult<object>( new { error = pathErr } );
 
+			// SHADOW GUARD for the DESTINATION too: writing anything under a core engine
+			// tree (models/citizen, materials/dev, materials/default, models/dev) risks
+			// shadowing built-in assets -> infinite recompile loop (BRIDGE_GOTCHAS #5).
+			var targetNorm = targetDir.Replace( '\\', '/' ).TrimStart( '/' );
+			if ( targetNorm.StartsWith( "Assets/", StringComparison.OrdinalIgnoreCase ) )
+				targetNorm = targetNorm.Substring( 7 );
+			foreach ( var blockedTree in ShadowBlockedTrees )
+			{
+				if ( targetNorm.StartsWith( blockedTree, StringComparison.OrdinalIgnoreCase ) )
+					return Task.FromResult<object>( new { error = $"SHADOW_BLOCKED targetDir: '{targetDir}' is under the core engine tree '{blockedTree}'. Copying assets there can shadow built-in assets and cause an infinite recompile loop (BRIDGE_GOTCHAS #5). Pick a project-namespaced folder like Assets/library/<name>." } );
+			}
+
 			bool overwrite = p.TryGetProperty( "overwrite", out var ow ) && ow.ValueKind == JsonValueKind.True;
 
 			// ---- 3. Build closure ----
