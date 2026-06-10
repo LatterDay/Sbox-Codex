@@ -419,4 +419,38 @@ export function registerGameplayTools(
       };
     }
   );
+
+  // -- create_save_system ------------------------------------------------
+  server.tool(
+    "create_save_system",
+    "Generate a versioned save-system component: a SaveData POCO with Version bump on schema change, dirty-flag autosave on a TimeUntil timer, clamp-on-load Sanitize() for corrupt/hand-edited saves, and delete-on-version-mismatch to start fresh instead of crashing. Runs only on the owning machine (IsProxy guard). Fires static OnLoaded/OnSaved hooks for HUD and analytics. FileSystem.Data.ReadJsonOrDefault/WriteJson verified live on the current SDK. Optionally attached to an existing GameObject by GUID (after a hotload).",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'SaveSystem'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      fileName: z
+        .string()
+        .optional()
+        .describe("Save file name under FileSystem.Data (e.g. 'save.json'). Defaults to 'save.json'"),
+      version: z
+        .number()
+        .int()
+        .optional()
+        .describe("Schema version embedded in SaveData. Old saves with a different version start fresh. Defaults to 1"),
+      autosaveSeconds: z
+        .number()
+        .optional()
+        .describe("Seconds between autosave ticks (0 disables autosave). Defaults to 10"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to attach to (only if the type is already loaded -- hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_save_system", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
 }

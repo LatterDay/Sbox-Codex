@@ -1471,4 +1471,332 @@ public sealed class {className} : Component, Component.IPressable
 	/// behaviour here. For host-authoritative side-effects call an [Rpc.Host]
 	/// method from this body so only the host applies the change.
 	/// </summary>
-	private void OnPress( Compone
+	private void OnPress( Component.IPressable.Event e ) {{ }}
+}}
+";
+	}
+}
+
+// =============================================================================
+// L. create_weighted_loot_table -- cumulative-weight random loot picker.
+//    Parallel Name/Weight lists (inspector-editable), Roll() returning the
+//    winning entry name + firing a static OnLoot event. Optional pity system
+//    (guarantee the last/rarest entry after PityAfter consecutive non-rare
+//    rolls). Roll() is host-authoritative -- replicate the result, never let
+//    clients roll their own loot.
+//    Mined from pickup/reward patterns across shipped s&box games.
+// =============================================================================
+public class CreateWeightedLootTableHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "LootTable", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			// Parse entries: array of {name,weight} OR "name:weight,name:weight" string.
+			var entries = ParseEntries( p );
+			bool pity   = p.TryGetProperty( "pity", out var pv ) && pv.ValueKind == JsonValueKind.True;
+
+			var code = BuildCode( className, entries, pity );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, entries = entries.Count, pity, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_weighted_loot_table failed: {ex.Message}" } );
+		}
+	}
+
+	static List<(string Name, float Weight)> ParseEntries( JsonElement p )
+	{
+		var result = new List<(string, float)>();
+		if ( p.TryGetProperty( "entries", out var ev ) )
+		{
+			if ( ev.ValueKind == JsonValueKind.Array )
+			{
+				foreach ( var item in ev.EnumerateArray() )
+				{
+					var n = item.TryGetProperty( "name",   out var nv ) ? nv.GetString() : "item";
+					var w = item.TryGetProperty( "weight", out var wv ) && wv.TryGetSingle( out var wf ) ? wf : 1f;
+					result.Add( (n, w) );
+				}
+			}
+			else if ( ev.ValueKind == JsonValueKind.String )
+			{
+				foreach ( var part in ev.GetString().Split( ',' ) )
+				{
+					var kv = part.Split( ':' );
+					if ( kv.Length == 2 && float.TryParse( kv[1].Trim(),
+						System.Globalization.NumberStyles.Float,
+						System.Globalization.CultureInfo.InvariantCulture, out var wf ) )
+						result.Add( (kv[0].Trim(), wf) );
+				}
+			}
+		}
+		if ( result.Count == 0 )
+		{
+			result.Add( ("common",   70f) );
+			result.Add( ("uncommon", 25f) );
+			result.Add( ("rare",      5f) );
+		}
+		return result;
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, List<(string Name, float Weight)> entries, bool pity )
+	{
+		var ci = System.Globalization.CultureInfo.InvariantCulture;
+
+		// Build inspector-default array initialisers.
+		var nameLiterals   = string.Join( ", ", entries.Select( e => $"\"{e.Name}\"" ) );
+		var weightLiterals = string.Join( ", ", entries.Select( e => e.Weight.ToString( ci ) + "f" ) );
+		int lastIdx        = entries.Count - 1;
+
+		string pityBlock = pity ? $@"
+	// Pity: guarantee the last (rarest) entry after PityAfter consecutive non-rare rolls.
+	[Property] public int PityAfter {{ get; set; }} = 10;
+	private int _consecutiveNonRare;" : "";
+
+		string pityRoll = pity ? $@"
+		// Pity check before the weighted roll.
+		if ( _consecutiveNonRare >= PityAfter ) {{ _consecutiveNonRare = 0; return Names[{lastIdx}]; }}" : "";
+
+		string pityTrack = pity ? $@"
+		if ( winner == Names[{lastIdx}] ) _consecutiveNonRare = 0;
+		else _consecutiveNonRare++;" : "";
+
+		return $@"using Sandbox;
+using System;
+using System.Collections.Generic;
+
+/// <summary>
+/// {className} -- a cumulative-weight random loot picker.
+///
+/// Parallel Names / Weights lists are inspector-editable so designers can tune
+/// drop rates without touching code. Roll() is HOST-AUTHORITATIVE -- call it
+/// only on the host and replicate the result. Clients rolling their own loot is
+/// the same exploit as clients writing their own money balance.
+///
+/// Usage:
+///   string drop = GetComponent<{className}>().Roll();
+///   {className}.OnLoot += (go, drop) => Log.Info($""{{go.Name}} got {{drop}}"");
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public List<string> Names {{ get; set; }} = new List<string> {{ {nameLiterals} }};
+	[Property] public List<float>  Weights {{ get; set; }} = new List<float> {{ {weightLiterals} }};
+{pityBlock}
+	/// Fires (on the rolling machine) when Roll() picks a winner.
+	public static Action<GameObject, string> OnLoot {{ get; set; }}
+
+	/// <summary>
+	/// Pick one entry by cumulative weight. HOST-AUTHORITATIVE: only the host
+	/// should call this; replicate the result string to clients via [Sync] or
+	/// an [Rpc.Broadcast] so all machines show the same drop.
+	/// Returns null when the table is empty or all weights are zero.
+	/// </summary>
+	public string Roll()
+	{{
+		if ( Names == null || Weights == null || Names.Count == 0 ) return null;
+		int count = Math.Min( Names.Count, Weights.Count );
+		if ( count == 0 ) return null;
+{pityRoll}
+		float total = 0f;
+		for ( int i = 0; i < count; i++ ) total += Weights[i];
+		if ( total <= 0f ) return Names[0];
+
+		float roll = Game.Random.Float( 0f, total );
+		float cumulative = 0f;
+		string winner = Names[count - 1]; // fallback
+		for ( int i = 0; i < count; i++ )
+		{{
+			cumulative += Weights[i];
+			if ( roll < cumulative ) {{ winner = Names[i]; break; }}
+		}}
+{pityTrack}
+		OnLoot?.Invoke( GameObject, winner );
+		return winner;
+	}}
+}}
+";
+	}
+}
+
+// =============================================================================
+// M. create_save_system -- versioned POCO + dirty-flag autosave + clamp-on-load
+//    + delete-on-version-mismatch, host/owner-only, per the save-persistence
+//    cookbook recipe. FileSystem.Data.ReadJsonOrDefault<T>/WriteJson<T>
+//    verified live on this SDK.
+// =============================================================================
+public class CreateSaveSystemHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "SaveSystem", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			var ci           = System.Globalization.CultureInfo.InvariantCulture;
+			string fileName  = p.TryGetProperty( "fileName",        out var fn ) && !string.IsNullOrWhiteSpace( fn.GetString() ) ? fn.GetString() : "save.json";
+			int    version   = p.TryGetProperty( "version",         out var vv ) && vv.TryGetInt32( out var vi ) ? vi : 1;
+			float  autosave  = p.TryGetProperty( "autosaveSeconds", out var av ) && av.TryGetSingle( out var af ) ? af : 10f;
+			string autoStr   = autosave.ToString( ci ) + "f";
+			string verStr    = version.ToString();
+
+			var code = BuildCode( className, fileName, verStr, autoStr );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_save_system failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, string fileName, string version, string autosave )
+	{
+		return $@"using Sandbox;
+using System;
+
+/// <summary>
+/// {className} -- versioned POCO + dirty-flag autosave + clamp-on-load +
+/// delete-on-version-mismatch, host/owner-only, per the save-persistence
+/// cookbook recipe. FileSystem.Data.ReadJsonOrDefault/WriteJson verified live.
+///
+/// Add your own fields to the SaveData inner class. Bump Version when the
+/// shape changes so old saves start fresh instead of crashing.
+/// Wire OnLoaded to rebuild runtime state after a load (e.g. restore money,
+/// rebuild inventory). Wire OnSaved for analytics/cloud-sync hooks.
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public string FileName {{ get; set; }} = ""{fileName}"";
+	[Property] public float AutosaveSeconds {{ get; set; }} = {autosave};
+
+	/// The save payload. Add your own fields here, bump Version when the shape changes.
+	public class SaveData
+	{{
+		public int Version {{ get; set; }} = {version};
+		public int Money {{ get; set; }}
+		public int Day {{ get; set; }}
+		// Add game fields here.
+	}}
+
+	public SaveData Data {{ get; private set; }} = new SaveData();
+	public bool IsDirty {{ get; private set; }}
+
+	/// Fires after a successful Load() with the loaded data.
+	public static Action<SaveData> OnLoaded {{ get; set; }}
+	/// Fires after every Save().
+	public static Action<SaveData> OnSaved {{ get; set; }}
+
+	private TimeUntil _nextAutosave;
+
+	protected override void OnStart()
+	{{
+		if ( IsProxy ) return;   // only the owning machine loads
+		Load();
+		_nextAutosave = AutosaveSeconds;
+	}}
+
+	protected override void OnUpdate()
+	{{
+		if ( IsProxy || AutosaveSeconds <= 0f ) return;
+		if ( _nextAutosave )
+		{{
+			_nextAutosave = AutosaveSeconds;
+			if ( IsDirty ) Save();
+		}}
+	}}
+
+	/// Mark the data changed so the next autosave tick writes it.
+	public void MarkDirty() => IsDirty = true;
+
+	public void Load()
+	{{
+		var loaded = FileSystem.Data.ReadJsonOrDefault<SaveData>( FileName, null );
+		if ( loaded == null || loaded.Version != {version} )
+		{{
+			// Missing, corrupt, or old-version save: start fresh (add migrations here later).
+			Data = new SaveData();
+			IsDirty = true;
+		}}
+		else
+		{{
+			Data = Sanitize( loaded );
+			IsDirty = false;
+		}}
+		OnLoaded?.Invoke( Data );
+	}}
+
+	public void Save()
+	{{
+		FileSystem.Data.WriteJson( FileName, Data );
+		IsDirty = false;
+		OnSaved?.Invoke( Data );
+	}}
+
+	/// Clamp-on-load: keep loaded values inside sane ranges so a hand-edited or
+	/// corrupt save cannot break the game. Extend per field.
+	private SaveData Sanitize( SaveData d )
+	{{
+		if ( d.Money < 0 ) d.Money = 0;
+		if ( d.Day < 1 ) d.Day = 1;
+		return d;
+	}}
+
+	protected override void OnDestroy()
+	{{
+		if ( !IsProxy && IsDirty ) Save();
+	}}
+}}
+";
+	}

@@ -71,6 +71,23 @@ export function registerInspectionTools(
     }
   );
 
+  // ── razor_lint ────────────────────────────────────────────────────
+  server.tool(
+    "razor_lint",
+    "Static-scan .razor and .razor.scss files for the silent footguns that crash the Razor transpiler or stylesheet engine with no useful error message: switch expressions inside @code blocks (use if/else instead), non-ASCII/emoji inside @code (move to markup or a string constant), PanelComponent subclasses missing a BuildHash override (panel never re-renders), and root uppercase type-selector rules in .razor.scss (silently skipped -- use a class selector like .my-panel). Returns { scanned, findings: [{file, line, match, advice}], clean } matching the sandbox_lint shape.",
+    {
+      directory: z
+        .string()
+        .optional()
+        .describe("Subdirectory under the project root to scan (e.g. 'UI', 'Code'). Defaults to 'Code'"),
+    },
+    async (params) => {
+      const res = await bridge.send("razor_lint", params);
+      if (!res.success) return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
   // ── scene_validate ────────────────────────────────────────────────
   server.tool(
     "scene_validate",

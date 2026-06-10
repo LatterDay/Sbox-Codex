@@ -409,6 +409,7 @@ public static class ClaudeBridge
 		Register( "create_day_night_clock",      () => new CreateDayNightClockHandler() );
 		Register( "create_interactable",         () => new CreateInteractableHandler() );
 		Register( "create_weighted_loot_table",  () => new CreateWeightedLootTableHandler() );
+		Register( "create_save_system",          () => new CreateSaveSystemHandler() );
 
 		// ── Batch 36: NPC brains ────────────────────────────────────────
 		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
@@ -421,6 +422,7 @@ public static class ClaudeBridge
 		Register( "inspect_networked_object", () => new InspectNetworkedObjectHandler() );
 		Register( "networking_lint",          () => new NetworkingLintHandler() );
 		Register( "sandbox_lint",             () => new SandboxLintHandler() );
+		Register( "razor_lint",              () => new RazorLintHandler() );
 		Register( "scene_validate",           () => new SceneValidateHandler() );
 		Register( "save_inspect",             () => new SaveInspectHandler() );
 		Register( "services_query",           () => new ServicesQueryHandler() );
@@ -432,6 +434,9 @@ public static class ClaudeBridge
 		// ── Batch 39: Play-mode input driver (sustained / analog) ───────
 		Register( "drive_player",             () => new DrivePlayerHandler() );
 		Register( "drive_player_status",      () => new DrivePlayerStatusHandler() );
+
+		// ── Batch 40: Asset utilities ────────────────────────────────────
+		Register( "copy_asset_with_dependencies", () => new CopyAssetWithDependenciesHandler() );
 
 		Log.Info( $"[SboxBridge] Registered {_handlers.Count} handlers" );
 	}
@@ -447,7 +452,7 @@ public static class ClaudeBridge
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
 		"set_component_reference", "add_component_to_new_object",
-		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock", "create_interactable", "create_weighted_loot_table",
+		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock", "create_interactable", "create_weighted_loot_table", "create_save_system",
 		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
@@ -475,6 +480,7 @@ public static class ClaudeBridge
 		"undo", "redo",
 		"set_project_config", "set_project_thumbnail",
 		"ensure_input_action",
+		"copy_asset_with_dependencies",
 	};
 
 	internal static bool IsSceneMutating( string command ) => _sceneMutatingCommands.Contains( command );
@@ -4410,6 +4416,158 @@ public class SandboxLintHandler : IBridgeHandler
 	}
 }
 
+/// <summary>
+/// Static scan of .razor and .razor.scss files for common Razor/stylesheet pitfalls:
+/// switch expressions in @code (crash the transpiler), non-ASCII in @code
+/// (crashes the transpiler), PanelComponent without BuildHash (panel never re-renders),
+/// and root type-selector CSS rules (silently skipped by the stylesheet engine).
+/// Returns { scanned, findings:[{file,line,match,advice}], clean } like sandbox_lint.
+/// </summary>
+public class RazorLintHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var root = Project.Current?.GetRootPath();
+		if ( string.IsNullOrEmpty( root ) )
+			return Task.FromResult<object>( new { error = "No current project" } );
+
+		var dirParam = p.TryGetProperty( "directory", out var dp ) && !string.IsNullOrWhiteSpace( dp.GetString() ) ? dp.GetString() : "Code";
+		string scanDir;
+		if ( !ClaudeBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
+
+		if ( !Directory.Exists( scanDir ) )
+			return Task.FromResult<object>( new { error = $"Directory not found: {dirParam}" } );
+
+		var findings = new List<object>();
+
+		// Collect .razor and .razor.scss files, skip obj/bin/Libraries (same as sandbox_lint).
+		static bool IsSkipped( string f ) =>
+			f.IndexOf( "\\obj\\",     StringComparison.OrdinalIgnoreCase ) >= 0 ||
+			f.IndexOf( "/obj/",       StringComparison.OrdinalIgnoreCase ) >= 0 ||
+			f.IndexOf( "\\bin\\",     StringComparison.OrdinalIgnoreCase ) >= 0 ||
+			f.IndexOf( "/bin/",       StringComparison.OrdinalIgnoreCase ) >= 0 ||
+			f.IndexOf( "Libraries",   StringComparison.OrdinalIgnoreCase ) >= 0;
+
+		var razorFiles = Directory.GetFiles( scanDir, "*.razor", SearchOption.AllDirectories )
+			.Where( f => !IsSkipped( f ) ).ToList();
+		var scssFiles  = Directory.GetFiles( scanDir, "*.razor.scss", SearchOption.AllDirectories )
+			.Where( f => !IsSkipped( f ) ).ToList();
+
+		// Regex tools (all ASCII patterns, constructed once).
+		var rxSwitchExpr     = new System.Text.RegularExpressions.Regex( @"[\w\)\]]\s+switch\s*\{" );
+		var rxRootTypeSelector = new System.Text.RegularExpressions.Regex( @"^[A-Z][A-Za-z0-9_]*\s*\{", System.Text.RegularExpressions.RegexOptions.Multiline );
+
+		foreach ( var file in razorFiles )
+		{
+			string text; try { text = File.ReadAllText( file ); } catch { continue; }
+			string[] lines = text.Split( '\n' );
+			var rel = Path.GetRelativePath( root, file ).Replace( '\\', '/' );
+
+			// Find @code { ... } block ranges using brace matching.
+			var codeRanges = FindCodeBlockLines( lines );
+
+			for ( int i = 0; i < lines.Length; i++ )
+			{
+				var line = lines[i];
+				bool inCode = codeRanges.Any( r => i >= r.Start && i <= r.End );
+
+				if ( inCode )
+				{
+					// Rule 1: switch expressions in @code.
+					var m1 = rxSwitchExpr.Match( line );
+					if ( m1.Success )
+						findings.Add( new { file = rel, line = i + 1, match = m1.Value,
+							advice = "switch EXPRESSIONS in @code can crash the Razor transpiler with no useful error - use if/else" } );
+
+					// Rule 2: non-ASCII characters in @code.
+					for ( int c = 0; c < line.Length; c++ )
+					{
+						if ( line[c] > '\x7F' )
+						{
+							findings.Add( new { file = rel, line = i + 1, match = line[c].ToString(),
+								advice = "non-ASCII/emoji in @code can crash the Razor transpiler - move it to markup or data" } );
+							break; // one finding per line is enough
+						}
+					}
+				}
+			}
+
+			// Rule 3 (whole file): PanelComponent without BuildHash.
+			if ( text.Contains( "inherits PanelComponent" ) && !text.Contains( "BuildHash" ) )
+				findings.Add( new { file = rel, line = 1, match = "inherits PanelComponent",
+					advice = "PanelComponent without BuildHash override - panel may not re-render when state changes (and remember it renders nothing without a ScreenPanel/WorldPanel host)" } );
+		}
+
+		// .razor.scss rules.
+		foreach ( var file in scssFiles )
+		{
+			string text; try { text = File.ReadAllText( file ); } catch { continue; }
+			string[] lines = text.Split( '\n' );
+			var rel = Path.GetRelativePath( root, file ).Replace( '\\', '/' );
+
+			for ( int i = 0; i < lines.Length; i++ )
+			{
+				var line = lines[i];
+				// Rule 4: root (column-0) type selector starting with uppercase.
+				// The line must start at column 0 (no leading whitespace).
+				if ( line.Length > 0 && line[0] != ' ' && line[0] != '\t' )
+				{
+					var m = rxRootTypeSelector.Match( line );
+					if ( m.Success && m.Index == 0 )
+						findings.Add( new { file = rel, line = i + 1, match = m.Value.TrimEnd( '{' ).Trim(),
+							advice = "root type-selector rules are silently skipped by the stylesheet engine - use a class selector (.my-panel)" } );
+				}
+			}
+		}
+
+		int scanned = razorFiles.Count + scssFiles.Count;
+		return Task.FromResult<object>( new { scanned, findings, clean = findings.Count == 0 } );
+	}
+
+	// Brace-match the @code { ... } blocks. Returns a list of (Start, End) line ranges (inclusive).
+	static List<(int Start, int End)> FindCodeBlockLines( string[] lines )
+	{
+		var ranges = new List<(int, int)>();
+		int depth  = 0;
+		int start  = -1;
+		bool inCode = false;
+
+		for ( int i = 0; i < lines.Length; i++ )
+		{
+			var line = lines[i];
+			if ( !inCode )
+			{
+				// Look for @code on this line (may be followed by { on the same line).
+				int atCode = line.IndexOf( "@code", StringComparison.Ordinal );
+				if ( atCode >= 0 )
+				{
+					inCode = true;
+					start  = i;
+					depth  = 0;
+					// Count braces on the same line after @code.
+					for ( int c = atCode + 5; c < line.Length; c++ )
+					{
+						if ( line[c] == '{' ) depth++;
+						else if ( line[c] == '}' ) depth--;
+					}
+					if ( depth <= 0 && start >= 0 ) { ranges.Add( (start, i) ); inCode = false; start = -1; }
+				}
+			}
+			else
+			{
+				foreach ( char ch in line )
+				{
+					if ( ch == '{' ) depth++;
+					else if ( ch == '}' ) { depth--; if ( depth <= 0 ) break; }
+				}
+				if ( depth <= 0 ) { ranges.Add( (start, i) ); inCode = false; start = -1; depth = 0; }
+			}
+		}
+		return ranges;
+	}
+}
+
 /// <summary>Validate the active scene for common setup footguns (no camera, stray root rigidbodies, trigger-vs-trace).</summary>
 
 // ═════════════════════════════════════════════════════════════════════
@@ -8199,41 +8357,6 @@ public class GetBoundsHandler : IBridgeHandler
 	}
 }
 
-public class ListAnimationsHandler : IBridgeHandler
-{
-	public Task<object> Execute( JsonElement p )
-	{
-		var scene = SceneEditorSession.Active?.Scene;
-		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
-		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
-			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
-		var go = scene.Directory.FindByGuid( guid );
-		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
-		var body = go.GetComponent<SkinnedModelRenderer>();
-		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (animations need one — e.g. spawn_citizen, or a model with sequences)" } );
-		if ( body.Model == null ) return Task.FromResult<object>( new { error = "The SkinnedModelRenderer has no Model assigned" } );
-
-		var names = new List<string>();
-		try { foreach ( var n in body.Sequence.SequenceNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
-		try { foreach ( var n in body.Model.AnimationNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
-		names.Sort( StringComparer.OrdinalIgnoreCase );
-
-		return Task.FromResult<object>( new
-		{
-			id = idEl.GetString(),
-			name = go.Name,
-			model = body.Model.ResourceName,
-			useAnimGraph = body.UseAnimGraph,
-			hasAnimGraph = body.AnimationGraph != null,
-			count = names.Count,
-			animations = names,
-			note = body.UseAnimGraph
-				? "Uses an AnimationGraph (e.g. Citizen) — drive motion with set_animgraph_param (graph params like move_x / move_y / b_grounded / b_ducked). play_animation sets a raw sequence by name."
-				: "Drive these with play_animation (sequence name)."
-		} );
-	}
-}
-
 public class PlayAnimationHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -8338,7 +8461,37 @@ public class SetAnimgraphParamHandler : IBridgeHandler
 	}
 }
 
-// ═════════════════════════════════════════════════════════════════════
-//  Batch 34 — PLAY-MODE EYES (v1.7.0)
-//  capture_view renders a CameraComponent's view to a PNG via
-//  CameraComponent.RenderToBitmap + Bitmap.ToPng. Unl
+public class ListAnimationsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+		if ( !p.TryGetProperty( "id", out var idEl ) || !Guid.TryParse( idEl.GetString(), out var guid ) )
+			return Task.FromResult<object>( new { error = "id (GameObject GUID) is required" } );
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+		var body = go.GetComponent<SkinnedModelRenderer>();
+		if ( body == null ) return Task.FromResult<object>( new { error = "Target has no SkinnedModelRenderer (animations need one — e.g. spawn_citizen, or a model with sequences)" } );
+		if ( body.Model == null ) return Task.FromResult<object>( new { error = "The SkinnedModelRenderer has no Model assigned" } );
+
+		var names = new List<string>();
+		try { foreach ( var n in body.Sequence.SequenceNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
+		try { foreach ( var n in body.Model.AnimationNames ) if ( !string.IsNullOrEmpty( n ) && !names.Contains( n ) ) names.Add( n ); } catch { }
+		names.Sort( StringComparer.OrdinalIgnoreCase );
+
+		return Task.FromResult<object>( new
+		{
+			id = idEl.GetString(),
+			name = go.Name,
+			model = body.Model.ResourceName,
+			useAnimGraph = body.UseAnimGraph,
+			hasAnimGraph = body.AnimationGraph != null,
+			count = names.Count,
+			animations = names,
+			note = body.UseAnimGraph
+				? "Uses an AnimationGraph (e.g. Citizen) — drive motion with set_animgraph_param (graph params like move_x / move_y / b_grounded / b_ducked). play_animation sets a raw sequence by name."
+				: "Drive these with play_animation (sequence name)."
+		} );
+	}
+}

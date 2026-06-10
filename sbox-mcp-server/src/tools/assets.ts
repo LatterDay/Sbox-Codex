@@ -109,4 +109,32 @@ export function registerAssetTools(
       };
     }
   );
+
+  // ── copy_asset_with_dependencies ─────────────────────────────────
+  server.tool(
+    "copy_asset_with_dependencies",
+    "Copy a project asset and its full dependency closure (via Asset.GetReferences(deep:true)) into a target directory, preserving relative path structure so material references to textures keep resolving. SHADOW GUARD: refuses to write under core engine trees (models/citizen, models/dev, materials/dev, materials/default) -- copying there triggers an infinite asset-recompile loop (BRIDGE_GOTCHAS #5). Cloud/procedural/transient assets are skipped with a reason. Returns { copied:[{from,to}], skipped:[{path,reason}], count, note }.",
+    {
+      sourcePath: z
+        .string()
+        .describe("Absolute path OR project-relative path of the source asset (e.g. 'models/props/crate.vmdl'). Use search_assets to find the exact path."),
+      targetDir: z
+        .string()
+        .optional()
+        .describe("Project-relative destination directory (e.g. 'Assets/library'). Defaults to 'Assets/library'"),
+      overwrite: z
+        .boolean()
+        .optional()
+        .describe("Overwrite existing files at the destination. Defaults to false"),
+    },
+    async (params) => {
+      const res = await bridge.send("copy_asset_with_dependencies", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }],
+      };
+    }
+  );
 }
