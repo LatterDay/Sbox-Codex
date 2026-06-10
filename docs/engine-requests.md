@@ -1,6 +1,6 @@
 # s&box Engine / SDK Limitations — Feature & Bug Requests
 
-**Date:** 2026-06-06
+**Date:** 2026-06-06, updated 2026-06-09 (items 4 resolved; 20-26 added from live-verified session findings)
 **Source project:** the Claude Bridge (`sbox-mcp-server` + the in-editor `claudebridge` addon) — an editor-side automation tool that drives the s&box editor through a sandboxed C# addon plus an external Node process.
 
 This document lists capabilities that are **blocked by s&box itself** — the engine/SDK provides no API, the sandbox forbids it, or a public API has a confirmed rendering/lifecycle bug. Items the bridge simply hasn't implemented (and could fix on its own) are **excluded** (see the last section).
@@ -34,8 +34,9 @@ Each item is self-contained so it can be filed individually. Citations point at 
 - **Requested fix:** Provide an editor periodic callback (e.g. `[EditorEvent.Tick]` or a registerable timer driven by the editor main loop) that fires regardless of whether any widget is visible and even when the window is unfocused/minimized.
 - **Use case:** A background tooling addon that must drain a work queue and emit a heartbeat without a visible panel or foreground focus.
 
-### 4. Whitelist `System.Math`/`System.MathF` in the sandbox (or complete `MathX`)
-- **What's blocked:** Sandboxed game code cannot call `MathF.Sin`, `Math.Abs`, etc., and the always-available helper `MathX` omits `Abs`, `Min`, `Max`, `Sin`, `Cos`, `Tan`, `Atan2`, `Sqrt`, `Pow`, and `PI`/`Tau`. Routine math must be hand-rolled.
+### 4. ~~Whitelist `System.Math`/`System.MathF` in the sandbox (or complete `MathX`)~~ RESOLVED
+- **RESOLVED (verified live 2026-06-09):** `System.Math` and `System.MathF` now compile in sandboxed game code on the current SDK. Thanks! Narrow follow-ups remain: **`System.Array.Clone()` is still blocked** (confirmed live: "System.Array.Clone() is not allowed when whitelist is enabled") -- either whitelist it or keep it blocked but say so in docs; and **publish the whitelist** (see new item 20).
+- **What was blocked:** Sandboxed game code cannot call `MathF.Sin`, `Math.Abs`, etc., and the always-available helper `MathX` omits `Abs`, `Min`, `Max`, `Sin`, `Cos`, `Tan`, `Atan2`, `Sqrt`, `Pow`, and `PI`/`Tau`. Routine math must be hand-rolled.
 - **Why it's engine-level:** Sandbox whitelist + first-party API surface — only Facepunch can add `System.MathF` to the whitelist or extend `MathX`.
 - **Evidence:** `CLAUDE.md` (Math & Events), `sbox-build-feature/SKILL.md`, `ScaffoldHandlers.cs`.
 - **Requested fix:** Whitelist `System.Math`/`System.MathF`, or extend `MathX` to cover the common functions above.
@@ -103,6 +104,27 @@ Scene APIs are main-editor-thread-only and the SDK provides no main-thread dispa
 Editing the scene while `Game.IsPlaying` is true can corrupt the saved `.scene` (the bridge hard-refuses such edits because it actually happened). **Ask:** make play-mode edits safe (separate play/edit scene state on save) or provide a supported API for edits that survive the play/stop transition. *(`TROUBLESHOOTING.md`, `CHANGELOG.md [1.2.0]`.)*
 
 ---
+
+### 20. Publish the sandbox whitelist (machine-readable)
+There is no published list of which BCL members compile in sandboxed game code -- the community's knowledge (including ours) goes stale silently, as the Math/MathF rule just did. Tooling has to discover the rules by deliberately failing compiles. **Ask:** publish the whitelist (or the diff per SDK release) in a machine-readable form, e.g. alongside the sbox.game/api schema. **Use case:** lint tools (`sandbox_lint`) that catch violations before compile; accurate community docs. *(Verified-live findings 2026-06-09: Math/MathF now allowed, Array.Clone() still blocked.)*
+
+### 21. A sanctioned input-injection API for editor tooling (the one thing external tools can never do)
+`Sandbox.Input` exposes `SetAction(name, down)` only; a bridge handler runs inside one editor frame so the press+release collapse and `Input.Pressed` edges are missed, and there are **no setters at all** for `AnalogMove`/`AnalogLook`. Automated playtesting -- move, look, press, in sequence, across frames -- is impossible without reflection hacks into individual controllers (our `drive_player`), which break per project. **Ask:** an editor/tooling API to hold actions down across frames and to feed analog move/look, explicitly for automation ("synthetic input" scope is fine). **Use case:** scripted smoke-tests of a gameplay loop before a human playtest. *(BRIDGE_GOTCHAS #1.)*
+
+### 22. Surface-registry corruption: every `Scene.Trace` throws "Default Surface not found" until restart
+After long editor sessions the physics/surface registry corrupts and every trace throws; nothing in-process can repair it -- only a full editor restart. **Ask:** fix the corruption, or expose a "re-register default resources" recovery call. *(BRIDGE_GOTCHAS #2; auto-detected and surfaced by the bridge since v1.10.0.)*
+
+### 23. Re-resolve the package/reference graph without a full editor restart
+A newly added local-library `PackageReference` is invisible to hotload -- the reference graph only resolves at editor launch, so the workflow is edit -> restart -> continue. **Ask:** re-resolve the compile group's references on `.sbproj`/`.csproj` change (or expose an explicit "reload references" editor API). *(BRIDGE_GOTCHAS #3.)*
+
+### 24. The addon file-watcher gives up after a failed compile
+If editor-addon code fails to compile at editor launch, subsequent file changes do NOT retrigger a compile -- the editor sits with a broken addon until a manual restart (verified three times in one day). **Ask:** keep watching and retry the compile on the next file change after a failure. **Use case:** any edit-compile-fix loop on editor addons; today each syntax error cost a full restart instead of a save. *(Session logs 2026-06-09.)*
+
+### 25. Whitelist violations report no file or line
+A whitelist rejection (e.g. `Array.Clone()`) surfaces as a bare message with **no file path or line**, buried under the broken-reference cascade -- finding the offending line means grepping the raw log and guessing. **Ask:** attach file+line to whitelist diagnostics and report them like normal compile errors. *(BRIDGE_GOTCHAS #7.)*
+
+### 26. Razor transpiler crashes opaquely on valid C# (`switch` expressions, non-ASCII in `@code`)
+Valid C# in `@code` blocks -- switch *expressions*, emoji/non-ASCII literals -- can crash the Razor transpiler with no useful file/line. **Ask:** support the constructs, or fail with a real diagnostic pointing at the file and line. *(BRIDGE_GOTCHAS #6b; our `razor_lint` exists mostly because of this.)*
 
 ## ⚪ Verify-first / lower priority
 - **`MeshComponent.Mesh` is null on a freshly added component** — renders nothing until code assigns `new PolygonMesh()`. Minor DX nit: consider auto-initializing an empty mesh on add. *(`CHANGELOG.md [1.1.0]`.)*
