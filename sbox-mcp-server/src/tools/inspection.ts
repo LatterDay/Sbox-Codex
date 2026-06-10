@@ -54,6 +54,23 @@ export function registerInspectionTools(
     }
   );
 
+  // ── sandbox_lint ──────────────────────────────────────────────────
+  server.tool(
+    "sandbox_lint",
+    "Static-scan the project's C# for s&box sandbox whitelist violations BEFORE they cause compile errors: System.MathF (use MathX), System.Math (use MathX), Array.Clone() (use .ToArray()), System.Net / raw sockets (use Sandbox.Http), System.IO.File (use FileSystem.Data), and raw System.Threading.Thread (use async/Task or GameTask). Returns { scanned, findings: [{file, line, match, advice}], clean }. Scope to a subdirectory with the directory param.",
+    {
+      directory: z
+        .string()
+        .optional()
+        .describe("Subdirectory under the project root to scan (e.g. 'Code', 'Code/Player'). Defaults to 'Code'"),
+    },
+    async (params) => {
+      const res = await bridge.send("sandbox_lint", params);
+      if (!res.success) return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
   // ── scene_validate ────────────────────────────────────────────────
   server.tool(
     "scene_validate",
@@ -126,7 +143,7 @@ export function registerInspectionTools(
           z.string().describe('Comma string "x,y,z", e.g. "1,0,0"'),
         ])
         .optional()
-        .describe('AnalogMove vector to apply (forward/left) — object {x,y,z} or comma string "x,y,z"'),
+        .describe('AnalogMove vector to apply (forward/left) -- object {x,y,z} or comma string "x,y,z"'),
       analogLook: z
         .object({ pitch: z.number(), yaw: z.number(), roll: z.number().default(0) })
         .optional()

@@ -152,8 +152,7 @@ for the full doc-inclusive graph. See `docs/graph/README.md`.
 - `Rotation.Pitch()`, `.Yaw()`, `.Roll()` are methods, not properties
 
 ### Math & Events (s&box sandbox specifics)
-- `MathX.Clamp(value, min, max)` — NOT `System.Math` or `MathF` (neither exists in s&box sandbox)
-- `System.MathF` does NOT exist in s&box's C# sandbox
+- **UPDATE (verified live 2026-06-09):** `System.Math` and `System.MathF` now COMPILE in game code on the current SDK — the old "MathX only" rule is stale. `MathX` remains fine/preferred for s&box helpers. `Array.Clone()` is STILL whitelist-blocked ("System.Array.Clone() is not allowed when whitelist is enabled", confirmed live) — use `.ToArray()`. `GameObject.Clone()` is unrelated and fine. `sandbox_lint` reflects this.
 - `IGameEvent` / `GameObject.Dispatch()` / `Scene.Dispatch()` are from `facepunch.libevents` package, NOT base s&box
 - `Networking.MaxPlayers` is **read-only** — set via lobby config, not direct assignment
 - `Networking.IsHost` may throw if networking is not active — guard with try/catch or check `Networking.IsActive` first
@@ -391,11 +390,4 @@ Project.Current.Config.Title / .Org / .Ident / .Type
 # Build MCP Server
 cd sbox-mcp-server && npm install && npm run build
 
-# The Bridge Addon is compiled automatically by s&box
-# Just edit MyEditorMenu.cs and restart s&box
-
-# Test IPC manually:
-echo '{"id":"test","command":"get_project_info","params":{}}' > %TEMP%/sbox-bridge-ipc/req_test.json
-# Check response:
-cat %TEMP%/sbox-bridge-ipc/res_test.json
-```
+# The Bridge Addon i

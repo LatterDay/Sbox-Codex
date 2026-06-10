@@ -309,7 +309,71 @@ export function registerGameplayTools(
     }
   );
 
-  // ── create_pickup ─────────────────────────────────────────────────
+  // ── create_interactable ───────────────────────────────────────────
+  server.tool(
+    "create_interactable",
+    "Generate a Component.IPressable interactable: the built-in PlayerController 'use' key drives Press()/Hover()/Blur() with no custom player code. Includes a static OnPressed event, an optional cooldown (TimeUntil), and a private OnPress() extensionpoint for effects. For host-authoritative side-effects call an [Rpc.Host] from OnPress(). The Prompt property is left to your game's HUD. Optionally attached to an existing GameObject by GUID (after a hotload).",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'Interactable'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      prompt: z
+        .string()
+        .optional()
+        .describe("Prompt string shown by the game's HUD when hovering. Defaults to 'Press'"),
+      cooldownSeconds: z
+        .number()
+        .optional()
+        .describe("Seconds before the interactable can be pressed again. 0 = no cooldown. Defaults to 0"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to attach the component to (only attaches if the type is already loaded — hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_interactable", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // -- create_weighted_loot_table ----------------------------------------
+  server.tool(
+    "create_weighted_loot_table",
+    "Generate a cumulative-weight random loot picker: parallel Name/Weight lists (inspector-editable), a Roll() method that returns a winning entry name and fires a static OnLoot event, and optional pity (guarantee the last/rarest entry after PityAfter consecutive non-rare rolls). Roll() is host-authoritative -- only call it on the host and replicate the result (clients rolling their own loot is equivalent to clients writing their own money balance). Optionally attached to an existing GameObject by GUID (after a hotload).",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'LootTable'"),
+      directory: z
+        .string()
+        .optional()
+        .describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      entries: z
+        .union([
+          z.array(z.object({ name: z.string(), weight: z.number() })),
+          z.string().describe('Compact "name:weight,name:weight" string, e.g. "common:70,uncommon:25,rare:5"'),
+        ])
+        .optional()
+        .describe("Loot table entries. Defaults to common:70 / uncommon:25 / rare:5"),
+      pity: z
+        .boolean()
+        .optional()
+        .describe("If true, guarantee the last (rarest) entry after PityAfter consecutive non-rare rolls. Defaults to false"),
+      targetId: z
+        .string()
+        .optional()
+        .describe("GUID of an existing GameObject to attach to (only if the type is already loaded -- hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_weighted_loot_table", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // -- create_pickup -----------------------------------------------------
   server.tool(
     "create_pickup",
     "Generate a trigger-based collectible component. On enter by a tagged object it raises OnCollected (wire it to your objective/score system) and despawns. Optionally builds a visible pickup GameObject with a trigger SphereCollider (+ a model) in one call",

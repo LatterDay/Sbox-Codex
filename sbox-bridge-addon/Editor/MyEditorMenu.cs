@@ -407,6 +407,8 @@ public static class ClaudeBridge
 		Register( "create_economy_wallet",       () => new CreateEconomyWalletHandler() );
 		Register( "create_round_phase_machine",  () => new CreateRoundPhaseMachineHandler() );
 		Register( "create_day_night_clock",      () => new CreateDayNightClockHandler() );
+		Register( "create_interactable",         () => new CreateInteractableHandler() );
+		Register( "create_weighted_loot_table",  () => new CreateWeightedLootTableHandler() );
 
 		// ── Batch 36: NPC brains ────────────────────────────────────────
 		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
@@ -418,6 +420,7 @@ public static class ClaudeBridge
 		// ── Batch 37: Inspection & validation (mined from 27 shipped games) ──
 		Register( "inspect_networked_object", () => new InspectNetworkedObjectHandler() );
 		Register( "networking_lint",          () => new NetworkingLintHandler() );
+		Register( "sandbox_lint",             () => new SandboxLintHandler() );
 		Register( "scene_validate",           () => new SceneValidateHandler() );
 		Register( "save_inspect",             () => new SaveInspectHandler() );
 		Register( "services_query",           () => new ServicesQueryHandler() );
@@ -444,7 +447,7 @@ public static class ClaudeBridge
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
 		"set_component_reference", "add_component_to_new_object",
-		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock",
+		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock", "create_interactable", "create_weighted_loot_table",
 		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
@@ -4329,7 +4332,188 @@ public class NetworkingLintHandler : IBridgeHandler
 	}
 }
 
+/// <summary>Static scan of project C# for s&box sandbox whitelist violations — detects banned APIs before they fail to compile.</summary>
+public class SandboxLintHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var root = Project.Current?.GetRootPath();
+		if ( string.IsNullOrEmpty( root ) )
+			return Task.FromResult<object>( new { error = "No current project" } );
+
+		var dirParam = p.TryGetProperty( "directory", out var dp ) && !string.IsNullOrWhiteSpace( dp.GetString() ) ? dp.GetString() : "Code";
+		string scanDir;
+		if ( !ClaudeBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
+			return Task.FromResult<object>( new { error = pathErr } );
+
+		if ( !Directory.Exists( scanDir ) )
+			return Task.FromResult<object>( new { error = $"Directory not found: {dirParam}" } );
+
+		var findings = new List<object>();
+		var files = Directory.GetFiles( scanDir, "*.cs", SearchOption.AllDirectories )
+			.Where( f => f.IndexOf( "\\obj\\",  StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "/obj/",    StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "\\bin\\",  StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "/bin/",    StringComparison.OrdinalIgnoreCase ) < 0
+					  && f.IndexOf( "Libraries", StringComparison.OrdinalIgnoreCase ) < 0 )
+			.ToList();
+
+		// Detection table — each entry: (regex, advice)
+		// These patterns match common sandbox violations. All regexes are case-sensitive
+		// unless the real API is case-sensitive (it is in C#).
+		// NOTE (verified live 2026-06-09): System.Math and System.MathF now COMPILE in
+		// game code on the current SDK — the old "use MathX" rules were removed as stale.
+		// Array.Clone() is still rejected ("System.Array.Clone() is not allowed when
+		// whitelist is enabled" — confirmed via a live compile). GameObject.Clone() is a
+		// legitimate s&box API, so the .Clone() rule is advisory, not a hard error.
+		var rules = new (System.Text.RegularExpressions.Regex Rx, string Advice)[]
+		{
+			(
+				new System.Text.RegularExpressions.Regex( @"\.Clone\(\)" ),
+				"If this is an ARRAY .Clone() it will not compile (System.Array.Clone() is whitelist-blocked) — use .ToArray(). GameObject.Clone() and other s&box Clone APIs are fine; ignore this finding for those."
+			),
+			(
+				new System.Text.RegularExpressions.Regex( @"System\.Net\b" ),
+				"System.Net is blocked in the s&box sandbox — use Sandbox.Http for outbound HTTP requests"
+			),
+			(
+				new System.Text.RegularExpressions.Regex( @"\bHttpListener\b|\bTcpListener\b|\bTcpClient\b" ),
+				"Raw sockets (HttpListener/TcpListener/TcpClient) are blocked in the sandbox — use Sandbox.Http for outbound requests"
+			),
+			(
+				new System.Text.RegularExpressions.Regex( @"System\.IO\.File\b|\bFile\.ReadAllText\b|\bFile\.WriteAllText\b" ),
+				"System.IO.File is blocked in s&box game code — use FileSystem.Data (or FileSystem.Mounted) instead"
+			),
+			(
+				new System.Text.RegularExpressions.Regex( @"\bSystem\.Threading\.Thread\b|new Thread\(" ),
+				"Raw System.Threading.Thread is blocked in the sandbox — use async/Task or GameTask for async work"
+			),
+		};
+
+		foreach ( var file in files )
+		{
+			string[] lines; try { lines = File.ReadAllLines( file ); } catch { continue; }
+			var rel = Path.GetRelativePath( root, file ).Replace( '\\', '/' );
+			for ( int i = 0; i < lines.Length; i++ )
+			{
+				var line = lines[i];
+				foreach ( var (rx, advice) in rules )
+				{
+					var m = rx.Match( line );
+					if ( m.Success )
+						findings.Add( new { file = rel, line = i + 1, match = m.Value, advice } );
+				}
+			}
+		}
+
+		return Task.FromResult<object>( new { scanned = files.Count, findings, clean = findings.Count == 0 } );
+	}
+}
+
 /// <summary>Validate the active scene for common setup footguns (no camera, stray root rigidbodies, trigger-vs-trace).</summary>
+
+// ═════════════════════════════════════════════════════════════════════
+//  Batch 34 — PLAY-MODE EYES (v1.7.0)
+//  capture_view renders a CameraComponent's view to a PNG via
+//  CameraComponent.RenderToBitmap + Bitmap.ToPng. Unlike take_screenshot /
+//  screenshot_from (EditorScene, EDIT-only), this renders a camera's view of
+//  the ACTIVE scene — so during PLAY it captures the RUNNING game (incl. HUD
+//  when renderUI=true). No pose  -> the live main camera (player POV).
+//  position/id -> a temp camera (created + destroyed in one frame, never
+//  disturbs the game's own camera). Saves a uniquely-named PNG to TEMP and
+//  returns the absolute path (no 1-second filename collisions).
+// ═════════════════════════════════════════════════════════════════════
+public class CaptureViewHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		bool playing = Game.IsPlaying;
+		var scene = playing ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
+		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
+
+		int w = p.TryGetProperty( "width", out var wEl ) ? wEl.GetInt32() : 1280;
+		int h = p.TryGetProperty( "height", out var hEl ) ? hEl.GetInt32() : 720;
+		if ( w < 16 ) w = 16; if ( w > 3840 ) w = 3840;
+		if ( h < 16 ) h = 16; if ( h > 2160 ) h = 2160;
+		bool renderUI = !( p.TryGetProperty( "renderUI", out var uiEl ) && uiEl.ValueKind == JsonValueKind.False );
+
+		GameObject tempCam = null;
+		try
+		{
+			CameraComponent cam;
+			string framed;
+			bool hasId = p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out _ );
+			bool hasPos = p.TryGetProperty( "position", out var posEl );
+
+			if ( hasId || hasPos )
+			{
+				Vector3 camPos; Rotation camRot;
+				if ( hasId )
+				{
+					Guid.TryParse( idEl.GetString(), out var guid );
+					var t = scene.Directory.FindByGuid( guid );
+					if ( t == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
+					var box = t.GetBounds(); var c = box.Center; float sz = box.Size.Length; if ( sz < 1f ) sz = 128f;
+					float dist = sz * 1.4f; if ( dist < 150f ) dist = 150f;
+					camPos = c + new Vector3( -1f, -0.6f, 0.7f ).Normal * dist;
+					camRot = Rotation.LookAt( ( c - camPos ).Normal, Vector3.Up );
+					framed = t.Name;
+				}
+				else
+				{
+					camPos = ClaudeBridge.ParseVector3( posEl );
+					if ( p.TryGetProperty( "lookAt", out var laEl ) )
+						camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
+					else if ( p.TryGetProperty( "rotation", out var rotEl ) )
+						camRot = CharacterHelpers.ParseRotation( rotEl );
+					else camRot = Rotation.Identity;
+					framed = $"({camPos.x:0.#},{camPos.y:0.#},{camPos.z:0.#})";
+				}
+				tempCam = scene.CreateObject( true );
+				tempCam.Name = "__bridge_capture_cam";
+				tempCam.WorldPosition = camPos;
+				tempCam.WorldRotation = camRot;
+				cam = tempCam.AddComponent<CameraComponent>();
+				if ( p.TryGetProperty( "fov", out var fovEl ) ) cam.FieldOfView = fovEl.GetSingle();
+			}
+			else
+			{
+				cam = VisualHelpers.FindMainCamera( scene );
+				if ( cam == null ) return Task.FromResult<object>( new { error = "No main camera in the scene. Pass position {x,y,z} or id to capture from a temporary camera." } );
+				framed = playing ? "live main camera (player view)" : "main camera";
+			}
+
+			var bmp = new Bitmap( w, h );
+			cam.RenderToBitmap( bmp, renderUI );
+			byte[] png = bmp.ToPng();
+			string path = System.IO.Path.Combine( System.IO.Path.GetTempPath(), $"bridge_capture_{System.Guid.NewGuid():N}.png" );
+			System.IO.File.WriteAllBytes( path, png );
+
+			return Task.FromResult<object>( new
+			{
+				captured = true,
+				playing,
+				framed,
+				width = w,
+				height = h,
+				renderUI,
+				path,
+				note = playing
+					? "Captured the RUNNING game. Read the PNG at 'path'."
+					: "Captured the edit scene from a camera. Read the PNG at 'path'."
+			} );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"capture_view failed: {ex.Message}" } );
+		}
+		finally
+		{
+			tempCam?.Destroy();
+		}
+	}
+}
+
 public class SceneValidateHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -8157,101 +8341,4 @@ public class SetAnimgraphParamHandler : IBridgeHandler
 // ═════════════════════════════════════════════════════════════════════
 //  Batch 34 — PLAY-MODE EYES (v1.7.0)
 //  capture_view renders a CameraComponent's view to a PNG via
-//  CameraComponent.RenderToBitmap + Bitmap.ToPng. Unlike take_screenshot /
-//  screenshot_from (EditorScene, EDIT-only), this renders a camera's view of
-//  the ACTIVE scene — so during PLAY it captures the RUNNING game (incl. HUD
-//  when renderUI=true). No pose  -> the live main camera (player POV).
-//  position/id -> a temp camera (created + destroyed in one frame, never
-//  disturbs the game's own camera). Saves a uniquely-named PNG to TEMP and
-//  returns the absolute path (no 1-second filename collisions).
-// ═════════════════════════════════════════════════════════════════════
-public class CaptureViewHandler : IBridgeHandler
-{
-	public Task<object> Execute( JsonElement p )
-	{
-		bool playing = Game.IsPlaying;
-		var scene = playing ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
-		if ( scene == null ) return Task.FromResult<object>( new { error = "No active scene" } );
-
-		int w = p.TryGetProperty( "width", out var wEl ) ? wEl.GetInt32() : 1280;
-		int h = p.TryGetProperty( "height", out var hEl ) ? hEl.GetInt32() : 720;
-		if ( w < 16 ) w = 16; if ( w > 3840 ) w = 3840;
-		if ( h < 16 ) h = 16; if ( h > 2160 ) h = 2160;
-		bool renderUI = !( p.TryGetProperty( "renderUI", out var uiEl ) && uiEl.ValueKind == JsonValueKind.False );
-
-		GameObject tempCam = null;
-		try
-		{
-			CameraComponent cam;
-			string framed;
-			bool hasId = p.TryGetProperty( "id", out var idEl ) && Guid.TryParse( idEl.GetString(), out _ );
-			bool hasPos = p.TryGetProperty( "position", out var posEl );
-
-			if ( hasId || hasPos )
-			{
-				Vector3 camPos; Rotation camRot;
-				if ( hasId )
-				{
-					Guid.TryParse( idEl.GetString(), out var guid );
-					var t = scene.Directory.FindByGuid( guid );
-					if ( t == null ) return Task.FromResult<object>( new { error = $"GameObject not found: {idEl.GetString()}" } );
-					var box = t.GetBounds(); var c = box.Center; float sz = box.Size.Length; if ( sz < 1f ) sz = 128f;
-					float dist = sz * 1.4f; if ( dist < 150f ) dist = 150f;
-					camPos = c + new Vector3( -1f, -0.6f, 0.7f ).Normal * dist;
-					camRot = Rotation.LookAt( ( c - camPos ).Normal, Vector3.Up );
-					framed = t.Name;
-				}
-				else
-				{
-					camPos = ClaudeBridge.ParseVector3( posEl );
-					if ( p.TryGetProperty( "lookAt", out var laEl ) )
-						camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
-					else if ( p.TryGetProperty( "rotation", out var rotEl ) )
-						camRot = CharacterHelpers.ParseRotation( rotEl );
-					else camRot = Rotation.Identity;
-					framed = $"({camPos.x:0.#},{camPos.y:0.#},{camPos.z:0.#})";
-				}
-				tempCam = scene.CreateObject( true );
-				tempCam.Name = "__bridge_capture_cam";
-				tempCam.WorldPosition = camPos;
-				tempCam.WorldRotation = camRot;
-				cam = tempCam.AddComponent<CameraComponent>();
-				if ( p.TryGetProperty( "fov", out var fovEl ) ) cam.FieldOfView = fovEl.GetSingle();
-			}
-			else
-			{
-				cam = VisualHelpers.FindMainCamera( scene );
-				if ( cam == null ) return Task.FromResult<object>( new { error = "No main camera in the scene. Pass position {x,y,z} or id to capture from a temporary camera." } );
-				framed = playing ? "live main camera (player view)" : "main camera";
-			}
-
-			var bmp = new Bitmap( w, h );
-			cam.RenderToBitmap( bmp, renderUI );
-			byte[] png = bmp.ToPng();
-			string path = System.IO.Path.Combine( System.IO.Path.GetTempPath(), $"bridge_capture_{System.Guid.NewGuid():N}.png" );
-			System.IO.File.WriteAllBytes( path, png );
-
-			return Task.FromResult<object>( new
-			{
-				captured = true,
-				playing,
-				framed,
-				width = w,
-				height = h,
-				renderUI,
-				path,
-				note = playing
-					? "Captured the RUNNING game. Read the PNG at 'path'."
-					: "Captured the edit scene from a camera. Read the PNG at 'path'."
-			} );
-		}
-		catch ( Exception ex )
-		{
-			return Task.FromResult<object>( new { error = $"capture_view failed: {ex.Message}" } );
-		}
-		finally
-		{
-			tempCam?.Destroy();
-		}
-	}
-}
+//  CameraComponent.RenderToBitmap + Bitmap.ToPng. Unl

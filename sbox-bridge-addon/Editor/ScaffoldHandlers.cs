@@ -1,4 +1,4 @@
-using Editor;
+﻿using Editor;
 using Sandbox;
 using System;
 using System.Collections.Generic;
@@ -10,8 +10,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Playable Game Scaffolds — Phase 1
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Playable Game Scaffolds â€” Phase 1
 //
 // This file lives in the SAME assembly as MyEditorMenu.cs, so it reuses the
 // shared helpers on the `ClaudeBridge` static class (TryResolveProjectPath,
@@ -19,20 +19,20 @@ using System.Threading.Tasks;
 // IBridgeHandler dispatch contract. Handler code here is UNSANDBOXED editor
 // code (System.* is fine).
 //
-// IMPORTANT — the C# *strings these handlers WRITE TO DISK* are SANDBOXED game
+// IMPORTANT â€” the C# *strings these handlers WRITE TO DISK* are SANDBOXED game
 // code. That generated code must obey the s&box sandbox rules:
-//   • use MathX, never System.Math / System.MathF
-//   • guard networking with IsProxy / try-catch (Networking.IsHost can throw)
-//   • model shape on CreateGameManager / CreateTriggerZone, which compile today
+//   â€¢ use MathX, never System.Math / System.MathF
+//   â€¢ guard networking with IsProxy / try-catch (Networking.IsHost can throw)
+//   â€¢ model shape on CreateGameManager / CreateTriggerZone, which compile today
 //
 // All handlers are guarded in try/catch and return `new { error = ... }` on
 // failure so the dispatch envelope reports success=false (see
 // ClaudeBridge.ProcessRequest / TryGetHandlerError in MyEditorMenu.cs).
 //
 // Registration lines + the _sceneMutatingCommands additions are listed in the
-// implementation summary — MyEditorMenu.cs owns those (this file is not edited
+// implementation summary â€” MyEditorMenu.cs owns those (this file is not edited
 // into the Register() block here to keep the two files decoupled).
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// <summary>
 /// Shared helpers for the scaffold handlers. Kept internal to this file so it
@@ -95,7 +95,7 @@ internal static class ScaffoldHelpers
 		return applied;
 	}
 
-	/// <summary>Read a JSON token as a float — accepts a JSON number OR a numeric string.</summary>
+	/// <summary>Read a JSON token as a float â€” accepts a JSON number OR a numeric string.</summary>
 	static float CoerceFloat( JsonElement v )
 	{
 		if ( v.ValueKind == JsonValueKind.Number && v.TryGetSingle( out var f ) ) return f;
@@ -105,7 +105,7 @@ internal static class ScaffoldHelpers
 		return float.Parse( v.ToString(), System.Globalization.CultureInfo.InvariantCulture );
 	}
 
-	/// <summary>Read a JSON token as an int — accepts a JSON number OR a numeric string.</summary>
+	/// <summary>Read a JSON token as an int â€” accepts a JSON number OR a numeric string.</summary>
 	static int CoerceInt( JsonElement v )
 	{
 		if ( v.ValueKind == JsonValueKind.Number && v.TryGetInt32( out var i ) ) return i;
@@ -114,7 +114,7 @@ internal static class ScaffoldHelpers
 		return (int) CoerceFloat( v );
 	}
 
-	/// <summary>Read a JSON token as a bool — accepts true/false tokens OR a "true"/"false" string.</summary>
+	/// <summary>Read a JSON token as a bool â€” accepts true/false tokens OR a "true"/"false" string.</summary>
 	static bool CoerceBool( JsonElement v )
 	{
 		if ( v.ValueKind == JsonValueKind.True ) return true;
@@ -157,7 +157,7 @@ internal static class ScaffoldHelpers
 		return true;
 	}
 
-	/// <summary>UTF-8 without BOM — generated game code is read by the s&box compiler.</summary>
+	/// <summary>UTF-8 without BOM â€” generated game code is read by the s&box compiler.</summary>
 	public static readonly Encoding Utf8NoBom = new UTF8Encoding( false );
 
 	public static void WriteCode( string fullPath, string code )
@@ -166,14 +166,14 @@ internal static class ScaffoldHelpers
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// B. set_component_reference — wire a component property to a LIVE scene
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// B. set_component_reference â€” wire a component property to a LIVE scene
 //    GameObject (or a component on it) by GUID. The highest-value gap:
 //    today set_property only does primitives and set_prefab_ref only assigns a
 //    PREFAB asset's GameObject. This assigns a scene object.
-//    Mirrors SetPrefabRefHandler's reflection (Game.TypeLibrary.GetType →
-//    Properties → propDesc.SetValue) but the value is a scene object.
-// ═══════════════════════════════════════════════════════════════════════════
+//    Mirrors SetPrefabRefHandler's reflection (Game.TypeLibrary.GetType â†’
+//    Properties â†’ propDesc.SetValue) but the value is a scene object.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class SetComponentReferenceHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -228,8 +228,8 @@ public class SetComponentReferenceHandler : IBridgeHandler
 				return Task.FromResult<object>( new { error = $"Target GameObject not found: {tid.GetString()}" } );
 
 			// Two assignable shapes:
-			//   1. property type is GameObject (or assignable from it) → assign the GO directly
-			//   2. property type is a Component subtype → assign a component of that type off the GO
+			//   1. property type is GameObject (or assignable from it) â†’ assign the GO directly
+			//   2. property type is a Component subtype â†’ assign a component of that type off the GO
 			bool wantsGameObject = propType == typeof( GameObject ) || propType.IsAssignableFrom( typeof( GameObject ) );
 			bool wantsComponent  = typeof( Component ).IsAssignableFrom( propType );
 
@@ -283,11 +283,11 @@ public class SetComponentReferenceHandler : IBridgeHandler
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// C. add_component_to_new_object — atomic create-GO + add-component +
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// C. add_component_to_new_object â€” atomic create-GO + add-component +
 //    set-props (+ optional parent/transform/tags) in one round-trip.
 //    Combines CreateGameObjectHandler + AddComponentWithPropertiesHandler.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class AddComponentToNewObjectHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -301,7 +301,7 @@ public class AddComponentToNewObjectHandler : IBridgeHandler
 			var typeName = p.GetProperty( "component" ).GetString();
 			var typeDesc = Game.TypeLibrary.GetType( typeName );
 			if ( typeDesc == null )
-				return Task.FromResult<object>( new { error = $"Component type not found: {typeName}. (A freshly generated component is only in the TypeLibrary after a hotload — generate + trigger_hotload first, then place.)" } );
+				return Task.FromResult<object>( new { error = $"Component type not found: {typeName}. (A freshly generated component is only in the TypeLibrary after a hotload â€” generate + trigger_hotload first, then place.)" } );
 
 			var go = scene.CreateObject( true );
 			go.Name = p.TryGetProperty( "name", out var n ) && !string.IsNullOrWhiteSpace( n.GetString() )
@@ -355,12 +355,12 @@ public class AddComponentToNewObjectHandler : IBridgeHandler
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// E. create_objective_system — the win/lose primitive (ObjectiveManager).
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// E. create_objective_system â€” the win/lose primitive (ObjectiveManager).
 //    Writes a self-contained Component singleton. Optionally places it on a
 //    scene GameObject (only if the type is already in the TypeLibrary, i.e.
-//    after a hotload — same constraint as add_component_to_new_object).
-// ═══════════════════════════════════════════════════════════════════════════
+//    after a hotload â€” same constraint as add_component_to_new_object).
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreateObjectiveSystemHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -409,7 +409,7 @@ public class CreateObjectiveSystemHandler : IBridgeHandler
 		var typeDesc = Game.TypeLibrary.GetType( className );
 		if ( typeDesc == null )
 		{
-			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then place it with add_component_to_new_object (component=\"{className}\").";
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then place it with add_component_to_new_object (component=\"{className}\").";
 			return null;
 		}
 
@@ -429,7 +429,7 @@ public class CreateObjectiveSystemHandler : IBridgeHandler
 
 	static string BuildCode( string className, string objective, string loseOn, int targetCount, float timeLimit, float killZ, int lives )
 	{
-		// Sanitize objective/loseOn into a known set (defensive — they come from a tool schema enum).
+		// Sanitize objective/loseOn into a known set (defensive â€” they come from a tool schema enum).
 		objective = objective?.ToLowerInvariant() switch
 		{
 			"collect_all" or "reach_goal" or "survive_time" or "eliminate_all" => objective.ToLowerInvariant(),
@@ -451,7 +451,7 @@ public class CreateObjectiveSystemHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — the win/lose brain for a scaffolded game. Drop ONE of these in
+/// {className} â€” the win/lose brain for a scaffolded game. Drop ONE of these in
 /// a scene; gameplay systems talk to it through {className}.Instance.
 ///
 /// Objective: {objective}    Lose condition: {loseOn}
@@ -464,7 +464,7 @@ using System;
 /// </summary>
 public sealed class {className} : Component
 {{
-	// Singleton — systems find the manager without a scene reference.
+	// Singleton â€” systems find the manager without a scene reference.
 	public static {className} Instance {{ get; private set; }}
 
 	[Property] public string Objective {{ get; set; }} = ""{objective}"";
@@ -478,7 +478,7 @@ public sealed class {className} : Component
 	// The player the lose-on-fall check watches. Wire this with set_component_reference.
 	[Property] public GameObject Player {{ get; set; }}
 
-	// Live progress — synced so a HUD on any client reads the same numbers.
+	// Live progress â€” synced so a HUD on any client reads the same numbers.
 	[Sync] public int Progress {{ get; set; }}
 	[Sync] public int LivesRemaining {{ get; set; }}
 	[Sync] public bool IsWon {{ get; set; }}
@@ -488,7 +488,7 @@ public sealed class {className} : Component
 	public Action OnWin {{ get; set; }}
 	public Action OnLose {{ get; set; }}
 
-	// TimeSince starts at 0 — fine here, we WANT the survive timer to begin at spawn.
+	// TimeSince starts at 0 â€” fine here, we WANT the survive timer to begin at spawn.
 	private TimeSince _sinceStart;
 
 	protected override void OnStart()
@@ -574,7 +574,7 @@ public sealed class {className} : Component
 	{{
 		if ( IsWon || IsLost ) return;
 		IsWon = true;
-		Log.Info( $""[{className}] YOU WIN — objective '{{Objective}}' complete."" );
+		Log.Info( $""[{className}] YOU WIN â€” objective '{{Objective}}' complete."" );
 		OnWin?.Invoke();
 	}}
 
@@ -590,9 +590,9 @@ public sealed class {className} : Component
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// F. create_health_system — a Health component with damage/heal/death.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// F. create_health_system â€” a Health component with damage/heal/death.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreateHealthSystemHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -636,7 +636,7 @@ public class CreateHealthSystemHandler : IBridgeHandler
 		var typeDesc = Game.TypeLibrary.GetType( className );
 		if ( typeDesc == null )
 		{
-			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
 
@@ -652,7 +652,7 @@ public class CreateHealthSystemHandler : IBridgeHandler
 	{
 		string mh = maxHealth.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
 
-		// Optional regen block (uses MathX.Clamp — System.Math is unavailable in the sandbox).
+		// Optional regen block (uses MathX.Clamp â€” System.Math is unavailable in the sandbox).
 		string regenFields = regen
 			? @"
 	[Property] public float RegenPerSecond { get; set; } = 5f;
@@ -696,7 +696,7 @@ public class CreateHealthSystemHandler : IBridgeHandler
 		GameObject.Enabled = false;
 		ObjectiveManagerLoseLife();"
 			: @"
-		// No respawn configured — disable the object and tell the objective system.
+		// No respawn configured â€” disable the object and tell the objective system.
 		GameObject.Enabled = false;
 		ObjectiveManagerLoseLife();";
 
@@ -704,7 +704,7 @@ public class CreateHealthSystemHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — hit points with damage, healing and death for any GameObject.
+/// {className} â€” hit points with damage, healing and death for any GameObject.
 ///
 /// Usage from other code:
 ///   GetComponent<{className}>()?.TakeDamage( 25f );
@@ -773,11 +773,11 @@ public sealed class {className} : Component
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// G. create_pickup — a trigger-based collectible. Mirrors CreateTriggerZone's
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// G. create_pickup â€” a trigger-based collectible. Mirrors CreateTriggerZone's
 //    Component.ITriggerListener pattern. Optionally builds a visible GO with a
 //    SphereCollider(trigger) + ModelRenderer.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreatePickupHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -855,7 +855,7 @@ public class CreatePickupHandler : IBridgeHandler
 		}
 		else
 		{
-			note = AppendNote( note, $"Built the pickup object + trigger, but {className} is not in the TypeLibrary yet — trigger_hotload, then add_component_with_properties (component=\"{className}\") on this GameObject." );
+			note = AppendNote( note, $"Built the pickup object + trigger, but {className} is not in the TypeLibrary yet â€” trigger_hotload, then add_component_with_properties (component=\"{className}\") on this GameObject." );
 		}
 
 		return ClaudeBridge.SerializeGo( go );
@@ -873,7 +873,7 @@ public class CreatePickupHandler : IBridgeHandler
 		};
 		string amt = amount.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
 
-		// Every action is SELF-CONTAINED and always compiles — no hard dependency on
+		// Every action is SELF-CONTAINED and always compiles â€” no hard dependency on
 		// a Health / Inventory / ObjectiveManager type that may not exist in the
 		// project. The OnCollected event is the loose-coupling seam: the scaffold
 		// skill wires it (e.g. to ObjectiveManager.Instance.RegisterPickup or
@@ -907,12 +907,12 @@ public class CreatePickupHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — a trigger-based collectible. Put it on a GameObject that has a
+/// {className} â€” a trigger-based collectible. Put it on a GameObject that has a
 /// trigger Collider (e.g. a SphereCollider with IsTrigger=true). When a
 /// GameObject tagged '{filterTag}' enters, it applies an effect and despawns.
 ///
 /// Action: {action}. OnCollected fires for any listener (the scaffold wires it
-/// to your objective/score system) — keeps {className} dependency-free.
+/// to your objective/score system) â€” keeps {className} dependency-free.
 /// </summary>
 public sealed class {className} : Component, Component.ITriggerListener
 {{
@@ -947,15 +947,15 @@ public sealed class {className} : Component, Component.ITriggerListener
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// H. create_economy_wallet — a host-authoritative currency component.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// H. create_economy_wallet â€” a host-authoritative currency component.
 //    The #1 economy exploit is plain [Sync] money a client can author, so Money
 //    here is [Sync(SyncFlags.FromHost)] (the Ten Laws of the cookbook). Add /
 //    TrySpend / SetMoney / CanAfford + an OnMoneyChanged event. Mirrors the
-//    CreateHealthSystem scaffold pattern. (Mined from 51 games — currency was the
+//    CreateHealthSystem scaffold pattern. (Mined from 51 games â€” currency was the
 //    most-requested scaffold with no existing tool; pairs with create_save_system
 //    [v1.11.0] for persistence.)
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreateEconomyWalletHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -971,7 +971,7 @@ public class CreateEconomyWalletHandler : IBridgeHandler
 			ScaffoldHelpers.WriteCode( fullPath, code );
 
 			// Optional placement on an existing GameObject (only if the type is already
-			// in the TypeLibrary, i.e. after a hotload — same contract as create_health_system).
+			// in the TypeLibrary, i.e. after a hotload â€” same contract as create_health_system).
 			object placedOn = null; string note = null;
 			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
 				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
@@ -995,7 +995,7 @@ public class CreateEconomyWalletHandler : IBridgeHandler
 		var typeDesc = Game.TypeLibrary.GetType( className );
 		if ( typeDesc == null )
 		{
-			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
 		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
@@ -1008,9 +1008,9 @@ public class CreateEconomyWalletHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — a host-authoritative currency wallet for any GameObject.
+/// {className} â€” a host-authoritative currency wallet for any GameObject.
 ///
-/// Money is [Sync(SyncFlags.FromHost)] so only the host writes it — a client can't
+/// Money is [Sync(SyncFlags.FromHost)] so only the host writes it â€” a client can't
 /// author their own balance (plain [Sync] money is the classic economy exploit).
 /// Clients that want to spend should call a [Rpc.Host] on their own component that
 /// re-validates and calls TrySpend host-side. Single-player safe (IsProxy is false
@@ -1029,7 +1029,7 @@ public sealed class {className} : Component
 	// Host-authoritative balance.
 	[Sync( SyncFlags.FromHost )] public long Money {{ get; set; }}
 
-	// Fired (on the writing machine) whenever the balance changes — bind a HUD here.
+	// Fired (on the writing machine) whenever the balance changes â€” bind a HUD here.
 	public Action<long> OnMoneyChanged {{ get; set; }}
 
 	protected override void OnStart()
@@ -1077,13 +1077,13 @@ public sealed class {className} : Component
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// I. create_round_phase_machine — a host-authoritative round/phase machine.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// I. create_round_phase_machine â€” a host-authoritative round/phase machine.
 //    [Sync(FromHost)] CurrentPhase cycled on a per-phase timer; a static
 //    OnPhaseChanged event fires on every machine. The easy single-component
 //    variant of the most-requested mined scaffold (round/match flow, day-night
 //    cycles, match phases). Mined from despawn.murder / suspectra / minigolf / etc.
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreateRoundPhaseMachineHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -1135,7 +1135,7 @@ public class CreateRoundPhaseMachineHandler : IBridgeHandler
 		var typeDesc = Game.TypeLibrary.GetType( className );
 		if ( typeDesc == null )
 		{
-			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
 		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
@@ -1167,7 +1167,7 @@ public class CreateRoundPhaseMachineHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — a host-authoritative round / phase machine for any GameObject.
+/// {className} â€” a host-authoritative round / phase machine for any GameObject.
 ///
 /// Cycles a [Sync(SyncFlags.FromHost)] CurrentPhase through your named phases on a
 /// per-phase timer (host-only). Other systems react via the static OnPhaseChanged
@@ -1185,7 +1185,7 @@ public sealed class {className} : Component
 	[Sync( SyncFlags.FromHost )] public Phase CurrentPhase {{ get; set; }}
 	[Sync( SyncFlags.FromHost )] public TimeUntil PhaseTimer {{ get; set; }}
 
-	// Per-phase durations in seconds — tune in the inspector.{durationProps}
+	// Per-phase durations in seconds â€” tune in the inspector.{durationProps}
 
 	[Property] public bool Loop {{ get; set; }} = {(loop ? "true" : "false")};
 
@@ -1245,12 +1245,12 @@ public sealed class {className} : Component
 	}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// J. create_day_night_clock — a host-authoritative time-of-day clock.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// J. create_day_night_clock â€” a host-authoritative time-of-day clock.
 //    [Sync(FromHost)] TimeOfDay (0..24) + Day advancing by Time.Delta; IsDay/
 //    IsNight + static OnNewDay / OnDayNightChanged events. Pairs with
 //    create_round_phase_machine for continuous time (lighting, NPC schedules).
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 public class CreateDayNightClockHandler : IBridgeHandler
 {
 	public Task<object> Execute( JsonElement p )
@@ -1291,7 +1291,7 @@ public class CreateDayNightClockHandler : IBridgeHandler
 		var typeDesc = Game.TypeLibrary.GetType( className );
 		if ( typeDesc == null )
 		{
-			note = $"Generated {className}.cs but it is not in the TypeLibrary yet — trigger_hotload, then add it with add_component_with_properties.";
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
 		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
@@ -1310,7 +1310,7 @@ public class CreateDayNightClockHandler : IBridgeHandler
 using System;
 
 /// <summary>
-/// {className} — a host-authoritative time-of-day clock for any GameObject.
+/// {className} â€” a host-authoritative time-of-day clock for any GameObject.
 ///
 /// TimeOfDay (0..24) and Day advance on the host by Time.Delta; both are
 /// [Sync(SyncFlags.FromHost)] so clients agree. IsDay/IsNight derive from the
@@ -1367,3 +1367,108 @@ public sealed class {className} : Component
 ";
 	}
 }
+
+// =============================================================================
+// K. create_interactable -- a Component.IPressable that any player controller's
+//    "use" key drives. Emits a static OnPressed event plus a private OnPress()
+//    hook. Optional cooldown (TimeUntil) + targetId placement.
+//    Mined from interaction patterns across shipped s&box games.
+// =============================================================================
+public class CreateInteractableHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "Interactable", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			var prompt = p.TryGetProperty( "prompt",          out var pr ) && !string.IsNullOrWhiteSpace( pr.GetString() ) ? pr.GetString() : "Press";
+			float cd   = p.TryGetProperty( "cooldownSeconds", out var cdv ) && cdv.TryGetSingle( out var cdf ) ? cdf : 0f;
+
+			var code = BuildCode( className, prompt, cd );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_interactable failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, string prompt, float cooldown )
+	{
+		var ci = System.Globalization.CultureInfo.InvariantCulture;
+		string cd = cooldown.ToString( ci ) + "f";
+
+		return $@"using Sandbox;
+using System;
+
+/// <summary>
+/// {className} -- an interactable object driven by Component.IPressable.
+///
+/// Any player controller that implements the s&amp;box ""use"" interaction (the built-in
+/// PlayerController drives IPressable on the object the player is looking at) will
+/// automatically call Press(), Hover() and Blur() -- no custom player code needed.
+///
+/// Subscribe to the static OnPressed event or add logic to the private OnPress()
+/// method to react to a press. For host-authoritative effects (damage, spawning,
+/// score changes), call an [Rpc.Host] method from inside OnPress() so only the
+/// host applies the change.
+///
+/// The UI prompt/tooltip is left to your game's HUD -- read the Prompt property
+/// and display it when the player looks at the object (e.g. via a WorldPanel).
+/// </summary>
+public sealed class {className} : Component, Component.IPressable
+{{
+	[Property] public string Prompt {{ get; set; }} = ""{prompt}"";
+	[Property] public float CooldownSeconds {{ get; set; }} = {cd};
+
+	/// <summary>Fires (on the machine that pressed) after a successful press.</summary>
+	public static Action<GameObject, {className}> OnPressed {{ get; set; }}
+
+	private TimeUntil _cooldownDone;
+
+	public bool CanPress( Component.IPressable.Event e ) => CooldownSeconds <= 0f || _cooldownDone;
+
+	public bool Press( Component.IPressable.Event e )
+	{{
+		if ( !CanPress( e ) ) return false;
+		_cooldownDone = CooldownSeconds;
+		OnPressed?.Invoke( GameObject, this );
+		OnPress( e );
+		return true;
+	}}
+
+	public void Hover( Component.IPressable.Event e ) {{ }}
+	public void Blur( Component.IPressable.Event e ) {{ }}
+
+	/// <summary>
+	/// Called after a successful press on the pressing machine. Add your
+	/// behaviour here. For host-authoritative side-effects call an [Rpc.Host]
+	/// method from this body so only the host applies the change.
+	/// </summary>
+	private void OnPress( Compone
