@@ -1805,7 +1805,7 @@ public sealed class {className} : Component
 // =============================================================================
 // N. create_leaderboard_panel -- Razor PanelComponent that fetches and displays
 //    a Sandbox.Services leaderboard derived from a stat name. Uses the exact
-//    Leaderboards.Get() / board.Refresh() API mirrored from ServicesQueryHandler.
+//    Leaderboards.Get() / board.Refresh(CancellationToken) API verified live via describe_type.
 //    Generates TWO files: {name}.razor + {name}.razor.scss.
 //    RAZOR-LINT CLEAN: BuildHash override included, no switch expressions in
 //    @code, ASCII-only, class selectors only in SCSS.
@@ -1934,7 +1934,7 @@ else
 		{{
 			var board = Sandbox.Services.Leaderboards.Get( StatName );
 			board.MaxEntries = MaxRows;
-			await board.Refresh();
+			await board.Refresh( default );
 			var newRows = new List<LeaderboardRow>();
 			if ( board.Entries != null )
 			{{
@@ -1942,7 +1942,7 @@ else
 				{{
 					newRows.Add( new LeaderboardRow
 					{{
-						Rank        = e.Rank,
+						Rank        = (int) e.Rank,
 						DisplayName = e.DisplayName,
 						Value       = (long)e.Value
 					}} );
@@ -2086,7 +2086,7 @@ public sealed class {className} : Component
 	[Property] public int Capacity {{ get; set; }} = {capacity};
 	[Property] public int MaxStack {{ get; set; }} = {maxStack};
 
-	/// Parallel slot lists -- index i is one slot. "" means empty.
+	/// Parallel slot lists -- index i is one slot. """" means empty.
 	[Property] public List<string> ItemIds {{ get; set; }} = new List<string>();
 	[Property] public List<int>    Counts  {{ get; set; }} = new List<int>();
 
@@ -2096,7 +2096,7 @@ public sealed class {className} : Component
 	protected override void OnStart()
 	{{
 		// Pre-size to capacity so inspector slots are always visible.
-		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( "" ); Counts.Add( 0 ); }}
+		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( """" ); Counts.Add( 0 ); }}
 	}}
 
 	/// <summary>
@@ -2146,7 +2146,7 @@ public sealed class {className} : Component
 					int remove = (Counts[i] < excess) ? Counts[i] : excess;
 					Counts[i] -= remove;
 					excess     -= remove;
-					if ( Counts[i] == 0 ) ItemIds[i] = "";
+					if ( Counts[i] == 0 ) ItemIds[i] = """";
 				}}
 			}}
 			return false;
@@ -2170,7 +2170,7 @@ public sealed class {className} : Component
 				int remove = (Counts[i] < remaining) ? Counts[i] : remaining;
 				Counts[i]  -= remove;
 				remaining  -= remove;
-				if ( Counts[i] == 0 ) ItemIds[i] = "";
+				if ( Counts[i] == 0 ) ItemIds[i] = """";
 			}}
 		}}
 		OnChanged?.Invoke( GameObject );
@@ -2205,7 +2205,7 @@ public sealed class {className} : Component
 			int move  = (Counts[from] < space) ? Counts[from] : space;
 			Counts[to]   += move;
 			Counts[from] -= move;
-			if ( Counts[from] == 0 ) ItemIds[from] = "";
+			if ( Counts[from] == 0 ) ItemIds[from] = """";
 		}}
 		else
 		{{
@@ -2222,13 +2222,13 @@ public sealed class {className} : Component
 	public void Clear()
 	{{
 		EnsureSize();
-		for ( int i = 0; i < Capacity; i++ ) {{ ItemIds[i] = ""; Counts[i] = 0; }}
+		for ( int i = 0; i < Capacity; i++ ) {{ ItemIds[i] = """"; Counts[i] = 0; }}
 		OnChanged?.Invoke( GameObject );
 	}}
 
 	private void EnsureSize()
 	{{
-		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( "" ); Counts.Add( 0 ); }}
+		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( """" ); Counts.Add( 0 ); }}
 		while ( Counts.Count  < Capacity ) Counts.Add( 0 );
 	}}
 }}
@@ -2450,7 +2450,7 @@ public sealed class {className} : Component
 // Q. create_placement_mode -- ghost-preview + commit placement component.
 //    Single component manages its own ghost GameObject. Ray from scene camera
 //    through mouse position, optional grid-snap, commit on attack1.
-//    API grounded in the building-placement cookbook: camera.GetMouseRay() /
+//    API verified live: camera.ScreenPixelToRay(Mouse.Position) /
 //    Scene.Trace.Ray().IgnoreGameObjectHierarchy(ghost).Run(),
 //    ModelRenderer tint for ghost, colliders disabled on ghost.
 //    Mined from enifun.shop_manager / thefancylads.restaurant_dev / others.
@@ -2572,12 +2572,12 @@ public sealed class {className} : Component
 		if ( !_isPlacing || _ghost == null ) return;
 
 		// Cast a ray from the scene camera through the mouse position.
-		// API: camera.GetMouseRay() (grounded in building-placement cookbook /
+		// API: camera.ScreenPixelToRay(Mouse.Position) (verified live via describe_type;
 		// enifun.shop_manager Code/Shop/ShopBuilder.cs).
 		var camera = Scene.Camera;
 		if ( camera == null ) return;
 
-		var ray   = camera.GetMouseRay();
+		var ray   = camera.ScreenPixelToRay( Mouse.Position );
 		var trace = Scene.Trace.Ray( ray, MaxPlaceDistance )
 			.IgnoreGameObjectHierarchy( _ghost )
 			.Run();
