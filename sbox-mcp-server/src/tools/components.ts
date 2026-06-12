@@ -38,10 +38,9 @@ export function registerComponentTools(
   // ── get_all_properties ───────────────────────────────────────────
   server.tool(
     "get_all_properties",
-    "Dump all public properties of a component as JSON — names, types, and current values",
+    "Dump all public properties of every component on a GameObject as JSON -- names, types, and current values",
     {
       id: z.string().describe("GUID of the GameObject"),
-      component: z.string().describe("Component type name"),
     },
     async (params) => {
       const res = await bridge.send("get_all_properties", params);

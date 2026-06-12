@@ -25,7 +25,7 @@ using System.Threading.Tasks;
 //  generators: Component, [Property], [Sync], GetOrAddComponent<NavMeshAgent>(),
 //  NavMeshAgent.MoveTo(Vector3), IsProxy, TimeSince, Vector3.Dot/.Normal/
 //  .DistanceBetween, Scene.GetAllComponents<T>(), scene.Trace.Ray(a,b).Run(),
-//  MathX.Clamp. NO System.Math / System.MathF in generated code.
+//  MathX.Clamp. MathX preferred in generated code; System.Math/MathF also compile on the current SDK (verified 2026-06-09). Array.Clone() still blocked.
 //
 //  Tools in this file:
 //    create_npc_brain        (code-gen; scene-mutating)

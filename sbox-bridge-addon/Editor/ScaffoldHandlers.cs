@@ -1,4 +1,4 @@
-﻿using Editor;
+using Editor;
 using Sandbox;
 using System;
 using System.Collections.Generic;
@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 //
 // IMPORTANT â€” the C# *strings these handlers WRITE TO DISK* are SANDBOXED game
 // code. That generated code must obey the s&box sandbox rules:
-//   â€¢ use MathX, never System.Math / System.MathF
+//   â€¢ MathX preferred; System.Math/MathF also compile on the current SDK (verified 2026-06-09). Array.Clone() is still whitelist-blocked -- use .ToArray().
 //   â€¢ guard networking with IsProxy / try-catch (Networking.IsHost can throw)
 //   â€¢ model shape on CreateGameManager / CreateTriggerZone, which compile today
 //
@@ -1800,3 +1800,840 @@ public sealed class {className} : Component
 }}
 ";
 	}
+}
+
+// =============================================================================
+// N. create_leaderboard_panel -- Razor PanelComponent that fetches and displays
+//    a Sandbox.Services leaderboard derived from a stat name. Uses the exact
+//    Leaderboards.Get() / board.Refresh() API mirrored from ServicesQueryHandler.
+//    Generates TWO files: {name}.razor + {name}.razor.scss.
+//    RAZOR-LINT CLEAN: BuildHash override included, no switch expressions in
+//    @code, ASCII-only, class selectors only in SCSS.
+// =============================================================================
+public class CreateLeaderboardPanelHandler : IBridgeHandler
+{
+	public async Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			// Parse params
+			var name      = p.TryGetProperty( "name",      out var n ) && !string.IsNullOrWhiteSpace( n.GetString() ) ? n.GetString() : "LeaderboardPanel";
+			var directory = p.TryGetProperty( "directory", out var d ) && !string.IsNullOrWhiteSpace( d.GetString() ) ? d.GetString() : "Code/UI";
+			var statName  = p.TryGetProperty( "statName",  out var sn ) && !string.IsNullOrWhiteSpace( sn.GetString() ) ? sn.GetString() : "score";
+			var title     = p.TryGetProperty( "title",     out var t  ) && !string.IsNullOrWhiteSpace( t.GetString()  ) ? t.GetString()  : "Leaderboard";
+			int maxRows   = p.TryGetProperty( "maxRows",   out var mr ) && mr.TryGetInt32( out var mri ) ? mri : 10;
+
+			var className  = ClaudeBridge.SanitizeIdentifier( name.EndsWith( ".razor" ) ? Path.GetFileNameWithoutExtension( name ) : name );
+			var razorFile  = className + ".razor";
+			var scssFile   = className + ".razor.scss";
+
+			// Resolve both paths
+			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, razorFile ), out var razorPath, out var razorErr ) )
+				return new { error = razorErr };
+			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, scssFile ),  out var scssPath,  out var scssErr  ) )
+				return new { error = scssErr };
+
+			if ( File.Exists( razorPath ) )
+				return new { error = $"File already exists: {directory}/{razorFile}. Choose a different name." };
+
+			Directory.CreateDirectory( Path.GetDirectoryName( razorPath ) );
+
+			var ci        = System.Globalization.CultureInfo.InvariantCulture;
+			string maxStr = maxRows.ToString( ci );
+
+			string razor  = BuildRazor( className, statName, title, maxStr );
+			string scss   = BuildScss();
+
+			ScaffoldHelpers.WriteCode( razorPath, razor );
+			ScaffoldHelpers.WriteCode( scssPath,  scss  );
+
+			var rootPath  = Project.Current?.GetRootPath() ?? "";
+			var relRazor  = Path.GetRelativePath( rootPath, razorPath  ).Replace( '\\', '/' );
+			var relScss   = Path.GetRelativePath( rootPath, scssPath   ).Replace( '\\', '/' );
+
+			string note = "Panel renders only under a ScreenPanel/WorldPanel host -- use add_screen_panel. " +
+			              "Stats need Sandbox.Services configured for the project ident.";
+
+			return new { created = true, razorPath = relRazor, scssPath = relScss, className, note };
+		}
+		catch ( Exception ex )
+		{
+			return new { error = $"create_leaderboard_panel failed: {ex.Message}" };
+		}
+	}
+
+	static string BuildRazor( string className, string statName, string title, string maxRows )
+	{
+		// NOTE: all {{ }} inside the $@"" are C# string-escape doubled braces.
+		// The generated .razor uses single { } for Razor/C# expressions.
+		return $@"@using Sandbox;
+@using Sandbox.UI;
+@using System.Collections.Generic;
+@inherits PanelComponent;
+
+@* {className} -- leaderboard panel backed by Sandbox.Services.
+   Host it under a ScreenPanel or WorldPanel component.
+   Stats must be configured for the project ident on sbox.game.
+   Call RefreshAsync() manually or let the 30-second auto-refresh tick. *@
+
+@if ( _loading )
+{{
+	<div class=""leaderboard"">
+		<div class=""title"">@Title</div>
+		<div class=""row""><span class=""name"">Loading...</span></div>
+	</div>
+}}
+else
+{{
+	<div class=""leaderboard"">
+		<div class=""title"">@Title</div>
+		@foreach ( var row in _rows )
+		{{
+			<div class=""row"">
+				<span class=""rank"">#@row.Rank</span>
+				<span class=""name"">@row.DisplayName</span>
+				<span class=""value"">@row.Value</span>
+			</div>
+		}}
+		@if ( _rows.Count == 0 )
+		{{
+			<div class=""row""><span class=""name"">No entries yet.</span></div>
+		}}
+	</div>
+}}
+
+@code {{
+	[Property] public string StatName  {{ get; set; }} = ""{statName}"";
+	[Property] public string Title     {{ get; set; }} = ""{title}"";
+	[Property] public int    MaxRows   {{ get; set; }} = {maxRows};
+
+	private struct LeaderboardRow {{ public int Rank; public string DisplayName; public long Value; }}
+
+	private List<LeaderboardRow> _rows    = new List<LeaderboardRow>();
+	private bool                 _loading = false;
+	private RealTimeSince        _lastFetch;
+	private bool                 _fetchedOnce = false;
+
+	protected override void OnUpdate()
+	{{
+		// Auto-refresh at most every 30 seconds; also fetch on first tick.
+		if ( !_fetchedOnce || _lastFetch > 30f )
+		{{
+			_fetchedOnce = true;
+			_ = RefreshAsync();
+		}}
+	}}
+
+	public async System.Threading.Tasks.Task RefreshAsync()
+	{{
+		if ( _loading ) return;
+		_loading = true;
+		_lastFetch = 0f;
+		StateHasChanged();
+		try
+		{{
+			var board = Sandbox.Services.Leaderboards.Get( StatName );
+			board.MaxEntries = MaxRows;
+			await board.Refresh();
+			var newRows = new List<LeaderboardRow>();
+			if ( board.Entries != null )
+			{{
+				foreach ( var e in board.Entries )
+				{{
+					newRows.Add( new LeaderboardRow
+					{{
+						Rank        = e.Rank,
+						DisplayName = e.DisplayName,
+						Value       = (long)e.Value
+					}} );
+				}}
+			}}
+			_rows = newRows;
+		}}
+		catch ( System.Exception ) {{ /* Services offline or project not configured -- show empty */ }}
+		finally
+		{{
+			_loading = false;
+			StateHasChanged();
+		}}
+	}}
+
+	protected override int BuildHash() => System.HashCode.Combine( _rows.Count, _loading );
+}}
+";
+	}
+
+	static string BuildScss()
+	{
+		return @".leaderboard {
+	display: flex;
+	flex-direction: column;
+	background-color: rgba(0,0,0,0.7);
+	border-radius: 4px;
+	padding: 8px;
+	min-width: 260px;
+}
+
+.title {
+	font-size: 18px;
+	font-weight: bold;
+	color: white;
+	text-align: center;
+	margin-bottom: 6px;
+}
+
+.row {
+	display: flex;
+	flex-direction: row;
+	padding: 3px 4px;
+	border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.rank {
+	color: rgba(255,255,255,0.5);
+	min-width: 36px;
+}
+
+.name {
+	flex-grow: 1;
+	color: white;
+}
+
+.value {
+	color: #ffe080;
+	min-width: 60px;
+	text-align: right;
+}
+";
+	}
+}
+
+// =============================================================================
+// O. create_inventory -- parallel List<string>/List<int> slot-based inventory
+//    component. Stack-first TryAdd, TryRemove, CountOf, Move (swap/merge),
+//    Clear. Static OnChanged event. Host-authoritative usage note.
+//    Mined from 12+ shipped s&box game inventory patterns.
+// =============================================================================
+public class CreateInventoryHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "Inventory", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			var ci        = System.Globalization.CultureInfo.InvariantCulture;
+			int capacity  = p.TryGetProperty( "capacity",  out var cv ) && cv.TryGetInt32( out var ci2 ) ? ci2 : 24;
+			int maxStack  = p.TryGetProperty( "maxStack",  out var ms ) && ms.TryGetInt32( out var msi ) ? msi : 99;
+			string capStr = capacity.ToString( ci );
+			string msStr  = maxStack.ToString( ci );
+
+			var code = BuildCode( className, capStr, msStr );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_inventory failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, string capacity, string maxStack )
+	{
+		return $@"using Sandbox;
+using System;
+using System.Collections.Generic;
+
+/// <summary>
+/// {className} -- parallel List slot inventory: ItemIds[i] / Counts[i] per slot.
+///
+/// Host-authoritative usage: in multiplayer, mutate only on the host (guard with
+/// IsProxy or [Rpc.Host]) and replicate via your own [Sync]/RPC or a NetList.
+/// Pairs naturally with create_pickup (the pickup calls TryAdd on the host).
+///
+/// TryAdd: stack-first onto existing same-id slots up to MaxStack, then first
+/// empty slot. Partial adds are NOT supported -- returns false if not ALL count
+/// fits; caller should retry with a smaller amount or reject the pickup.
+///
+/// OnChanged fires after every successful mutation with the owning GameObject.
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public int Capacity {{ get; set; }} = {capacity};
+	[Property] public int MaxStack {{ get; set; }} = {maxStack};
+
+	/// Parallel slot lists -- index i is one slot. "" means empty.
+	[Property] public List<string> ItemIds {{ get; set; }} = new List<string>();
+	[Property] public List<int>    Counts  {{ get; set; }} = new List<int>();
+
+	/// Fires after every successful mutation with the owning GameObject.
+	public static Action<GameObject> OnChanged {{ get; set; }}
+
+	protected override void OnStart()
+	{{
+		// Pre-size to capacity so inspector slots are always visible.
+		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( "" ); Counts.Add( 0 ); }}
+	}}
+
+	/// <summary>
+	/// Add count of item id. Stack-first onto existing same-id slots, then first
+	/// empty slot. Returns true only if ALL of count was added.
+	/// Partial adds are not supported -- call CountOf first to pre-check capacity.
+	/// </summary>
+	public bool TryAdd( string id, int count )
+	{{
+		if ( string.IsNullOrEmpty( id ) || count <= 0 ) return false;
+		EnsureSize();
+		int remaining = count;
+
+		// Pass 1: top up existing stacks of the same id.
+		for ( int i = 0; i < Capacity && remaining > 0; i++ )
+		{{
+			if ( ItemIds[i] == id )
+			{{
+				int space = MaxStack - Counts[i];
+				if ( space <= 0 ) continue;
+				int add = (remaining < space) ? remaining : space;
+				Counts[i] += add;
+				remaining  -= add;
+			}}
+		}}
+
+		// Pass 2: fill empty slots.
+		for ( int i = 0; i < Capacity && remaining > 0; i++ )
+		{{
+			if ( string.IsNullOrEmpty( ItemIds[i] ) )
+			{{
+				int add = (remaining < MaxStack) ? remaining : MaxStack;
+				ItemIds[i] = id;
+				Counts[i]  = add;
+				remaining  -= add;
+			}}
+		}}
+
+		if ( remaining > 0 )
+		{{
+			// Could not fit all -- roll back the partial add.
+			int excess = count - remaining;
+			for ( int i = 0; i < Capacity && excess > 0; i++ )
+			{{
+				if ( ItemIds[i] == id )
+				{{
+					int remove = (Counts[i] < excess) ? Counts[i] : excess;
+					Counts[i] -= remove;
+					excess     -= remove;
+					if ( Counts[i] == 0 ) ItemIds[i] = "";
+				}}
+			}}
+			return false;
+		}}
+
+		OnChanged?.Invoke( GameObject );
+		return true;
+	}}
+
+	/// <summary>Remove count of item id. Returns true if all were removed.</summary>
+	public bool TryRemove( string id, int count )
+	{{
+		if ( string.IsNullOrEmpty( id ) || count <= 0 ) return false;
+		if ( CountOf( id ) < count ) return false;
+		EnsureSize();
+		int remaining = count;
+		for ( int i = 0; i < Capacity && remaining > 0; i++ )
+		{{
+			if ( ItemIds[i] == id )
+			{{
+				int remove = (Counts[i] < remaining) ? Counts[i] : remaining;
+				Counts[i]  -= remove;
+				remaining  -= remove;
+				if ( Counts[i] == 0 ) ItemIds[i] = "";
+			}}
+		}}
+		OnChanged?.Invoke( GameObject );
+		return true;
+	}}
+
+	/// <summary>Total count of a given item across all slots.</summary>
+	public int CountOf( string id )
+	{{
+		if ( string.IsNullOrEmpty( id ) ) return 0;
+		EnsureSize();
+		int total = 0;
+		for ( int i = 0; i < Capacity; i++ )
+			if ( ItemIds[i] == id ) total += Counts[i];
+		return total;
+	}}
+
+	/// <summary>
+	/// Move (swap or merge) two slots by index. If both slots hold the same id
+	/// the counts are merged into the target up to MaxStack, remainder stays in
+	/// source. If different ids the entire slots are swapped.
+	/// </summary>
+	public bool Move( int from, int to )
+	{{
+		EnsureSize();
+		if ( from < 0 || from >= Capacity || to < 0 || to >= Capacity || from == to ) return false;
+
+		if ( ItemIds[from] == ItemIds[to] && !string.IsNullOrEmpty( ItemIds[from] ) )
+		{{
+			// Merge same-id stacks.
+			int space = MaxStack - Counts[to];
+			int move  = (Counts[from] < space) ? Counts[from] : space;
+			Counts[to]   += move;
+			Counts[from] -= move;
+			if ( Counts[from] == 0 ) ItemIds[from] = "";
+		}}
+		else
+		{{
+			// Swap different slots.
+			string tmpId  = ItemIds[from]; ItemIds[from] = ItemIds[to]; ItemIds[to] = tmpId;
+			int    tmpCnt = Counts[from];  Counts[from]  = Counts[to];  Counts[to]  = tmpCnt;
+		}}
+
+		OnChanged?.Invoke( GameObject );
+		return true;
+	}}
+
+	/// <summary>Empty all slots.</summary>
+	public void Clear()
+	{{
+		EnsureSize();
+		for ( int i = 0; i < Capacity; i++ ) {{ ItemIds[i] = ""; Counts[i] = 0; }}
+		OnChanged?.Invoke( GameObject );
+	}}
+
+	private void EnsureSize()
+	{{
+		while ( ItemIds.Count < Capacity ) {{ ItemIds.Add( "" ); Counts.Add( 0 ); }}
+		while ( Counts.Count  < Capacity ) Counts.Add( 0 );
+	}}
+}}
+";
+	}
+}
+
+// =============================================================================
+// P. create_stat_modifier_system -- enum-keyed stats with layered modifiers:
+//    SET (highest-priority overrides base), ADD (sum), MULT (product).
+//    Modifier storage as parallel private Lists of simple types to stay
+//    serialization-safe. Static OnStatChanged event.
+//    Mined from buff/debuff and RPG stat patterns across shipped s&box games.
+// =============================================================================
+public class CreateStatModifierSystemHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "StatSystem", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			// Parse stat names: accept a JSON array OR a comma-separated string.
+			var statNames = new List<string>();
+			if ( p.TryGetProperty( "stats", out var statsEl ) )
+			{
+				if ( statsEl.ValueKind == JsonValueKind.Array )
+				{
+					foreach ( var el in statsEl.EnumerateArray() )
+					{
+						var s = el.GetString();
+						if ( !string.IsNullOrWhiteSpace( s ) ) statNames.Add( ClaudeBridge.SanitizeIdentifier( s ) );
+					}
+				}
+				else if ( statsEl.ValueKind == JsonValueKind.String )
+				{
+					foreach ( var s in statsEl.GetString().Split( ',' ) )
+					{
+						var trimmed = s.Trim();
+						if ( !string.IsNullOrWhiteSpace( trimmed ) ) statNames.Add( ClaudeBridge.SanitizeIdentifier( trimmed ) );
+					}
+				}
+			}
+			if ( statNames.Count == 0 ) statNames = new List<string> { "Health", "Speed", "Damage" };
+
+			var code = BuildCode( className, statNames );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, stats = statNames, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_stat_modifier_system failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, List<string> statNames )
+	{
+		var enumEntries = string.Join( ",\n\t", statNames );
+		int count       = statNames.Count;
+		var ci          = System.Globalization.CultureInfo.InvariantCulture;
+		// Build the default BaseValues initialiser: 100f for all stats.
+		var defaults    = string.Join( ", ", System.Linq.Enumerable.Repeat( "100f", count ) );
+		string enumName = className + "Stat";
+
+		return $@"using Sandbox;
+using System;
+using System.Collections.Generic;
+
+/// <summary>
+/// {enumName} -- the stats this system tracks.
+/// Add or remove values here, then regenerate BaseValues defaults in {className}.
+/// </summary>
+public enum {enumName}
+{{
+	{enumEntries}
+}}
+
+/// <summary>
+/// {className} -- layered stat modifier system.
+///
+/// Each stat starts at its BaseValues entry. Modifiers are applied in three layers:
+///   SET  (ModifierType.Set,  priority-highest-wins): hard-overrides the base.
+///   ADD  (ModifierType.Add):  all additive bonuses summed on top of the resolved base.
+///   MULT (ModifierType.Mult): all multiplicative factors applied last (product of all).
+///
+/// If any SET modifier is active the highest-priority SET value replaces the base
+/// before the ADD and MULT passes (conventional ss1/ss2 stat convention).
+///
+/// Modifiers are keyed by an arbitrary object source (e.g. the Component that
+/// applied them). RemoveModifiersFrom(source) cleans up all mods from that source
+/// when a buff/debuff expires or the applier is destroyed.
+///
+/// OnStatChanged fires (stat, newValue) after every Add or Remove.
+/// </summary>
+public sealed class {className} : Component
+{{
+	/// Base (unmodified) value for each stat. Index matches {enumName} cast to int.
+	[Property] public List<float> BaseValues {{ get; set; }} = new List<float> {{ {defaults} }};
+
+	/// Modifier type constants.
+	public enum ModifierType {{ Set = 0, Add = 1, Mult = 2 }}
+
+	// Parallel private Lists keep modifier storage serialization-safe (no custom
+	// [Property] class needed). Each index i is one modifier entry.
+	private List<object> _modSources    = new List<object>();
+	private List<int>    _modStats      = new List<int>();    // (int){enumName}
+	private List<int>    _modTypes      = new List<int>();    // (int)ModifierType
+	private List<float>  _modValues     = new List<float>();
+	private List<int>    _modPriorities = new List<int>();
+
+	/// Fires after every successful AddModifier / RemoveModifiersFrom call.
+	public static Action<{enumName}, float> OnStatChanged {{ get; set; }}
+
+	/// Add a modifier. source is any object -- used as the removal key later.
+	public void AddModifier( object source, {enumName} stat, ModifierType type, float value, int priority = 0 )
+	{{
+		_modSources.Add( source );
+		_modStats.Add( (int)stat );
+		_modTypes.Add( (int)type );
+		_modValues.Add( value );
+		_modPriorities.Add( priority );
+		OnStatChanged?.Invoke( stat, GetStat( stat ) );
+	}}
+
+	/// Remove all modifiers whose source equals the given object (by reference).
+	public void RemoveModifiersFrom( object source )
+	{{
+		var affected = new List<{enumName}>();
+		for ( int i = _modSources.Count - 1; i >= 0; i-- )
+		{{
+			if ( ReferenceEquals( _modSources[i], source ) )
+			{{
+				affected.Add( ({enumName})_modStats[i] );
+				_modSources.RemoveAt( i );
+				_modStats.RemoveAt( i );
+				_modTypes.RemoveAt( i );
+				_modValues.RemoveAt( i );
+				_modPriorities.RemoveAt( i );
+			}}
+		}}
+		foreach ( var s in affected )
+			OnStatChanged?.Invoke( s, GetStat( s ) );
+	}}
+
+	/// <summary>
+	/// Resolve the final value for a stat:
+	///   1. If any SET modifier exists, the one with the highest priority wins (ties:
+	///      last-added). That value replaces the base.
+	///   2. All ADD modifiers are summed on top.
+	///   3. All MULT modifiers are multiplied together and applied last.
+	/// </summary>
+	public float GetStat( {enumName} stat )
+	{{
+		int idx  = (int)stat;
+		float b  = (idx >= 0 && idx < BaseValues.Count) ? BaseValues[idx] : 0f;
+
+		// Pass 1: SET -- highest-priority override.
+		bool hasSet     = false;
+		float setVal    = 0f;
+		int   setPrio   = int.MinValue;
+		for ( int i = 0; i < _modStats.Count; i++ )
+		{{
+			if ( _modStats[i] != idx || _modTypes[i] != (int)ModifierType.Set ) continue;
+			if ( !hasSet || _modPriorities[i] > setPrio )
+			{{
+				hasSet  = true;
+				setVal  = _modValues[i];
+				setPrio = _modPriorities[i];
+			}}
+		}}
+		if ( hasSet ) b = setVal;
+
+		// Pass 2: ADD -- sum all additive mods.
+		float addSum = 0f;
+		for ( int i = 0; i < _modStats.Count; i++ )
+			if ( _modStats[i] == idx && _modTypes[i] == (int)ModifierType.Add )
+				addSum += _modValues[i];
+		b += addSum;
+
+		// Pass 3: MULT -- product of all multiplicative mods.
+		float multProd = 1f;
+		for ( int i = 0; i < _modStats.Count; i++ )
+			if ( _modStats[i] == idx && _modTypes[i] == (int)ModifierType.Mult )
+				multProd *= _modValues[i];
+		b *= multProd;
+
+		return b;
+	}}
+}}
+";
+	}
+}
+
+// =============================================================================
+// Q. create_placement_mode -- ghost-preview + commit placement component.
+//    Single component manages its own ghost GameObject. Ray from scene camera
+//    through mouse position, optional grid-snap, commit on attack1.
+//    API grounded in the building-placement cookbook: camera.GetMouseRay() /
+//    Scene.Trace.Ray().IgnoreGameObjectHierarchy(ghost).Run(),
+//    ModelRenderer tint for ghost, colliders disabled on ghost.
+//    Mined from enifun.shop_manager / thefancylads.restaurant_dev / others.
+// =============================================================================
+public class CreatePlacementModeHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		try
+		{
+			if ( !ScaffoldHelpers.PrepareCodeFile( p, "PlacementMode", out var fullPath, out var relPath, out var className, out var err ) )
+				return Task.FromResult<object>( err );
+
+			var ci         = System.Globalization.CultureInfo.InvariantCulture;
+			float gridSize = p.TryGetProperty( "gridSize",  out var gs ) && gs.TryGetSingle( out var gsf ) ? gsf : 0f;
+			string gsStr   = gridSize.ToString( ci ) + "f";
+
+			var code = BuildCode( className, gsStr );
+			ScaffoldHelpers.WriteCode( fullPath, code );
+
+			object placedOn = null; string note = null;
+			if ( p.TryGetProperty( "targetId", out var tid ) && tid.ValueKind == JsonValueKind.String )
+				placedOn = PlaceOnTarget( tid.GetString(), className, out note );
+
+			return Task.FromResult<object>( new { created = true, path = relPath, className, placedOn, note } );
+		}
+		catch ( Exception ex )
+		{
+			return Task.FromResult<object>( new { error = $"create_placement_mode failed: {ex.Message}" } );
+		}
+	}
+
+	static object PlaceOnTarget( string targetId, string className, out string note )
+	{
+		note = null;
+		var scene = SceneEditorSession.Active?.Scene;
+		if ( scene == null ) { note = "No active scene to place into."; return null; }
+		if ( !Guid.TryParse( targetId, out var guid ) ) { note = "Invalid targetId GUID."; return null; }
+		var go = scene.Directory.FindByGuid( guid );
+		if ( go == null ) { note = $"Target GameObject not found: {targetId}"; return null; }
+		var typeDesc = Game.TypeLibrary.GetType( className );
+		if ( typeDesc == null )
+		{
+			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
+			return null;
+		}
+		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
+	}
+
+	static string BuildCode( string className, string gridSize )
+	{
+		return $@"using Sandbox;
+using System;
+using System.Collections.Generic;
+
+/// <summary>
+/// {className} -- two-phase ghost-preview + commit placement system.
+///
+/// Pattern (per building-placement cookbook, grounded in enifun.shop_manager):
+///   1. StartPlacing() clones GhostPrefab as a cosmetic, non-networked preview.
+///      The ghost has all Colliders disabled so it never blocks its own trace.
+///      Its ModelRenderers are tinted semi-transparent to signal preview mode.
+///   2. Each OnUpdate() frame while placing: cast a mouse ray from the scene
+///      camera, ignore the ghost's own hierarchy, snap the hit position to
+///      GridSize (0 = freeform), move the ghost there.
+///   3. On Input.Pressed(""attack1"") TryPlace() re-validates distance, then
+///      clones GhostPrefab for real at the confirmed position.
+///      IN MULTIPLAYER: move the real-clone step into an [Rpc.Host] method and
+///      re-validate distance there -- client validity is advisory only.
+///   4. StopPlacing() destroys the ghost.
+///
+/// Subscribe to the static OnPlaced event to react to a confirmed placement.
+/// Assign GhostPrefab in the inspector before calling StartPlacing().
+/// </summary>
+public sealed class {className} : Component
+{{
+	[Property] public GameObject GhostPrefab      {{ get; set; }}
+	[Property] public float      GridSize          {{ get; set; }} = {gridSize};
+	[Property] public float      MaxPlaceDistance  {{ get; set; }} = 500f;
+
+	/// Fires after a successful commit placement with the newly placed GameObject
+	/// and the world position it was placed at.
+	public static Action<GameObject, Vector3> OnPlaced {{ get; set; }}
+
+	private bool       _isPlacing = false;
+	private GameObject _ghost     = null;
+
+	/// <summary>
+	/// Begin placement: clone GhostPrefab as a local preview, disable its
+	/// colliders so it never blocks its own placement trace.
+	/// </summary>
+	public void StartPlacing()
+	{{
+		if ( _isPlacing ) return;
+		if ( GhostPrefab == null ) {{ Log.Warning( ""{className}: GhostPrefab is not assigned."" ); return; }}
+		_isPlacing = true;
+		_ghost     = GhostPrefab.Clone();
+		_ghost.NetworkMode = NetworkMode.Never;
+
+		// Disable all colliders so the ghost does not block its own trace.
+		foreach ( var col in _ghost.Components.GetAll<Collider>( FindMode.EverythingInSelfAndDescendants ) )
+			col.Enabled = false;
+
+		// Tint every ModelRenderer semi-transparent to signal preview.
+		foreach ( var mr in _ghost.Components.GetAll<ModelRenderer>( FindMode.EverythingInSelfAndDescendants ) )
+			mr.Tint = mr.Tint.WithAlpha( 0.5f );
+	}}
+
+	/// <summary>Abort placement and destroy the ghost preview.</summary>
+	public void StopPlacing()
+	{{
+		_isPlacing = false;
+		if ( _ghost != null ) {{ _ghost.Destroy(); _ghost = null; }}
+	}}
+
+	protected override void OnUpdate()
+	{{
+		if ( !_isPlacing || _ghost == null ) return;
+
+		// Cast a ray from the scene camera through the mouse position.
+		// API: camera.GetMouseRay() (grounded in building-placement cookbook /
+		// enifun.shop_manager Code/Shop/ShopBuilder.cs).
+		var camera = Scene.Camera;
+		if ( camera == null ) return;
+
+		var ray   = camera.GetMouseRay();
+		var trace = Scene.Trace.Ray( ray, MaxPlaceDistance )
+			.IgnoreGameObjectHierarchy( _ghost )
+			.Run();
+
+		if ( !trace.Hit ) return;
+
+		var pos = trace.HitPosition;
+
+		// Snap to grid when GridSize > 0 (MathX rounding with explicit int casts).
+		if ( GridSize > 0f )
+		{{
+			pos = new Vector3(
+				MathX.FloorToInt( pos.x / GridSize ) * GridSize,
+				MathX.FloorToInt( pos.y / GridSize ) * GridSize,
+				pos.z );
+		}}
+
+		_ghost.WorldPosition = pos;
+
+		// Confirm placement on attack1.
+		if ( Input.Pressed( ""attack1"" ) )
+			TryPlace( pos, _ghost.WorldRotation );
+	}}
+
+	/// <summary>
+	/// Validate distance and commit the placement. Clones GhostPrefab for real.
+	///
+	/// MULTIPLAYER NOTE: Move this clone step into an [Rpc.Host] method and
+	/// re-validate distance on the host before calling NetworkSpawn() -- the
+	/// client-side check here is advisory only (lag + cheating).
+	/// </summary>
+	private void TryPlace( Vector3 pos, Rotation rot )
+	{{
+		var camera = Scene.Camera;
+		if ( camera == null ) return;
+		if ( Vector3.DistanceBetween( camera.WorldPosition, pos ) > MaxPlaceDistance ) return;
+		if ( GhostPrefab == null ) return;
+
+		// Clone the real prefab at the confirmed position.
+		var placed = GhostPrefab.Clone();
+		placed.WorldPosition = pos;
+		placed.WorldRotation = rot;
+		// placed.NetworkSpawn(); // un-comment + move into [Rpc.Host] for multiplayer
+
+		OnPlaced?.Invoke( placed, pos );
+
+		// Stop and restart so the player can place another.
+		StopPlacing();
+		StartPlacing();
+	}}
+
+	protected override void OnDestroy()
+	{{
+		StopPlacing();
+	}}
+}}
+";
+	}
+}

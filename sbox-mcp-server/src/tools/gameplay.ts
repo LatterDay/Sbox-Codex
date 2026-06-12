@@ -453,4 +453,81 @@ export function registerGameplayTools(
       return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
     }
   );
+  // -- create_leaderboard_panel ------------------------------------------
+  server.tool(
+    "create_leaderboard_panel",
+    "Generate a Razor PanelComponent that fetches and displays a Sandbox.Services leaderboard derived from a stat name. Produces TWO files: {name}.razor and {name}.razor.scss. The panel auto-refreshes every 30 s, shows rank/displayName/value rows, handles loading state, and includes a BuildHash() override (razor-lint clean). Must be hosted under a ScreenPanel or WorldPanel. Stats must be configured for the project ident on sbox.game. Uses Leaderboards.Get(statName) + board.Refresh() -- the exact API from ServicesQueryHandler.",
+    {
+      name: z.string().optional().describe("Class name for the panel component. Defaults to 'LeaderboardPanel'"),
+      directory: z.string().optional().describe("Subdirectory for the generated files. Defaults to 'Code/UI'"),
+      statName: z.string().optional().describe("Sandbox.Services stat name the leaderboard is derived from. Defaults to 'score'"),
+      title: z.string().optional().describe("Display title shown at the top of the panel. Defaults to 'Leaderboard'"),
+      maxRows: z.number().int().optional().describe("Maximum leaderboard rows to fetch and display. Defaults to 10"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_leaderboard_panel", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // -- create_inventory --------------------------------------------------
+  server.tool(
+    "create_inventory",
+    "Generate a slot-based inventory component using parallel List<string> ItemIds / List<int> Counts (serialization-safe, inspector-editable). Includes TryAdd (stack-first, partial-add rejected), TryRemove, CountOf, Move (swap or merge same-id slots), and Clear. Static OnChanged event fires after every successful mutation. Host-authoritative usage note: mutate on the host in multiplayer, replicate via your own [Sync]/RPC. Pairs with create_pickup.",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'Inventory'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      capacity: z.number().int().optional().describe("Total slot count. Defaults to 24"),
+      maxStack: z.number().int().optional().describe("Maximum items per slot (stack cap). Defaults to 99"),
+      targetId: z.string().optional().describe("GUID of an existing GameObject to attach to (hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_inventory", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // -- create_stat_modifier_system ---------------------------------------
+  server.tool(
+    "create_stat_modifier_system",
+    "Generate an enum-keyed stat modifier system with three modifier layers: SET (highest-priority-wins hard override), ADD (summed bonuses), MULT (multiplied factors applied last). Modifier storage uses parallel private Lists of primitive types (serialization-safe). RemoveModifiersFrom(source) cleans up all mods from a buff/debuff source by reference. Static OnStatChanged(stat, value) event fires after every add/remove. Mined from RPG/buff/debuff patterns across shipped s&box games.",
+    {
+      name: z.string().optional().describe("Class name prefix -- generates {name}Stat enum + {name} Component. Defaults to 'StatSystem'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      stats: z.union([z.array(z.string()), z.string()]).optional().describe("Stat names as a JSON array or comma-separated string. Defaults to 'Health,Speed,Damage'"),
+      targetId: z.string().optional().describe("GUID of an existing GameObject to attach to (hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_stat_modifier_system", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
+
+  // -- create_placement_mode ---------------------------------------------
+  server.tool(
+    "create_placement_mode",
+    "Generate a ghost-preview + commit placement component (single class). StartPlacing() clones GhostPrefab as a NetworkMode.Never preview with colliders disabled and ModelRenderers tinted semi-transparent. Each frame while placing: ray from Scene.Camera.GetMouseRay(), IgnoreGameObjectHierarchy(ghost), snap hit position to GridSize (0 = freeform), move ghost. On Input.Pressed('attack1') TryPlace() re-validates distance and commits a real clone. StopPlacing() destroys the ghost. Static OnPlaced(GameObject, Vector3) event. Includes a multiplayer RPC note. API grounded in building-placement cookbook (enifun.shop_manager pattern).",
+    {
+      name: z.string().optional().describe("Class name. Defaults to 'PlacementMode'"),
+      directory: z.string().optional().describe("Subdirectory for the .cs file. Defaults to 'Code'"),
+      gridSize: z.number().optional().describe("Snap grid size in world units (0 = freeform placement). Defaults to 0"),
+      targetId: z.string().optional().describe("GUID of an existing GameObject to attach to (hotload first)"),
+    },
+    async (params) => {
+      const res = await bridge.send("create_placement_mode", params);
+      if (!res.success) {
+        return { content: [{ type: "text", text: `Error: ${res.error}` }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+    }
+  );
 }

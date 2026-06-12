@@ -410,6 +410,10 @@ public static class ClaudeBridge
 		Register( "create_interactable",         () => new CreateInteractableHandler() );
 		Register( "create_weighted_loot_table",  () => new CreateWeightedLootTableHandler() );
 		Register( "create_save_system",          () => new CreateSaveSystemHandler() );
+		Register( "create_leaderboard_panel",    () => new CreateLeaderboardPanelHandler() );
+		Register( "create_inventory",            () => new CreateInventoryHandler() );
+		Register( "create_stat_modifier_system", () => new CreateStatModifierSystemHandler() );
+		Register( "create_placement_mode",       () => new CreatePlacementModeHandler() );
 
 		// ── Batch 36: NPC brains ────────────────────────────────────────
 		Register( "create_npc_brain",         () => new CreateNpcBrainHandler() );
@@ -452,7 +456,7 @@ public static class ClaudeBridge
 		"equip_model", "set_look_at", "add_ragdoll", "set_expression",
 		"set_animgraph_param", "play_animation",
 		"set_component_reference", "add_component_to_new_object",
-		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock", "create_interactable", "create_weighted_loot_table", "create_save_system",
+		"create_objective_system", "create_health_system", "create_pickup", "create_economy_wallet", "create_round_phase_machine", "create_day_night_clock", "create_interactable", "create_weighted_loot_table", "create_save_system", "create_leaderboard_panel", "create_inventory", "create_stat_modifier_system", "create_placement_mode",
 		"create_npc_brain", "place_patrol_route", "assign_patrol_route", "create_npc_spawner",
 		"snap_to_ground", "align_objects", "distribute_objects", "grid_duplicate",
 		"scatter_props", "randomize_transforms", "group_objects",
@@ -562,7 +566,10 @@ public static class ClaudeBridge
 			try
 			{
 				var responsePath = Path.Combine( _ipcDir, $"res_{item.responseId}.json" );
-				File.WriteAllText( responsePath, response, _utf8NoBom );
+				// Atomic write: temp + rename so the MCP poller can never read a half-written response.
+				var tmpPath = responsePath + ".tmp";
+				File.WriteAllText( tmpPath, response, _utf8NoBom );
+				File.Move( tmpPath, responsePath, true );
 			}
 			catch ( Exception ex )
 			{
@@ -3459,6 +3466,8 @@ public class CreateNetworkedPlayerHandler : IBridgeHandler
 	{
 		var name      = p.TryGetProperty( "name",      out var n ) ? n.GetString() : "NetworkedPlayer";
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
+		float moveSpeed = p.TryGetProperty( "moveSpeed", out var msEl ) && msEl.TryGetSingle( out var msv ) ? msv : 200f;
+		string moveSpeedStr = moveSpeed.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
 		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
@@ -3477,7 +3486,7 @@ public sealed class {className} : Component
 	[Sync] public string PlayerName {{ get; set; }}
 	[Sync] public int    Health     {{ get; set; }} = 100;
 
-	[Property] public float MoveSpeed {{ get; set; }} = 200f;
+	[Property] public float MoveSpeed {{ get; set; }} = {moveSpeedStr};
 
 	private CharacterController _controller;
 
