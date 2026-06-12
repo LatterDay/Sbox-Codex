@@ -238,8 +238,13 @@ can't tell *which* file or line tripped it.
 - Then swap the blocked API for a whitelisted equivalent. Known case:
   **`array.Clone()` → `array.ToArray()`.** (General rule: prefer LINQ / s&box-provided
   helpers over reflection-ish or low-level BCL calls.)
-- Remember the CLAUDE.md sandbox set too — `System.Math` / `System.MathF` don't exist
-  (use `MathX`), and several `System.Net` types are blocked — same whitelist mechanism.
+- **Whitelist update (verified live 2026-06-09):** `System.Math` and `System.MathF` now
+  COMPILE in game code on the current SDK — the old "MathX only" advice is stale.
+  `Array.Clone()` is still rejected (confirmed via a deliberate live compile:
+  `System.Array.Clone() is not allowed when whitelist is enabled`). `GameObject.Clone()`
+  is a different API and fine. The `sandbox_lint` tool reflects this: it flags `.Clone()`
+  as advisory and no longer flags Math/MathF.
+- Several `System.Net` types remain blocked — same whitelist mechanism.
 
 ---
 

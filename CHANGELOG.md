@@ -2,6 +2,32 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.13.0] -- 2026-06-12
+
+**Four new tools (Razor leaderboard scaffold, slot inventory, stat modifier engine, placement-mode pair), review hardening from an Opus deep sweep, and atomic IPC response writes. 183 handlers (was 179). Additive -- no existing tool contract changed.**
+
+### Added -- Wave 3 tools (compile-verified live)
+
+- **`create_leaderboard_panel`** -- scaffold a Razor `PanelComponent` leaderboard bound to `Sandbox.Services.Leaderboards`: async `Get`/`Refresh(CancellationToken)` fetch (API surface confirmed via `describe_type` -- `Board.Refresh` requires a `CancellationToken`, caught by the verify-gate), per-panel fetch cooldown, `BuildHash` override so the panel re-renders on data change, long->int rank cast (caught by the verify-gate). The first scaffold that generates both a `.razor` and a `.razor.scss` file; passes the bridge's own `razor_lint` by construction. Transpiled live to `Sandbox.UI` namespace. Compile-verified live.
+- **`create_inventory`** -- scaffold a slot-based inventory component: parallel `ItemIds`/`Counts` lists (the convergent 51-game corpus shape), stack-first `TryAdd` with rollback on overflow, `TryRemove`/`CountOf`/`Move`/`Clear`, static `OnChanged` event for UI binding. The largest SYSTEMS entry in the 51-game `CORPUS-INDEX` (8 games), now one tool call. Empty-string item-id escaping corrected during verify-gate. Compile-verified live.
+- **`create_stat_modifier_system`** -- scaffold the Set->Add->Mult stat engine from the ss1/ss2 corpus: generated `{name}Stat` enum, modifiers keyed by source object for clean per-source removal, priority resolution (Set wins, then additive sum, then multiplicative product), `GetStat(stat)` single read point, `OnStatChanged` event. The substrate under the entire progression-upgrades section (8 games). Compile-verified live.
+- **`create_placement_mode`** -- scaffold the two-phase ghost->commit build tool: client-local ghost object (`NetworkMode.Never`, tinted valid/invalid), `camera.ScreenPixelToRay` mouse ray for positioning (API confirmed via `describe_type` -- cookbook's `GetMouseRay` does not exist on this SDK, caught by the verify-gate), optional grid snap, client-side validity check for UI feedback, host-side re-validation + `NetworkSpawn` commit, `OnPlaced` event. Compile-verified live.
+
+### Fixed -- review hardening (Opus-assisted deep sweep)
+
+- **`create_networked_player` dead `moveSpeed` param** -- the `moveSpeed` MCP parameter was accepted but never forwarded into the generated scaffold template; the player always spawned with the hardcoded default speed regardless of what was passed. Fixed: `moveSpeed` is now interpolated into the generated C# body.
+- **Atomic IPC response writes** -- `res_*.json` files were written in-place; a fast MCP server poll could read a partial response and fail with a JSON parse error. Fixed: responses are now written to a `.tmp` path and atomically renamed, matching the existing atomic write on the request side (v1.5.0). Belt-and-suspenders against the UTF-8 BOM fix from v1.5.0.
+- **`get_all_properties` schema cleanup** -- the `includeInherited` parameter appeared in the MCP schema but was unused in the handler (all properties were always returned). Removed from the schema to avoid misleading callers.
+- **Stale MathX-only comments** -- inline code comments in several scaffold generators still said "use MathX, Math/MathF are blocked" after the v1.12.0 whitelist correction. Corrected to reflect that `System.Math`/`MathF` compile on the current SDK.
+
+### Notes
+
+- **The verify-gate works.** Four real API/codegen bugs were caught this release before shipping -- `Board.Refresh` requiring `CancellationToken` (not in docs), `GetMouseRay` not existing (cookbook named it wrong; `ScreenPixelToRay` is the real method), inventory empty-string escaping, leaderboard long->int rank cast. All four were caught by the generate->hotload->compile-check loop, not by code review. Reflection over folklore.
+- The 4 new tools require both the updated MCP server (`sbox-mcp-server@1.13.0`) and the republished addon (`BridgeVersion` `1.13.0`). The review-hardening fixes (atomic IPC, dead-param, schema cleanup) are addon/server-side; update both halves.
+- **No breaking changes** to existing tool contracts.
+
+---
+
 ## [1.12.0] -- 2026-06-09
 
 **Six new tools across two waves (lint + scaffolds + asset ops), a CI parity gate, a C# syntax gate, a full semantic bridge-map rebuild, and a whitelist correction. 179 handlers (was 173). Additive -- no existing tool contract changed.**

@@ -2,13 +2,24 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.12.0 -- 179 handlers / 188 tools (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.13.0 -- 183 handlers / 192 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-09 (v1.12.0)
+**Last updated:** 2026-06-12 (v1.13.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.13.0
+
+**+4 tools (Razor leaderboard scaffold, slot inventory, stat modifier engine, placement-mode pair), review hardening from an Opus deep sweep, and atomic IPC response writes. 183 handlers / 192 tools (was 179/188).** Additive -- no existing tool contract changed.
+
+- **`create_leaderboard_panel`** -- scaffold a Razor `PanelComponent` leaderboard bound to `Sandbox.Services.Leaderboards` (`Get`/`Refresh(CancellationToken)` -- `CancellationToken` required, verified live): fetch cooldown, `BuildHash` override, long->int rank cast. The first scaffold that emits both a `.razor` and a `.razor.scss`; passes `razor_lint` by construction. Compile-verified live.
+- **`create_inventory`** -- slot-based inventory: parallel `ItemIds`/`Counts` lists, stack-first `TryAdd` with rollback, `TryRemove`/`CountOf`/`Move`/`Clear`, static `OnChanged`. The largest SYSTEMS table in the 51-game corpus (8 games) now has a scaffold. Compile-verified live.
+- **`create_stat_modifier_system`** -- Set->Add->Mult stat engine: generated `{name}Stat` enum, modifiers keyed by source for clean removal, priority resolution, `OnStatChanged`. The substrate for the entire progression-upgrades corpus (8 games). Compile-verified live.
+- **`create_placement_mode`** -- two-phase ghost->commit builder: client-local ghost (`NetworkMode.Never`, tinted), `camera.ScreenPixelToRay` mouse ray (API verified -- `GetMouseRay` does not exist on this SDK), grid snap, host-side re-validation + `NetworkSpawn` commit. Compile-verified live.
+- **Review hardening (Opus deep sweep):** `create_networked_player` `moveSpeed` param now actually used (was silently ignored); atomic temp+rename IPC response writes (poller can never read a half-written response); `get_all_properties` unused `includeInherited` param removed from schema; stale MathX-only comments corrected in scaffold generators.
+- **The verify-gate works:** four real API/codegen bugs caught before shipping -- `Board.Refresh` needs `CancellationToken`, `GetMouseRay` does not exist (`ScreenPixelToRay` is real), inventory empty-string escaping, leaderboard rank cast. All caught by generate->hotload->compile-check, not by review.
 
 ### What's new in v1.12.0
 

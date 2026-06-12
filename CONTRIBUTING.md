@@ -111,6 +111,16 @@ if ( !ClaudeBridge.TryResolveProjectPath( userPath, out var fullPath, out var er
 
 When you generate a C# type/member name from a user-supplied string, run it through `ClaudeBridge.SanitizeIdentifier` so spaces/punctuation/keywords don't emit uncompilable code.
 
+## Generated-code templates
+
+Several tools emit C# source code as multi-line interpolated strings (`$@"..."`). A few escaping rules have each caused bugs that shipped -- learn them before writing a new scaffold:
+
+- **Literal braces inside `$@""`** -- a single `{` or `}` in the output must be written as `{{` or `}}`. Forgetting this compiles fine in the generator but emits a broken interpolation site in the generated file. This is standard C# interpolated-string escaping and easy to overlook in long templates.
+- **Literal double-quotes** -- a `"` in the generated output must be written as `""` (two double-quotes) inside a verbatim string. Do NOT use backslash escaping; verbatim strings do not recognize `\"`.
+- **Empty string literal** -- an empty string `""` in the generated output must be written as `""""` (four double-quotes) inside `$@"..."`. This exact bug shipped twice and was caught by the verify-gate; do not eyeball it.
+- **Always run `scripts/check-csharp-syntax.py` on the scaffold output** before calling a tool done. Tree-sitter catches unbalanced braces and broken interpolation regions that compile fine in the host but produce malformed C# in the generated file.
+- **Always generate -> `trigger_hotload` -> `get_compile_errors` -> confirm class in TypeLibrary.** Never trust API names from docs or the corpus without `describe_type` first. The `GetMouseRay` incident (v1.13.0): the sbox-cookbook named it `GetMouseRay`; the real SDK method is `ScreenPixelToRay`. The verify-gate caught it; a code review did not.
+
 ## Coding Conventions
 
 ### C# (Bridge Addon)
@@ -130,30 +140,4 @@ When you generate a C# type/member name from a user-supplied string, run it thro
 
 ### Protocol
 - Transport: file-based IPC in a shared temp dir (no socket). `SBOX_BRIDGE_IPC_DIR` overrides the dir on the MCP-server side and must match the addon's `Path.GetTempPath()/sbox-bridge-ipc`. `SBOX_BRIDGE_HOST`/`PORT` are cosmetic.
-- The server writes request files to a temp path then **atomically renames** (v1.5.0), so the editor never reads a half-written payload. Write IPC files BOM-less (`new UTF8Encoding(false)` on the C# side); the server strips any BOM on read.
-- `status.json` is a heartbeat (refreshed from the editor frame loop, and carrying `ipcDir` + `BridgeVersion`); a heartbeat older than 5s reads as disconnected.
-- Request: `{ id: string, command: string, params: object }`
-- Response: `{ id: string, success: boolean, data?: any, error?: string }` — `success` is `false` when the handler result carries an `error` field.
-- Batch: `{ id: string, commands: [{ command, params }, ...] }`
-- Timeout: 30 seconds per request (the timeout message names which side stalled)
-
-## Development Setup
-
-```bash
-# Build the MCP Server
-cd sbox-mcp-server
-npm install
-npm run build
-
-# Watch mode (auto-rebuild)
-npm run dev
-
-# Connect to Claude Code for testing
-claude mcp add sbox -- node $(pwd)/dist/index.js
-```
-
-The Bridge Addon compiles automatically when s&box loads it from your **project's `Libraries/claudebridge/`** folder (NOT the global `addons/` folder — that's built-in only and won't compile custom code). C# changes require an s&box restart (or `trigger_hotload`) to recompile; MCP-server (TypeScript) changes require a Claude Code restart to reconnect.
-
-## Known Limitations
-
-Some s&box APIs in the handlers need verification against the real SDK — look for `API-NOTE` comments. These are areas where we guessed the API shape and may need adjustments when compiled in s&box.
+- The server writes request files to a tem

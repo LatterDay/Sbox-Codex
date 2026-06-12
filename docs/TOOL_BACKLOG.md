@@ -13,8 +13,16 @@ The 51-game corpus mining (`sbox-lessons/mining-v2/`) surfaced **352 candidate b
 - `razor_lint` (static Razor/SCSS transpiler footgun scan; pure MCP-server-side text scan)
 - `copy_asset_with_dependencies` (`Editor.Asset.GetReferences(deep:true)` + shadow-guard against core trees; kills gotchas #4 and #5)
 
-**Next up per the plan (Wave 3):** `create_leaderboard_panel` (verify `Sandbox.Services.Leaderboards` first), `create_inventory`, `create_stat_modifier_system`, `create_placement_mode`. See `docs/plans/2026-06-09-next-10-tools.md`.
-**Queued for v1.11.0+:** everything else here, grouped by theme. Full raw list: `sbox-lessons/` mining output.
+**Built in v1.13.0 (Wave 3), all verify-gated live -- handler count now 183:**
+- `create_leaderboard_panel` (Razor PanelComponent + Sandbox.Services.Leaderboards; first scaffold generating .razor + .razor.scss; compile-verified)
+- `create_inventory` (slot-based parallel-list inventory, stack-first TryAdd with rollback; compile-verified)
+- `create_stat_modifier_system` (Set->Add->Mult engine + per-source removal + OnStatChanged; compile-verified)
+- `create_placement_mode` (ghost->commit builder, ScreenPixelToRay mouse ray, grid snap, NetworkSpawn commit; compile-verified)
+
+**10-tool plan COMPLETE -- 10/10 shipped (v1.12.0: 6, v1.13.0: 4).** See `docs/plans/2026-06-09-next-10-tools.md`.
+
+**Next up (Tier-1 leftovers + Tier 2):** `create_round_state_machine` full variant (5x demand, the complex multi-state version beyond the phase machine), `add_interaction_station` (IPressable prop + occupancy + level gate), `create_event_director` (prefab-discovery AI director), `create_save_slots` (multi-slot storage), then Tier-2 by theme below.
+**Queued:** everything else here, grouped by theme. Full raw list: `sbox-lessons/` mining output.
 
 Legend: **(Nx)** = independently proposed by N games · `easy`/`medium` = miner-estimated build risk.
 
