@@ -2,13 +2,20 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.14.0 -- 185 handlers / 194 tools (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.15.0 -- 190 handlers / 199 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-18 (v1.14.0)
+**Last updated:** 2026-06-18 (v1.15.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.15.0
+
+**+5 debug-draw tools ported from the Claude Bridge for Unity. 190 handlers / 199 tools (was 185/194).** Additive — no existing tool contract changed.
+
+- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere` / `debug_clear`** — world-space debug primitives on a NotSaved `ClaudeDebugDraw` holder; render via `Gizmo.Draw` in the editor viewport and `Scene.DebugOverlay` in play (the latter capturable via `capture_view`). Visualize raycast hits / overlap volumes / trigger bounds / NPC sight ranges / patrol paths. Live-verified both render paths.
+- **Limitation:** edit-mode gizmos show in the live editor but NOT in `take_screenshot`/`screenshot_from` (the gizmo pass isn't in that camera render) — use `capture_view` in play mode to see them through the bridge.
 
 ### What's new in v1.14.0
 

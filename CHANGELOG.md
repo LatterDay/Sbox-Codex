@@ -2,6 +2,20 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.15.0] -- 2026-06-18
+
+**+5 debug-draw tools ported from the Claude Bridge for Unity -- visualize geometry in the scene. 190 handlers / 199 tools (was 185/194). Additive -- no existing tool contract changed.**
+
+### Added -- debug-draw (Unity carry-over wave 2)
+
+- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere`** -- draw world-space debug primitives (line, arrow, wireframe box, wireframe sphere) with a color + thickness. They accumulate on a single NotSaved `ClaudeDebugDraw` holder and render in BOTH modes: editor via `Gizmo.Draw.*` (visible in the live viewport), play via `Scene.DebugOverlay.*` (visible in-game and through `capture_view`). Live-verified on the running bridge -- edit-mode gizmos confirmed in the editor viewport, play-mode overlay confirmed via `capture_view` (green box / red sphere / yellow line / blue ray rendered correctly).
+- **`debug_clear`** -- remove all debug primitives (destroys the holder).
+- Makes invisible logic visible: a `raycast` hit, a `physics_overlap` volume, a `trigger_zone`'s bounds, an NPC's `SightRange`/`FovDegrees`, a patrol path.
+
+Known limitation: edit-mode gizmos render in the live editor viewport but are NOT captured by `take_screenshot`/`screenshot_from` (the editor gizmo pass isn't in that camera render) -- use `capture_view` in play mode to see debug draws through the bridge.
+
+This completes the Unity carry-over wave begun in v1.14.0; the remaining `run_tests` candidate (project test-runner) needs a `dotnet test` feasibility spike and is not included.
+
 ## [1.14.0] -- 2026-06-18
 
 **+2 engine/workflow meta-tools ported from the Claude Bridge for Unity -- play-mode time control and a live performance read-out. 185 handlers / 194 tools (was 183/192). Additive -- no existing tool contract changed.**

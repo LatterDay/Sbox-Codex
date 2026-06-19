@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.14.0";
+	private const string BridgeVersion = "1.15.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -221,6 +221,12 @@ public static class ClaudeBridge
 		// Unity carry-over (debugviz wave) — NOT scene-mutating: must run while playing.
 		Register( "set_time_scale",      () => new SetTimeScaleHandler() );
 		Register( "get_profiler_stats",  () => new GetProfilerStatsHandler() );
+		// debug-draw (Unity carry-over wave 2) — gizmos in edit, DebugOverlay in play; NOT scene-mutating-gated.
+		Register( "debug_draw_line",     () => new DebugDrawLineHandler() );
+		Register( "debug_draw_ray",      () => new DebugDrawRayHandler() );
+		Register( "debug_draw_box",      () => new DebugDrawBoxHandler() );
+		Register( "debug_draw_sphere",   () => new DebugDrawSphereHandler() );
+		Register( "debug_clear",         () => new DebugClearHandler() );
 
 		// ── Batch 6: Assets ──────────────────────────────────────────────
 		Register( "search_assets",       () => new SearchAssetsHandler() );
