@@ -3,7 +3,7 @@
 > **Build s&box games by talking to Claude Code.** Describe what you want — Claude writes the C#, builds the scenes, wires up components, and iterates until it works.
 
 <p>
-<strong>v1.12.0</strong> · <strong>188 tools</strong> · <strong>179 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+<strong>v1.14.0</strong> · <strong>194 tools</strong> · <strong>185 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
 </p>
 
 ```

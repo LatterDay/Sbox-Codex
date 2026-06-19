@@ -140,4 +140,30 @@ Several tools emit C# source code as multi-line interpolated strings (`$@"..."`)
 
 ### Protocol
 - Transport: file-based IPC in a shared temp dir (no socket). `SBOX_BRIDGE_IPC_DIR` overrides the dir on the MCP-server side and must match the addon's `Path.GetTempPath()/sbox-bridge-ipc`. `SBOX_BRIDGE_HOST`/`PORT` are cosmetic.
-- The server writes request files to a tem
+- The server writes request files to a temp path then **atomically renames** (v1.5.0), so the editor never reads a half-written payload. Write IPC files BOM-less (`new UTF8Encoding(false)` on the C# side); the server strips any BOM on read.
+- `status.json` is a heartbeat (refreshed from the editor frame loop, and carrying `ipcDir` + `BridgeVersion`); a heartbeat older than 5s reads as disconnected.
+- Request: `{ id: string, command: string, params: object }`
+- Response: `{ id: string, success: boolean, data?: any, error?: string }` — `success` is `false` when the handler result carries an `error` field.
+- Batch: `{ id: string, commands: [{ command, params }, ...] }`
+- Timeout: 30 seconds per request (the timeout message names which side stalled)
+
+## Development Setup
+
+```bash
+# Build the MCP Server
+cd sbox-mcp-server
+npm install
+npm run build
+
+# Watch mode (auto-rebuild)
+npm run dev
+
+# Connect to Claude Code for testing
+claude mcp add sbox -- node $(pwd)/dist/index.js
+```
+
+The Bridge Addon compiles automatically when s&box loads it from your **project's `Libraries/claudebridge/`** folder (NOT the global `addons/` folder — that's built-in only and won't compile custom code). C# changes require an s&box restart (or `trigger_hotload`) to recompile; MCP-server (TypeScript) changes require a Claude Code restart to reconnect.
+
+## Known Limitations
+
+Some s&box APIs in the handlers need verification against the real SDK — look for `API-NOTE` comments. These are areas where we guessed the API shape and may need adjustments when compiled in s&box.

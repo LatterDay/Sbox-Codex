@@ -2,13 +2,21 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.13.0 -- 183 handlers / 192 tools (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.14.0 -- 185 handlers / 194 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-12 (v1.13.0)
+**Last updated:** 2026-06-18 (v1.14.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.14.0
+
+**+2 engine/workflow meta-tools ported from the Claude Bridge for Unity. 185 handlers / 194 tools (was 183/192).** Additive — no existing tool contract changed.
+
+- **`set_time_scale`** — play-mode time control (`Scene.TimeScale`): `0` pause, `0.1` slow-mo, `2`+ fast-forward. Errors outside play mode. Returns applied + previous.
+- **`get_profiler_stats`** — read-only `Sandbox.Diagnostics.PerformanceStats` dump: FPS, frame/GPU ms, allocations, memory, exceptions, per-category timings averaged over `frames`.
+- Partial Unity carry-over wave; `debug_draw_*` and `run_tests` (plan: `docs/plans/2026-06-17-unity-carryover-meta-tools.md`) still pending.
 
 ### What's new in v1.13.0
 

@@ -2,6 +2,17 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [1.14.0] -- 2026-06-18
+
+**+2 engine/workflow meta-tools ported from the Claude Bridge for Unity -- play-mode time control and a live performance read-out. 185 handlers / 194 tools (was 183/192). Additive -- no existing tool contract changed.**
+
+### Added -- debug-viz / meta-tools (Unity carry-over wave)
+
+- **`set_time_scale`** -- set the running game's time scale during play mode (Unity's `playtest_set_time_scale`): `0` = pause, `0.1` = slow-mo to watch a fast interaction frame-by-frame, `2`+ = fast-forward idle/economy ticks. Sets `Scene.TimeScale` (clamped 0-100); no-ops with an error outside play mode (the edit scene doesn't tick). Returns the applied + previous values. API grounded in shipping game code (sdoomresurrection `Pause.cs`, ss1 `Manager.cs`).
+- **`get_profiler_stats`** -- read-only dump of live engine performance counters (Unity's `get_profiler_stats`): FPS, frame/GPU ms, bytes allocated, process memory, exception count, and per-category timings (update/physics/ui/render/network/gcPause) averaged over `frames`. Reads `Sandbox.Diagnostics.PerformanceStats`. API grounded in darkrpog `RoleplayPerfDiagnostics.cs`.
+
+Partial wave -- the higher-value `debug_draw_*` (editor gizmo + play-mode `DebugOverlay`) and `run_tests` (`dotnet test` spike) candidates in `docs/plans/2026-06-17-unity-carryover-meta-tools.md` are not in this release.
+
 ## [1.13.0] -- 2026-06-12
 
 **Four new tools (Razor leaderboard scaffold, slot inventory, stat modifier engine, placement-mode pair), review hardening from an Opus deep sweep, and atomic IPC response writes. 183 handlers (was 179). Additive -- no existing tool contract changed.**
