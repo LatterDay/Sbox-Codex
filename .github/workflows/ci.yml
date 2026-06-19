@@ -2,17 +2,18 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
   build-and-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Build MCP server
         run: cd sbox-mcp-server && npm ci && npm run build
