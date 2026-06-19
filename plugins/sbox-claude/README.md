@@ -6,7 +6,7 @@ This plugin bundles:
 
 | Component | What it does |
 |---|---|
-| **MCP server registration** (`sbox` from npm) | 192 tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery |
+| **MCP server registration** (`sbox` from npm) | 199 tools to drive the s&box editor — GameObjects, scripts, scenes, components, physics, networking, UI, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, scatter & object utilities, self-diagnosis, console/C# execution, live docs search, type discovery, debug-draw visualization, playtest time-scale & profiler |
 | **Skill: `sbox-build-feature`** | Codifies the screenshot-driven iteration workflow — bridge check, brainstorm gate, API research, hotload verify, screenshot read. Prevents the "guess and check" loop |
 | **Skill: `sbox-api`** | Schema-grounded s&box API knowledge — Unity→s&box translation table, the Ten Rules, and curated component/UI/networking/physics references. Stops Unity-pattern hallucination; repointed to verify signatures via the bridge's live `describe_type`. Adapted from [claude-sbox](https://github.com/gavogavogavo/claude-sbox) (MIT © David Ryan) |
 | **Skill: `sbox-cookbook`** | A master **router** of code-grounded recipes mined from 51 current (2026) open-source s&box games + the modern engine repos -- **11 engine**, **18 system**, and **20 genre** references. Ask "how do I build a tycoon / an inventory / a save system?" and it routes to a grounded how-to |
@@ -93,7 +93,7 @@ The agent runs the `sbox-build-feature` skill as its default workflow.
 
 ## Version compatibility
 
-- This plugin is **v1.13.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.13.0`) so the addon/server pair can't silently drift. Keep the bridge **addon** at a matching `1.13.x` (`BridgeVersion` `1.13.0`) -- `get_bridge_status` warns if the server and addon versions diverge.
+- This plugin is **v1.15.0**. **The MCP server version is pinned in the plugin's `.mcp.json`** (currently `sbox-mcp-server@1.15.0`) so the addon/server pair can't silently drift. Keep the bridge **addon** at a matching `1.15.x` (`BridgeVersion` `1.15.0`) -- `get_bridge_status` warns if the server and addon versions diverge.
 - The bridge addon and MCP server are major-version-compatible — a `1.x` addon works with a `1.x` MCP server. If you upgrade one, upgrade both.
 
 ## Troubleshooting
@@ -101,7 +101,7 @@ The agent runs the `sbox-build-feature` skill as its default workflow.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `mcp__sbox__*` tools not available in Claude | Plugin not installed or session not reloaded | `/reload-plugins`, restart Claude Code |
-| Bridge times out at 30s | s&box not running, or the Claude Bridge dock is closed | Open s&box and open the **View → Claude Bridge** dock — it must stay visible for the frame handler to process requests |
+| Bridge times out at 30s | s&box not running, or no project loaded | Open s&box with your project — the bridge runs on a **static** frame handler, so the dock does **not** need to be open (since v1.3.0) |
 | `Couldn't add project` on s&box startup | Project has both a local-dev `Libraries/claudebridge/` AND an asset-library-installed `Libraries/sboxskinsgg.claudebridge/` claiming the same compiler name | Either set the local one's `Org` to `local`, or remove the asset-library copy. See `TROUBLESHOOTING.md` |
 | `Unknown command: get_compile_errors` (or similar) | You're on an old MCP server with phantom tools | Upgrade: `npx sbox-mcp-server@latest` (or `/reload-plugins`) |
 | Compile error in s&box editor that nothing in your `.cs` files explains | Hot-load cache is stuck | Touch the file and re-hotload, or restart s&box |

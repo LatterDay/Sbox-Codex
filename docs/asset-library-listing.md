@@ -1,9 +1,9 @@
 # Claude Bridge for s&box
 ### Build s&box games by talking to Claude — or any AI.
 
-**170+ tools · 166 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
+**200+ tools · 190 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
 
-But the tools aren't the real story. **v1.9 ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
+But the tools aren't the real story. **The bridge ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
 📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LouSputthole/Sbox-Claude/issues)
 
@@ -89,7 +89,7 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 
 ---
 
-## What it can do (170+ tools · 166 handlers)
+## What it can do (200+ tools · 190 handlers)
 
 **Scene & GameObjects** — create, clone, transform, parent, delete; full hierarchy access + editor selection; find objects by name, component, or tag.
 
@@ -230,7 +230,7 @@ The MCP server writes request JSON; the addon polls, runs each command on the ed
 
 ## Full tool list
 
-Every tool the bridge exposes, grouped by area (166 editor handlers + a handful of MCP-server-side tools that work even when the editor is down):
+Every tool the bridge exposes, grouped by area (190 editor handlers + a handful of MCP-server-side tools that work even when the editor is down):
 
 **Project, files & scripts (9)** — `get_project_info`, `list_project_files`, `read_file`, `write_file`, `recompile_asset`, `create_script`, `edit_script`, `delete_script`, `trigger_hotload`
 
@@ -313,6 +313,6 @@ s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, 
 
 ---
 
-**Two pieces, zero ceremony. 170+ tools · 166 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
+**Two pieces, zero ceremony. 200+ tools · 190 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
 
 *Built by [sboxskins.gg](https://sboxskins.gg), the s&box community marketplace.*
