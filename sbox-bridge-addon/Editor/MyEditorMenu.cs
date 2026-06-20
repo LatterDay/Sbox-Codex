@@ -32,7 +32,7 @@ public static class ClaudeBridge
 
 	// Bridge build version — surfaced in status.json + the Status menu so a
 	// marketplace-addon-vs-MCP-server skew is visible at a glance.
-	private const string BridgeVersion = "1.15.0";
+	private const string BridgeVersion = "1.16.0";
 
 	// status.json doubles as a heartbeat. _startedAtIso is stamped once at start;
 	// the heartbeat timestamp is refreshed from the frame loop at most once per
@@ -784,6 +784,14 @@ public static class ClaudeBridge
 	// ── Shared helpers ────────────────────────────────────────────────────
 	internal static Vector3 ParseVector3( JsonElement e )
 	{
+		// Non-objects (a "x,y,z" string, a [x,y,z] array, a bare number) route through
+		// ParseVector3Flexible so EVERY vector param honors the union the TS schema
+		// advertises. Fixes raycast / physics_overlap / screenshot_from / capture_view
+		// (and every other ParseVector3 caller) throwing "requires an element of type
+		// 'Object' … target … 'String'" when handed the comma-string form.
+		if ( e.ValueKind != JsonValueKind.Object )
+			return ParseVector3Flexible( e );
+
 		float x = e.TryGetProperty( "x", out var ex ) ? ex.GetSingle() : 0f;
 		float y = e.TryGetProperty( "y", out var ey ) ? ey.GetSingle() : 0f;
 		float z = e.TryGetProperty( "z", out var ez ) ? ez.GetSingle() : 0f;

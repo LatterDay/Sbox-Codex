@@ -2,13 +2,21 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.15.0 -- 190 handlers / 199 tools (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.16.0 -- 190 handlers / 199 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-18 (v1.15.0)
+**Last updated:** 2026-06-20 (v1.16.0)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.16.0
+
+**Bug-fix & polish — no new tools (still 199 tools / 190 handlers), no contract changes.**
+
+- **Vector params accept the `"x,y,z"` string form everywhere** — `ParseVector3` was object-only, so `raycast` / `physics_overlap` / `screenshot_from` / `capture_view` (and every other caller) threw `"requires … 'Object' … target … 'String'"` on the comma-string form their schemas advertise. Fixed centrally (non-objects route through the flexible parser); verified live.
+- Docs corrected: the bridge frame loop is **static** (the dock does NOT need to be open — §2); `create_material` dict-key error marked resolved (§13).
+- `run_tests` dropped as infeasible — s&box test projects build inside the editor's `net10` + editor-project-chain context; an external `dotnet test` (system has only .NET 8) can't reproduce it.
 
 ### What's new in v1.15.0
 

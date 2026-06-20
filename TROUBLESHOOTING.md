@@ -35,17 +35,15 @@ The addon side resolves its directory from `Path.GetTempPath()` only and does **
 
 ---
 
-## 2. Connected, but no response — the dock is closed / the frame loop is stalled
+## 2. Connected, but no response — requests don't drain
 
 **Symptom:** `get_bridge_status` reports a live heartbeat, but tool calls don't drain.
 
-**Cause:** The bridge processes queued requests from a `[EditorEvent.Frame]` handler, and that handler — like the heartbeat — only fires while the **Claude Bridge dock is visible** in the editor. Close the dock (or minimize s&box long enough that Windows throttles frame events) and the queue piles up without draining.
+**Cause:** The bridge processes queued requests from a **static** `[EditorEvent.Frame]` handler (since v1.3.0). It runs whether or not the Claude Bridge dock is open, so a **closed dock is not the cause**. Two real causes remain: a single very slow handler blocking the frame it runs on, or the editor window being **minimized** long enough that the OS throttles frame events for the process.
 
-**Fix:** Open **View → Claude Bridge** and leave the dock somewhere you won't accidentally close it. Keep the editor window visible (not minimized).
+**Fix:** Keep the s&box editor window visible (not minimized). If one specific call hangs, suspect that handler — read `read_log` / `get_compile_errors` to see what it's doing. The dock does **not** need to be open.
 
 **Verify:** Ask Claude to call `is_playing` — it should respond in well under a second.
-
-> The `[Dock]` widget being visible is a hard requirement, not a nicety. Do not assume a closed dock still works.
 
 **If the heartbeat itself is stale** (`get_bridge_status` says disconnected): s&box isn't running, the project failed to load, or the bridge addon failed to compile — see §6.
 
@@ -216,7 +214,7 @@ List the most-recent file there and read it. (And remember §4 — it's the Main
 
 ## 13. `create_material` errors with a dictionary-key error
 
-**Known bug** in the current `CreateMaterialHandler`. **Workaround:** write the `.vmat` directly via `write_file` using KV1 syntax (curly blocks, no JSON-style colons/commas).
+**Resolved (v1.7+)** — `create_material` reads `path` and writes a valid KV1 `.vmat` (verified working). If you somehow hit this on an old addon, update it; as a fallback, write the `.vmat` directly via `write_file` (KV1 syntax: curly blocks, no JSON-style colons/commas).
 
 ---
 

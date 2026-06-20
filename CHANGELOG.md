@@ -2,6 +2,24 @@
 
 All notable changes to the s&box Claude Bridge. Also online: [sboxskins.gg/claudebridge/changelog](https://sboxskins.gg/claudebridge/changelog).
 
+## [1.16.0] -- 2026-06-20
+
+**Bug-fix & polish release — no new tools (still 199 tools / 190 handlers), no existing contract changed.**
+
+### Fixed
+
+- **Vector params now accept the `"x,y,z"` string form everywhere.** `ParseVector3` was object-only, so `raycast`, `physics_overlap`, `screenshot_from`, `capture_view` (and every other vector-param handler) threw `"The requested operation requires an element of type 'Object', but the target element has type 'String'"` when handed the comma-string form their MCP schemas advertise. `ParseVector3` now routes non-objects through the flexible parser (string / array / number), fixing the entire class in one place. Verified live on `raycast` / `physics_overlap` / `screenshot_from`.
+
+### Docs
+
+- **Troubleshooting §2 corrected** — the bridge frame loop is a **static** `[EditorEvent.Frame]` handler (since v1.3.0); the Claude Bridge dock does **not** need to be open. The old entry wrongly called the visible dock a hard requirement.
+- **Troubleshooting §13 (`create_material` dictionary-key error) marked resolved** (v1.7+; verified working live).
+
+### Investigated — no change needed
+
+- **`run_tests` determined infeasible and dropped from the backlog.** s&box unit-test projects target `net10.0` and ProjectReference the whole s&box editor build chain (hammer / shadergraph / dooeditor / moviemaker / …) plus s&box source generators, built inside s&box's own context with its bundled SDK. An external `dotnet test` can't reproduce that (the system carries only the .NET 8 SDK), so there is no clean MCP-server-side path. Use s&box's in-editor test runner.
+- **`set_property` / `set_runtime_property` on a `Vector3`** — the old "silent no-op" note could not be reproduced; set + read-back works for object, string, and add-time forms. Resolved by earlier work.
+
 ## [1.15.0] -- 2026-06-18
 
 **+5 debug-draw tools ported from the Claude Bridge for Unity -- visualize geometry in the scene. 190 handlers / 199 tools (was 185/194). Additive -- no existing tool contract changed.**
