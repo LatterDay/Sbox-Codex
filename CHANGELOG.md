@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the s&box Claude Bridge.
+All notable changes to the s&box Claude Bridge. Also online: [sboxskins.gg/claudebridge/changelog](https://sboxskins.gg/claudebridge/changelog).
 
 ## [1.15.0] -- 2026-06-18
 

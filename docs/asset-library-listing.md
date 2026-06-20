@@ -5,6 +5,8 @@
 
 But the tools aren't the real story. **The bridge ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
+📖 **Full docs, guides & changelog:** **[sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge)** — [setup](https://sboxskins.gg/claudebridge/plugin) · [changelog](https://sboxskins.gg/claudebridge/changelog) · [troubleshooting](https://sboxskins.gg/claudebridge/troubleshooting) · [FAQ](https://sboxskins.gg/claudebridge/faq)
+
 📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LouSputthole/Sbox-Claude/issues)
 
 ---
@@ -355,6 +357,7 @@ s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, 
 **AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but the **"s&box Claude Bridge" / "sboxskins.gg" name and branding are not licensed for reuse** — you may not use them to present a fork as the original (see **NOTICE**).
 
 ## Links
+- **Docs:** https://sboxskins.gg/claudebridge — overview · plugin · changelog · troubleshooting · FAQ
 - **GitHub:** https://github.com/LouSputthole/Sbox-Claude
 - **Issues / bugs:** https://github.com/LouSputthole/Sbox-Claude/issues
 - **npm:** https://www.npmjs.com/package/sbox-mcp-server

@@ -2,6 +2,8 @@
 
 The complete toolkit for building s&box games by talking to Claude.
 
+📖 **Full docs:** [sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge) — overview, setup, changelog, troubleshooting & FAQ.
+
 This plugin bundles:
 
 | Component | What it does |

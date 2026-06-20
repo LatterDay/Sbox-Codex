@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common failure modes and their fixes, ordered roughly by how often each one hits.
+Common failure modes and their fixes, ordered roughly by how often each one hits. Also online: [sboxskins.gg/claudebridge/troubleshooting](https://sboxskins.gg/claudebridge/troubleshooting).
 
 Quick orientation:
 
