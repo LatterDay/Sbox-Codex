@@ -52,15 +52,15 @@ And it carries the cross-cutting laws that bite *every* system — authority gat
 
 ## A note on the reviews
 
-I've seen the thumbs-down reviews on the Claude Bridge release, and I want to address them directly.
+I've seen the thumbs-down reviews from early in the Claude Bridge release, and I want to address them directly.
 
-I'm still not certain whether they're from people who simply don't want AI-assisted tools in s&box, or whether the bridge was broken, confusing, or unreliable for some of you. Either way — I want the feedback.
+I'm quite certain it shipped in a rough, broken state for the first week or two — my apologies for that. Every review since has been positive, so I'm glad it's resolved. Either way, I want the feedback.
 
 I built this tool for people who have game ideas but don't necessarily know how to code. The goal isn't to replace creativity. It's to give more people a way to build their dream game by letting Claude act like a coding assistant *inside* the editor. You describe what you want, and Claude helps write scripts, create objects, wire components, and build systems that would otherwise be out of reach for non-programmers.
 
 That said — if the tool didn't work for you, that matters. A bad install, a broken tool call, a timeout, a confusing setup step, or missing docs is on me to fix.
 
-The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Claude can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
+The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Claude can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games, plus a direct reference to the live s&box API. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
 
 If you had a bad experience, please reach out: **sboxskins@gmail.com**. Tell me what happened, what broke, what confused you, or what the bridge should do better. I'll move quickly on real issues and keep improving it.
 
@@ -86,6 +86,31 @@ Terrain sculpting, forest/cave/trail generation, prop scatter. Claude can **aim 
 
 **⛔ Not yet — particle authoring.**
 Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its particle editor, not through the bridge. Build the effect in-editor, and Claude can spawn + place it.
+
+---
+
+## Using the plugin
+
+Once it's installed and the bridge is connected, you just **talk to Claude in your project folder** — there are no commands to memorize. A few ways to drive it:
+
+**1. Describe what you want.** Plain English; Claude writes the C#, wires it up, and checks its own work:
+> *"Add a double-jump and a sprint with a stamina bar."*
+> *"Make the campfire flicker and cast warm light at night."*
+> *"Spawn 5 patrolling guards that chase the player on sight."*
+
+**2. Ask for whole *systems* by name** — this is where the cookbook brain kicks in and builds it the way shipped games do:
+> *"Build me a host-authoritative shop with a currency wallet."*
+> *"Give me a save system with autosave and versioned saves."*
+> *"Add an inventory with a hotbar and drag-and-drop."*
+
+**3. Let it verify itself.** For anything visual, Claude aims a camera, screenshots it, reads the result back, and fixes the angle/lighting before showing you. For multiplayer it runs `networking_lint` + `inspect_networked_object` to confirm state actually replicates. You don't have to ask — the `sbox-build-feature` skill enforces the build → screenshot → verify → fix loop automatically.
+
+**4. Hand off big tasks to the specialist agent.** For a self-contained feature, point Claude at the bundled agent:
+> *"Use the sbox-game-dev agent to build a wave-survival mode with a round timer, escalating spawns, and a HUD."*
+
+**Working for you under the hood:** the `sbox-cookbook` brain (proven patterns from 51 shipped games), `sbox-api` (correct s&box C# — no Unity-pattern hallucination), and `sbox-build-feature` (the screenshot loop). You can also invoke any skill explicitly, e.g. `/sbox-claude:sbox-build-feature`. On first connect, the onboarding wizard checks the bridge, detects your installed libraries, and suggests a first move.
+
+**Tips for best results:** save before a big batch (Ctrl+S), keep `.scene` files in Git, and ask for systems *by name* so the brain routes you to a proven recipe. Don't edit the scene during play mode — the bridge refuses it with a clear message.
 
 ---
 
@@ -119,6 +144,8 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 
 **Self-verify & diagnostics** — **aim a screenshot at any object** and read it back; **read the bridge's own logs and compile errors** (works even if the editor stalls); detect your installed libraries; run console commands; execute C# snippets; and **restart the editor itself** (`restart_editor`) to recompile and apply changes.
 
+**Debug & playtest** — draw debug shapes (`debug_draw_line` / `box` / `sphere` / `ray`) that render in the editor **and** in play; pause / slow-mo / fast-forward the running game (`set_time_scale`); and read live performance counters — FPS, frame/GPU ms, memory, per-system timings (`get_profiler_stats`).
+
 **Docs & live API search** — Claude searches the **official s&box docs pulled straight from Facepunch's GitHub** (`search_docs` / `get_doc_page` / `list_doc_categories`) *and* inspects the **real loaded SDK** by live reflection (`describe_type` / `search_types` / `get_method_signature` — every type, method, and property the editor actually has). So it works from the current API and real docs instead of stale guesses — a big reason the generated C# actually compiles.
 
 **Publishing** — validate the project, configure settings, set thumbnails, fetch package details.
@@ -126,6 +153,26 @@ Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its p
 ---
 
 ## What's new
+
+### v1.15 — debug visualization
+- **See your logic** — `debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere` draw world-space debug shapes (color + thickness), and `debug_clear` wipes them. They render in the **editor viewport** *and* in **play mode** (capturable via `capture_view`) — so a raycast hit, a `physics_overlap` volume, a `trigger_zone`'s bounds, an NPC's sight cone, or a patrol path becomes something you can actually see.
+
+### v1.14 — playtest controls
+- **`set_time_scale`** — pause / slow-mo / fast-forward the running game (`0` = pause, `0.1` = watch a fast interaction frame-by-frame, `2`+ = fast-forward idle/economy ticks).
+- **`get_profiler_stats`** — live engine performance counters: FPS, frame & GPU ms, allocations, process memory, exception count, and per-category timings (update / physics / ui / render / network / gc).
+
+### v1.13 — the system-scaffold set, completed
+- **+4 system scaffolds, all compile-verified live** — `create_leaderboard_panel` (a Razor leaderboard bound to `Services.Leaderboards`), `create_inventory` (slot-based, stack-first add with rollback), `create_stat_modifier_system` (a Set→Add→Mult engine for progression), and `create_placement_mode` (two-phase ghost→commit building). Completes the scaffold stack the genre recipes compose from.
+
+### v1.12 — scaffolds, lints & a CI gate
+- **+6 tools** — `create_interactable` (the `IPressable` "player can do something" primitive), `create_weighted_loot_table`, and `create_save_system` (versioned, sanitize-on-load, debounced autosave — the single most-demanded tool in the corpus), plus `sandbox_lint` + `razor_lint` (catch C# whitelist and Razor-transpiler footguns *before* the compiler does) and `copy_asset_with_dependencies`.
+- **Correctness gates** — a CI parity check (TS↔C# drift + a 4-way version lock) and a C# syntax gate, so a bad sync can't take the bridge down. Plus a whitelist correction: `System.Math` / `MathF` compile on the current SDK (the old "MathX only" advice was stale).
+
+### v1.11 — the game-director trio
+- **`create_round_phase_machine`** and **`create_day_night_clock`** join `create_economy_wallet` as a host-authoritative "game director" set — currency, round/match flow, and time-of-day, all `[Sync]`-correct out of the box. The cookbook brain was also fully re-mined across **51** shipped games.
+
+### v1.10 — call methods, drive input & the first mined scaffold
+- **`invoke_method`** (call a component method *with arguments*), **`ensure_input_action`** (register a `.sbproj` input action so `Input.Pressed("X")` resolves), **`drive_player`** (drive the live `PlayerController` across play-mode frames), and **`create_economy_wallet`** — the first scaffold mined straight from the 51-game corpus.
 
 ### v1.9 — the brain + see-and-verify
 - **A brain that knows real games** — the companion plugin now bundles `sbox-cookbook`, a code-grounded recipe library mined from **real, shipped, open-source s&box games** + the modern engine source. Genre playbooks, system how-tos, and engine references mean the AI builds inventories, economies, saves, shops, gacha, progression, and netcode the way shipped games do — not from a guess. See **The brain** above.
@@ -238,7 +285,7 @@ Every tool the bridge exposes, grouped by area (190 editor handlers + a handful 
 
 **GameObjects & hierarchy (11)** — `create_gameobject`, `delete_gameobject`, `duplicate_gameobject`, `rename_gameobject`, `set_parent`, `set_enabled`, `set_transform`, `get_scene_hierarchy`, `get_selected_objects`, `select_object`, `focus_object`
 
-**Components & properties (9)** — `list_available_components`, `add_component_with_properties`, `remove_component`, `get_property`, `set_property`, `get_all_properties`, `get_runtime_property`, `set_runtime_property`, `set_prefab_ref`
+**Components & properties (10)** — `list_available_components`, `add_component_with_properties`, `remove_component`, `get_property`, `set_property`, `get_all_properties`, `get_runtime_property`, `set_runtime_property`, `set_prefab_ref`, `invoke_method`
 
 **Physics & spatial (5)** — `add_physics`, `add_collider`, `add_joint`, `raycast`, `physics_overlap`
 
@@ -264,21 +311,23 @@ Every tool the bridge exposes, grouped by area (190 editor handlers + a handful 
 
 **Networking (10)** — `add_network_helper`, `configure_network`, `get_network_status`, `network_spawn`, `set_ownership`, `add_sync_property`, `add_rpc_method`, `create_networked_player`, `create_lobby_manager`, `create_network_events`
 
-**Inspection & validation (6)** — `inspect_networked_object`, `networking_lint`, `scene_validate`, `save_inspect`, `services_query`, `simulate_input`
+**Inspection & validation (8)** — `inspect_networked_object`, `networking_lint`, `scene_validate`, `save_inspect`, `services_query`, `simulate_input`, `sandbox_lint`, `razor_lint`
 
 **Templates & scaffolds (4)** — `create_player_controller`, `create_npc_controller`, `create_game_manager`, `create_trigger_zone`
 
-**Assets (4)** — `search_assets`, `list_asset_library`, `install_asset`, `get_asset_info`
+**Assets (5)** — `search_assets`, `list_asset_library`, `install_asset`, `get_asset_info`, `copy_asset_with_dependencies`
 
-**Play mode & editor (5)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`
+**Play mode & editor (8)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`, `drive_player`, `drive_player_status`, `ensure_input_action`
 
-**Verify, diagnostics & lifecycle (13)** — `capture_view`, `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `run_self_test`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`
+**Verify, diagnostics & lifecycle (15)** — `capture_view`, `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `run_self_test`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`, `set_time_scale`, `get_profiler_stats`
+
+**Debug visualization (5)** — `debug_draw_line`, `debug_draw_ray`, `debug_draw_box`, `debug_draw_sphere`, `debug_clear`
 
 **Discovery & docs (8)** — `describe_type`, `search_types`, `get_method_signature`, `find_in_project`, `list_libraries`, `search_docs`, `get_doc_page`, `list_doc_categories`
 
 **NPC AI (5)** — `create_npc_brain`, `place_patrol_route`, `assign_patrol_route`, `create_npc_spawner`, `simulate_npc_perception`
 
-**Gameplay scaffolds (5)** — `create_health_system`, `create_pickup`, `create_objective_system`, `add_component_to_new_object`, `set_component_reference`
+**Gameplay scaffolds (15)** — `create_health_system`, `create_pickup`, `create_objective_system`, `add_component_to_new_object`, `set_component_reference`, `create_economy_wallet`, `create_round_phase_machine`, `create_day_night_clock`, `create_interactable`, `create_weighted_loot_table`, `create_save_system`, `create_leaderboard_panel`, `create_inventory`, `create_stat_modifier_system`, `create_placement_mode`
 
 **Publishing (5)** — `get_project_config`, `set_project_config`, `validate_project`, `set_project_thumbnail`, `get_package_details`
 
