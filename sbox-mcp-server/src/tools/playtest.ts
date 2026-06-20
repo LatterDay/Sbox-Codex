@@ -1,0 +1,53 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { BridgeClient } from "../transport/bridge-client.js";
+
+/**
+ * playtest / playtest_status — the gameplay-VERIFICATION harness.
+ *
+ * Runs a scripted step list inside the editor frame loop (async, like drive_player)
+ * so input, state reads, and assertions time-align with the running game. This is the
+ * only way to verify a *playable loop* (not just a static scene): TS round-trips can't
+ * catch transient state (e.g. a jump's airborne frame). The job auto-disables the
+ * controller's input read for `move` steps, zeros WishVelocity between steps, releases
+ * held actions, and restores everything on teardown.
+ *
+ * Requires play mode (start_play first). One playtest at a time — poll playtest_status.
+ */
+export function registerPlaytestTools(server: McpServer, bridge: BridgeClient): void {
+  const reply = (res: any) =>
+    res.success
+      ? { content: [{ type: "text" as const, text: JSON.stringify(res.data, null, 2) }] }
+      : { content: [{ type: "text" as const, text: `Error: ${res.error}` }] };
+
+  server.tool(
+    "playtest",
+    [
+      "Run a scripted gameplay-verification sequence in PLAY MODE and get a pass/fail transcript (start_play first; poll playtest_status until finished).",
+      "Each step is an object with ONE verb:",
+      '• { "move": {"x":1,"y":0}, "frames":60 } — analog move in the controller frame (x=fwd/back, y=left/right); auto-sets UseInputControls=false and zeroes WishVelocity after. Movement is controller-specific/best-effort.',
+      '• { "look": {"pitch":0,"yaw":90,"roll":0} } / { "lookDelta": {"yaw":2}, "frames":30 } — set/sweep EyeAngles.',
+      '• { "action": "use", "frames":20 } — hold a named input action down (rising-edge safe; for use/dig/attack handled by gameplay components).',
+      '• { "jump": "0,0,400" } — invoke the controller\'s Jump(velocity).',
+      '• { "set": {"component":"PlayerController","property":"WorldPosition","to":"100,0,0"} } — set a runtime property (toggles, or teleport via WorldPosition — the robust positioning fallback).',
+      '• { "wait": 10 } — advance N frames.',
+      '• { "assert": {"read":"WorldPosition.x","op":">","value":100,"desc":"walked forward"} } — read a value and compare IN-FRAME. read = "WorldPosition[.x|.y|.z]" (whole vector for facing-independent movement) or "<Component>.<Property>[.x|.y|.z|.Count]". op = > < >= <= == != changed. Records pass/fail.',
+      "Tip: assert movement with read:'WorldPosition' op:'changed' (facing-independent), and transient state (IsAirborne) right after the action.",
+    ].join("\n"),
+    {
+      steps: z
+        .array(z.record(z.string(), z.any()))
+        .describe("Ordered step objects (see verbs above). Runs top-to-bottom in the frame loop."),
+      id: z.string().optional().describe("GUID of the player/controller GameObject. Omit to auto-resolve the first PlayerController."),
+      component: z.string().optional().describe("Controller component type to target (e.g. 'PlayerController'). Omit to auto-detect."),
+    },
+    async (p) => reply(await bridge.send("playtest", p))
+  );
+
+  server.tool(
+    "playtest_status",
+    "Poll the running/finished playtest. While running: { active:true, step, totalSteps, passed, failed }. When done: { finished:true, verdict:'PASS'|'FAIL', passed, failed, transcript:[...] } — the full per-step pass/fail record.",
+    {},
+    async () => reply(await bridge.send("playtest_status", {}))
+  );
+}

@@ -227,6 +227,9 @@ public static class ClaudeBridge
 		Register( "debug_draw_box",      () => new DebugDrawBoxHandler() );
 		Register( "debug_draw_sphere",   () => new DebugDrawSphereHandler() );
 		Register( "debug_clear",         () => new DebugClearHandler() );
+		// playtest harness (gameplay verification) — async frame-loop step runner; NOT scene-mutating (runs in play).
+		Register( "playtest",            () => new PlaytestHandler() );
+		Register( "playtest_status",     () => new PlaytestStatusHandler() );
 
 		// ── Batch 6: Assets ──────────────────────────────────────────────
 		Register( "search_assets",       () => new SearchAssetsHandler() );
