@@ -26,7 +26,7 @@ using System.Threading.Tasks;
 // => one async job, ticked by [EditorEvent.Frame], runs a step list and records a
 //    pass/fail transcript. TS only starts it (playtest) and polls it (playtest_status).
 //
-// Step verbs (v1): move · look · lookDelta · action · jump · set · wait · assert
+// Step verbs: move · look · lookDelta · action · jump · set · wait · capture · assert
 //   { "move": {"x":1}, "frames":60 }                 analog move (auto UseInputControls=false)
 //   { "look": {"pitch":0,"yaw":90,"roll":0} }        set EyeAngles
 //   { "lookDelta": {"yaw":2}, "frames":30 }          sweep EyeAngles
@@ -34,9 +34,11 @@ using System.Threading.Tasks;
 //   { "jump": "0,0,400" }                            invoke the controller's Jump(velocity)
 //   { "set": {"component":"PlayerController","property":"UseInputControls","to":"false"} }
 //   { "wait": 10 }                                   advance N frames
-//   { "assert": {"read":"WorldPosition.x","op":">","value":100,"desc":"walked forward"} }
+//   { "capture": "after-jump" }                      screenshot the live player POV → path in transcript
+//   { "assert": {"read":"Displacement","op":">","value":50,"desc":"moved >50u from start"} }
 //
-// assert.read = "WorldPosition[.x|.y|.z]" (the controller's GameObject) OR
+// assert.read = "WorldPosition[.x|.y|.z]" (the controller's GameObject), "Displacement"
+//               (scalar distance moved from job start — the facing-independent movement proof), OR
 //               "<Component>.<Property>[.x|.y|.z|.Count]" (a component on the player).
 // assert.op   = > < >= <= == != changed   (changed = differs from the value at job start)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -54,6 +56,7 @@ internal static class PlaytestRunner
 		public Vector3 JumpVel;
 		public string SetComponent, SetProperty, SetValue;
 		public string AssertRead, AssertOp, AssertValue, AssertDesc;
+		public string CaptureLabel;
 		public float MoveSpeed = 160f;
 	}
 
@@ -63,6 +66,7 @@ internal static class PlaytestRunner
 		public string ComponentType;
 		public Component Controller;     // resolved once
 		public GameObject Anchor;        // controller.GameObject — the player object
+		public Vector3 StartPos;         // Anchor.WorldPosition at job start (for the "Displacement" read)
 		public List<StepSpec> Steps;
 		public int Index;
 		public int FrameInStep;
@@ -161,6 +165,9 @@ internal static class PlaytestRunner
 				break;
 			case "assert":
 				DoAssert( j, s );
+				break;
+			case "capture":
+				DoCapture( j, s );
 				break;
 		}
 	}
@@ -324,6 +331,30 @@ internal static class PlaytestRunner
 		} );
 	}
 
+	// ── Capture: screenshot the live player-POV camera (diagnostic, never pass/fail) ──
+	static void DoCapture( Job j, StepSpec s )
+	{
+		try
+		{
+			var scene = Game.ActiveScene;
+			var cam = scene != null ? VisualHelpers.FindMainCamera( scene ) : null;
+			if ( cam == null )
+			{
+				j.Transcript.Add( new { step = j.Index, kind = "capture", ok = false, label = s.CaptureLabel, error = "no main camera in the running scene" } );
+				return;
+			}
+			var bmp = new Bitmap( 1280, 720 );
+			cam.RenderToBitmap( bmp, true );   // renderUI=true → the running game incl. HUD
+			string path = System.IO.Path.Combine( System.IO.Path.GetTempPath(), $"bridge_playtest_{System.Guid.NewGuid():N}.png" );
+			System.IO.File.WriteAllBytes( path, bmp.ToPng() );
+			j.Transcript.Add( new { step = j.Index, kind = "capture", ok = true, label = s.CaptureLabel, path } );
+		}
+		catch ( Exception ex )
+		{
+			j.Transcript.Add( new { step = j.Index, kind = "capture", ok = false, label = s.CaptureLabel, error = ex.Message } );
+		}
+	}
+
 	// ── Read resolution: "WorldPosition.x" | "<Component>.<Prop>[.sub]" ──────────
 	static object ResolveRead( Job j, string read, out string err )
 	{
@@ -334,6 +365,11 @@ internal static class PlaytestRunner
 		int sub;
 
 		var head = parts[0];
+		if ( head == "Displacement" )
+		{
+			if ( j.Anchor == null ) { err = "no player object resolved"; return null; }
+			return (object) ( j.Anchor.WorldPosition - j.StartPos ).Length;   // scalar — facing-independent movement proof
+		}
 		if ( head == "WorldPosition" || head == "LocalPosition" || head == "WorldRotation" || head == "WorldScale" )
 		{
 			if ( j.Anchor == null ) { err = "no player object resolved"; return null; }
@@ -458,6 +494,8 @@ internal static class PlaytestRunner
 
 	static void CaptureBaselines( Job j )
 	{
+		// Anchor position at job start — the origin for the "Displacement" read.
+		if ( j.Anchor != null ) j.StartPos = j.Anchor.WorldPosition;
 		// Record the initial value of every "changed" read so we can diff later.
 		foreach ( var s in j.Steps.Where( x => x.Kind == "assert" && x.AssertOp == "changed" ) )
 		{
@@ -688,6 +726,11 @@ public class PlaytestHandler : IBridgeHandler
 		{
 			s.Kind = "wait"; s.Frames = System.Math.Clamp( wf, 1, 1800 );
 		}
+		else if ( e.TryGetProperty( "capture", out var capEl ) )
+		{
+			s.Kind = "capture"; s.Frames = 1;
+			s.CaptureLabel = capEl.ValueKind == JsonValueKind.String ? capEl.GetString() : null;
+		}
 		else if ( e.TryGetProperty( "assert", out var asEl ) && asEl.ValueKind == JsonValueKind.Object )
 		{
 			s.Kind = "assert"; s.Frames = 1;
@@ -700,7 +743,7 @@ public class PlaytestHandler : IBridgeHandler
 		}
 		else
 		{
-			err = "unknown step (expected one of: move, look, lookDelta, action, jump, set, wait, assert)";
+			err = "unknown step (expected one of: move, look, lookDelta, action, jump, set, wait, capture, assert)";
 			return null;
 		}
 		return s;

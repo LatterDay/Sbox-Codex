@@ -2,6 +2,15 @@
 
 All notable changes to the s&box Claude Bridge. Also online: [sboxskins.gg/claudebridge/changelog](https://sboxskins.gg/claudebridge/changelog).
 
+## [1.17.1] -- 2026-06-25
+
+**Playtest-harness polish -- two additions to the `playtest` DSL (no new tools; still 201 tools / 192 handlers). Additive -- no existing contract changed.**
+
+### Added
+
+- **`capture` step** -- `{ "capture": "label" }` (or `true`) screenshots the **live player-POV camera** at that frame (`VisualHelpers.FindMainCamera` -> `RenderToBitmap` -> PNG in TEMP); the path is recorded in the transcript. Diagnostic -- never pass/fail. Lets a verification loop leave visual evidence at the moment that matters (right after a jump, an interaction, a state change).
+- **`Displacement` assert read** -- `{ "assert": {"read":"Displacement","op":">","value":50} }` returns the scalar distance the player moved from job start (`(WorldPosition - StartPos).Length`, captured at job start). The clean, facing-independent movement proof -- no more leaning on `WorldPosition changed`, which also trips on gravity-settle. Dogfooded live on Gravehold.
+
 ## [1.17.0] -- 2026-06-25
 
 **+2 gameplay-verification tools -- `playtest` / `playtest_status`. The bridge can now run a scripted gameplay loop in PLAY MODE and assert the result IN-FRAME -- the gameplay-verification frontier. 192 handlers / 201 tools (was 190/199). Additive -- no existing tool contract changed.**

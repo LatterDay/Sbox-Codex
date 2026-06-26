@@ -31,8 +31,9 @@ export function registerPlaytestTools(server: McpServer, bridge: BridgeClient): 
       '• { "jump": "0,0,400" } — invoke the controller\'s Jump(velocity).',
       '• { "set": {"component":"PlayerController","property":"WorldPosition","to":"100,0,0"} } — set a runtime property (toggles, or teleport via WorldPosition — the robust positioning fallback).',
       '• { "wait": 10 } — advance N frames.',
-      '• { "assert": {"read":"WorldPosition.x","op":">","value":100,"desc":"walked forward"} } — read a value and compare IN-FRAME. read = "WorldPosition[.x|.y|.z]" (whole vector for facing-independent movement) or "<Component>.<Property>[.x|.y|.z|.Count]". op = > < >= <= == != changed. Records pass/fail.',
-      "Tip: assert movement with read:'WorldPosition' op:'changed' (facing-independent), and transient state (IsAirborne) right after the action.",
+      '• { "capture": "after-jump" } — screenshot the live player-POV camera at this frame; the PNG path is recorded in the transcript (diagnostic, never pass/fail). Pass true for no label.',
+      '• { "assert": {"read":"Displacement","op":">","value":50,"desc":"moved >50u"} } — read a value and compare IN-FRAME. read = "Displacement" (scalar distance moved from job start — the clean facing-independent movement proof), "WorldPosition[.x|.y|.z]", or "<Component>.<Property>[.x|.y|.z|.Count]". op = > < >= <= == != changed. Records pass/fail.',
+      "Tip: prove movement with read:'Displacement' op:'>' (facing-independent, unambiguous), and catch transient state (IsAirborne) right after the action.",
     ].join("\n"),
     {
       steps: z
