@@ -2,13 +2,28 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: v1.16.0 -- 190 handlers / 199 tools (run `get_bridge_status` for the live tool/handler count)
+## Status: v1.17.1 -- 192 handlers / 201 tools (run `get_bridge_status` for the live tool/handler count)
 
-**Last updated:** 2026-06-20 (v1.16.0)
+**Last updated:** 2026-06-25 (v1.17.1)
 **Bridge:** File-based IPC ✅ working on main thread
 **Tools:** MCP `server.tool()` registrations across `sbox-mcp-server/src/tools/`
 **Handlers:** C# command handlers compiled and registered (verified via the live bridge) — **171 total** as of v1.10.0 (was 166)
 **Why the difference:** several tools are **MCP-server-side** and need no editor handler — `read_log`, `get_compile_errors`, `execute_csharp`, `search_docs`, `get_doc_page`, `list_doc_categories`, `run_self_test`. They read the log file / fetch docs / hotload-eval directly, so they work even when the editor has crashed or stalled.
+
+### What's new in v1.17.1
+
+**Playtest-harness polish — `capture` step + `Displacement` assert read (no new tools; still 201 tools / 192 handlers).** Additive.
+
+- **`capture` step** — `{ "capture": "label" }` screenshots the live player-POV camera mid-loop (`VisualHelpers.FindMainCamera` → `RenderToBitmap` → PNG in TEMP); the path lands in the transcript. Diagnostic, never pass/fail.
+- **`Displacement` assert read** — `(WorldPosition − StartPos).Length` from job start: the clean, facing-independent movement proof, no longer leaning on `WorldPosition changed` (which also trips on gravity-settle). Dogfooded live on Gravehold.
+
+### What's new in v1.17.0
+
+**+2 gameplay-verification tools — `playtest` / `playtest_status`. Run a scripted gameplay loop in PLAY MODE and assert the result IN-FRAME. 192 handlers / 201 tools (was 190/199).** Additive — no existing tool contract changed.
+
+- **`playtest`** — a scripted step list (`move` / `look` / `lookDelta` / `action` / `jump` / `set` / `wait` / `capture` / `assert`) run async inside an `[EditorEvent.Frame]` job, with assertions evaluated **in-frame** so transient state (a jump's airborne frame) is catchable — impossible via TS round-trips. Auto-disables `UseInputControls` for `move`, zeros `WishVelocity` between steps, releases held actions, restores everything on teardown.
+- **`playtest_status`** — poll the running/finished job: live progress, then the full per-step pass/fail transcript.
+- **Dogfooded live on Gravehold** (facepunch `PlayerController` + the `Keeper*` stack): walk → assert moved → jump → assert `IsAirborne` the next frame → land → assert `IsOnGround`, verdict PASS, re-runs clean. The "gameplay-verification frontier" — the bridge can now verify a *playable loop*, not just a static scene. New TS module `tools/playtest.ts`; C# handler `PlaytestHandler.cs`.
 
 ### What's new in v1.16.0
 
@@ -278,6 +293,7 @@ sbox-claude/
 │   │       ├── diagnostics.ts         # read_log, get_compile_errors, screenshot_from, frame_camera, console_run, execute_csharp
 │   │       ├── docs.ts                # search_docs, get_doc_page, list_doc_categories (MCP-server-side)
 │   │       ├── inspection.ts          # inspect_networked_object, networking_lint, scene_validate, save_inspect, services_query, simulate_input (Batch 37)
+│   │       ├── playtest.ts            # playtest, playtest_status (gameplay-verification harness)
 │   │       └── status.ts              # get_bridge_status
 │   └── dist/                          # Compiled JS
 │

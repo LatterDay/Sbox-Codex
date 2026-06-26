@@ -64,8 +64,17 @@ Limits of the workaround, all inherent:
   inputs in precise sequence, or analog feel/timing the way a player would.
 - It still can't tell you if the loop is *fun* or *correct*, only that members changed.
 
-**Bottom line:** use `drive_player` to sanity-check that controls are wired, but for any
-gameplay loop, **schedule a human playtest** before calling it done.
+**v1.17.0 — the `playtest` harness builds on this.** `drive_player` drives the controller;
+`playtest` wraps the same input model in a scripted step runner that **asserts the result
+in-frame** — `move` → assert `Displacement` rose, `jump` → assert `IsAirborne` the next
+frame, `action` → assert a component/state change — and returns a pass/fail transcript
+(plus a `capture` step for screenshots). It's the same engine-limited input
+(controller-specific, best-effort), so it verifies that mechanics *fire*, not that the game
+*feels* right.
+
+**Bottom line:** use `playtest` / `drive_player` to verify controls are wired and mechanics
+fire, but for *feel* and *fun* on any real gameplay loop, **a human playtest** is still the
+final word.
 
 ---
 
@@ -269,7 +278,7 @@ restart, not your work. After restarting, re-take the screenshot.
 
 | Symptom | Not fixable because… | Do this |
 |---|---|---|
-| Controls don't fire from `simulate_input`; no analog move/look | engine: single-frame `SetAction`, no `AnalogMove`/`AnalogLook` setter | `drive_player` for a partial check; **human playtest** for the loop |
+| Controls don't fire from `simulate_input`; no analog move/look | engine: single-frame `SetAction`, no `AnalogMove`/`AnalogLook` setter | `playtest` (assert a loop in-frame) / `drive_player`; **human playtest** for feel |
 | `Default Surface not found` on every trace | editor surface registry corrupted for the session | `restart_editor` |
 | New local-library `PackageReference` won't compile | hotload reuses the resolved reference graph | `restart_editor` (not `trigger_hotload`) |
 | Community model = giant ERROR mesh | asset + dependency chain not in your project | copy `.vmdl` **+ full `.vmat`/`.vtex` chain** (or `_c` chain) into `Assets/` |

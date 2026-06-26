@@ -3,7 +3,7 @@
 > **Build s&box games by talking to Claude Code.** Describe what you want — Claude writes the C#, builds the scenes, wires up components, and iterates until it works.
 
 <p>
-<strong>v1.16.0</strong> · <strong>199 tools</strong> · <strong>190 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+<strong>v1.17.1</strong> · <strong>201 tools</strong> · <strong>192 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
 </p>
 
 <p>📖 <strong>Full docs:</strong> <a href="https://sboxskins.gg/claudebridge">sboxskins.gg/claudebridge</a> — <a href="https://sboxskins.gg/claudebridge/plugin">setup</a> · <a href="https://sboxskins.gg/claudebridge/changelog">changelog</a> · <a href="https://sboxskins.gg/claudebridge/troubleshooting">troubleshooting</a> · <a href="https://sboxskins.gg/claudebridge/faq">FAQ</a></p>
@@ -52,7 +52,7 @@ Pick the path with the least resistance for you. **Every path needs both halves*
 
 ### A. Claude Code plugin — easiest
 
-The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.9.0`, fetched via `npx` on first use) and ships the workflow skills, the onboarding wizard, and the specialist agent.
+The plugin registers the MCP server for you (pinned to `sbox-mcp-server@1.17.1`, fetched via `npx` on first use) and ships the workflow skills, the onboarding wizard, and the specialist agent.
 
 1. **Add the marketplace + install the plugin** (in Claude Code):
    ```
@@ -69,7 +69,7 @@ If you don't use the plugin, register the server yourself.
 
 1. **Register the MCP server** (one-time):
    ```bash
-   claude mcp add sbox -- npx -y sbox-mcp-server@1.9.0
+   claude mcp add sbox -- npx -y sbox-mcp-server@latest
    ```
 2. **Install the editor addon** from the s&box Asset Library (`sboxskinsgg.claudebridge`) into your project — same as path A, step 2.
 3. **Open s&box**, open the **View → Claude Bridge** dock, keep it visible.
@@ -226,6 +226,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 | `frame_camera` | Move the editor *viewport* to focus an object/point |
 | `read_log`, `get_compile_errors` *(server-side)* | Tail/filter `sbox-dev.log` and surface C# compile failures — **work even when the editor has crashed**, so Claude can debug itself |
 | `restart_editor` *(v1.5.1)* | Restart the s&box editor and wait for the bridge to reconnect — **closes the C#-edit → recompile loop** so addon changes apply without a manual restart |
+| `playtest` / `playtest_status` *(v1.17.0)* | **Run a scripted gameplay loop in play mode and assert the result in-frame** — `move`/`look`/`action`/`jump`/`set`/`wait`/`capture`/`assert`, with a `Displacement` check and transient-state catches (a jump's airborne frame). The only way to verify a *playable loop* (not just a static scene), since transient state is gone by the time a separate call lands. Poll `playtest_status` for the per-step pass/fail transcript |
 
 ### Console & C# execution
 `console_run` (run an s&box ConCmd via `ConsoleSystem.Run`) and `execute_csharp` *(experimental)* — compile + run a C# snippet in the unsandboxed editor context (temp `[ConCmd]` → hotload → run → read result from the log → clean up).
@@ -263,7 +264,7 @@ For hacking on the bridge itself, or if you'd rather not use the Asset Library.
 
 | Piece | What it is |
 |---|---|
-| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.9.0` and fetches it via `npx -y` on first use — no manual registration, no version drift |
+| **MCP server config** | `.mcp.json` pins `sbox-mcp-server@1.17.1` and fetches it via `npx -y` on first use — no manual registration, no version drift |
 | **Skill: `sbox-build-feature`** | The screenshot-driven build workflow: confirm the bridge is alive → brainstorm non-trivial features → research the API with `describe_type` → bite-sized edits → hotload + scan the log → **screenshot and read it yourself**. Plus a table of s&box gotchas (`MathF` doesn't exist in the sandbox; Cloud assets aren't persistent; Citizen bone names are case-sensitive; `CitizenAnimationHelper.IkRightHand` drives IK at runtime; `Color` properties want `"r, g, b, a"` strings; etc.) |
 | **Skill: `sbox-api`** | Schema-grounded s&box API knowledge — the Unity→s&box translation table, the Ten Rules, and curated component/UI/networking/physics references, so Claude stops hallucinating Unity patterns |
 | **Skill: `sbox-cookbook`** *(v1.9.0)* | A master **router** indexing code-grounded recipes mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** references (networking-authority, architecture, components-lifecycle, player-controller, ui-razor, combat-weapons, input-interaction, physics-traces-movement, worldgen-rendering, performance-threading, data-assets), **15 systems** (inventory, economy-currency, shop-vendor, save-persistence, progression-upgrades, gacha-loot, leaderboards-services, idle-offline, building-placement, crafting, dialogue, round-match, spawning-waves, anti-cheat, level-design), and **14 genre recipes** (tycoon-idle, shopkeeper, document-sim, roleplay, sandbox-voxel, social-hub, platformer-obstacle, deathmatch-arena, card-battler, survival-horror, gacha-crawler, puzzle, vehicles, party-microgame). Ask "how do I build a tycoon / an inventory / a save system?" and it routes you to a grounded how-to |

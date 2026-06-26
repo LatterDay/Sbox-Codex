@@ -1,7 +1,7 @@
 # Claude Bridge for s&box
 ### Build s&box games by talking to Claude — or any AI.
 
-**200+ tools · 190 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
+**200+ tools · 192 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
 
 But the tools aren't the real story. **The bridge ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
@@ -116,7 +116,7 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 
 ---
 
-## What it can do (200+ tools · 190 handlers)
+## What it can do (200+ tools · 192 handlers)
 
 **Scene & GameObjects** — create, clone, transform, parent, delete; full hierarchy access + editor selection; find objects by name, component, or tag.
 
@@ -146,7 +146,7 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 
 **Self-verify & diagnostics** — **aim a screenshot at any object** and read it back; **read the bridge's own logs and compile errors** (works even if the editor stalls); detect your installed libraries; run console commands; execute C# snippets; and **restart the editor itself** (`restart_editor`) to recompile and apply changes.
 
-**Debug & playtest** — draw debug shapes (`debug_draw_line` / `box` / `sphere` / `ray`) that render in the editor **and** in play; pause / slow-mo / fast-forward the running game (`set_time_scale`); and read live performance counters — FPS, frame/GPU ms, memory, per-system timings (`get_profiler_stats`).
+**Debug & playtest** — draw debug shapes (`debug_draw_line` / `box` / `sphere` / `ray`) that render in the editor **and** in play; pause / slow-mo / fast-forward the running game (`set_time_scale`); and read live performance counters — FPS, frame/GPU ms, memory, per-system timings (`get_profiler_stats`). **Verify a playable loop** with `playtest` — a scripted gameplay sequence (move / look / action / jump / set / wait / capture / assert) run in play mode that asserts results *in-frame* (so a jump's transient airborne frame is catchable), with `playtest_status` returning the pass/fail transcript.
 
 **Docs & live API search** — Claude searches the **official s&box docs pulled straight from Facepunch's GitHub** (`search_docs` / `get_doc_page` / `list_doc_categories`) *and* inspects the **real loaded SDK** by live reflection (`describe_type` / `search_types` / `get_method_signature` — every type, method, and property the editor actually has). So it works from the current API and real docs instead of stale guesses — a big reason the generated C# actually compiles.
 
@@ -155,6 +155,9 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 ---
 
 ## What's new
+
+### v1.17 — gameplay verification
+- **`playtest` / `playtest_status`** — run a scripted gameplay loop in play mode (move / look / action / jump / set / wait / capture / assert) and get a pass/fail transcript. Assertions evaluate *in-frame*, so transient state — a jump's airborne frame — is catchable; a `Displacement` read gives a clean facing-independent movement proof, and a `capture` step screenshots the live player POV mid-loop. The first tool that verifies a *playable loop*, not just a static scene. Dogfooded live on Gravehold.
 
 ### v1.15 — debug visualization
 - **See your logic** — `debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere` draw world-space debug shapes (color + thickness), and `debug_clear` wipes them. They render in the **editor viewport** *and* in **play mode** (capturable via `capture_view`) — so a raycast hit, a `physics_overlap` volume, a `trigger_zone`'s bounds, an NPC's sight cone, or a patrol path becomes something you can actually see.
@@ -279,7 +282,7 @@ The MCP server writes request JSON; the addon polls, runs each command on the ed
 
 ## Full tool list
 
-Every tool the bridge exposes, grouped by area (190 editor handlers + a handful of MCP-server-side tools that work even when the editor is down):
+Every tool the bridge exposes, grouped by area (192 editor handlers + a handful of MCP-server-side tools that work even when the editor is down):
 
 **Project, files & scripts (9)** — `get_project_info`, `list_project_files`, `read_file`, `write_file`, `recompile_asset`, `create_script`, `edit_script`, `delete_script`, `trigger_hotload`
 
@@ -319,7 +322,7 @@ Every tool the bridge exposes, grouped by area (190 editor handlers + a handful 
 
 **Assets (5)** — `search_assets`, `list_asset_library`, `install_asset`, `get_asset_info`, `copy_asset_with_dependencies`
 
-**Play mode & editor (8)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`, `drive_player`, `drive_player_status`, `ensure_input_action`
+**Play mode & verification (10)** — `start_play`, `stop_play`, `is_playing`, `undo`, `redo`, `drive_player`, `drive_player_status`, `ensure_input_action`, `playtest`, `playtest_status`
 
 **Verify, diagnostics & lifecycle (15)** — `capture_view`, `take_screenshot`, `screenshot_from`, `screenshot_orbit`, `get_bounds`, `run_self_test`, `frame_camera`, `read_log`, `get_compile_errors`, `console_run`, `execute_csharp`, `restart_editor`, `get_bridge_status`, `set_time_scale`, `get_profiler_stats`
 
@@ -365,6 +368,6 @@ s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, 
 
 ---
 
-**Two pieces, zero ceremony. 200+ tools · 190 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
+**Two pieces, zero ceremony. 200+ tools · 192 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
 
 *Built by [sboxskins.gg](https://sboxskins.gg), the s&box community marketplace.*
