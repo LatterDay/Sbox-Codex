@@ -2,6 +2,19 @@
 
 All notable changes to the s&box Claude Bridge. Also online: [sboxskins.gg/claudebridge/changelog](https://sboxskins.gg/claudebridge/changelog).
 
+## [1.17.0] -- 2026-06-25
+
+**+2 gameplay-verification tools -- `playtest` / `playtest_status`. The bridge can now run a scripted gameplay loop in PLAY MODE and assert the result IN-FRAME -- the gameplay-verification frontier. 192 handlers / 201 tools (was 190/199). Additive -- no existing tool contract changed.**
+
+### Added -- the playtest harness
+
+- **`playtest`** -- run a scripted step list in play mode (async, ticked by an `[EditorEvent.Frame]` job) and get a pass/fail transcript (`start_play` first; poll `playtest_status`). Step verbs: `move` (analog `WishVelocity` drive -- auto-sets `UseInputControls=false` so the controller doesn't overwrite it each frame, zeroes it after), `look` / `lookDelta` (`EyeAngles`), `action` (hold a named input action down -- rising-edge safe), `jump` (invoke the controller's `Jump(Vector3)` by reflection), `set` (a runtime property -- toggles, or teleport via `WorldPosition`), `wait`, and `assert` (read `WorldPosition[.x|.y|.z]` or `<Component>.<Property>` and compare `> < >= <= == != changed`). Restores `UseInputControls`, zeros `WishVelocity`, and releases held actions on teardown.
+- **`playtest_status`** -- poll the running/finished job: live `{ step, totalSteps, passed, failed }` while running, the full per-step pass/fail transcript when done.
+- **Why an in-addon runner (not TS round-trips):** verifying a playable *loop* needs input + state-reads + assertions that time-align with the game's frames. Two facts force it: (1) the facepunch `PlayerController` reads `Input.AnalogMove` each frame and **overwrites** a `WishVelocity` you set unless `UseInputControls=false`; (2) transient state (a jump's airborne frame) is **gone** by the time a separate bridge call lands. So asserts are evaluated **in-frame**.
+- **Dogfooded live on Gravehold** (facepunch `PlayerController` + the `Keeper*` stack): walk -> assert `WorldPosition` changed (0 -> 215u), jump -> assert `IsAirborne` the very next frame (the transient catch that's impossible via round-trips), land -> assert `IsOnGround`. Verdict **PASS**, re-runs clean; a deliberately-too-short landing wait correctly reported **FAIL** (no false-pass).
+
+Limitation: movement injection is controller/spawn-specific (best-effort) -- the harness faithfully reports when a `move` doesn't take; the `set` verb's `WorldPosition` teleport is the robust positioning fallback. Queued: a `capture` step and a displacement assert op.
+
 ## [1.16.0] -- 2026-06-20
 
 **Bug-fix & polish release — no new tools (still 199 tools / 190 handlers), no existing contract changed.**

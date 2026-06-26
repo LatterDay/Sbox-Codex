@@ -5,8 +5,9 @@ multiplayer, but it's weak at verifying **playable loops** — it can build a do
 shop but can't reliably press the button, run the loop, and assert the result. `drive_player`
 is a half-step. This wave makes the bridge **verify gameplay**.
 
-> Status: input core **de-risked live** on Gravehold (2026-06-20). Not built. Prototype on a
-> branch; do NOT ship until solid.
+> Status: **SHIPPED in v1.17.0** (2026-06-25). Dogfooded live on Gravehold — a full
+> walk → assert-moved → jump → assert-airborne-in-frame → land loop verified PASS and
+> re-ran clean. Queued enhancements (a `capture` step, a displacement assert op) remain.
 
 ## What we proved live (the hard, uncertain parts)
 
