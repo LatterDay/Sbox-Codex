@@ -3,7 +3,7 @@
 **Date:** 2026-06-04
 **Status:** DESIGN ONLY — not implemented. No code edits made.
 **Feature wave:** #2 "Playable game in one ask" (the non-coder mission)
-**Repo:** `C:\Users\cargi\Desktop\sbox-claude`
+**Repo:** `C:\Users\cargi\Desktop\sbox-codex`
 **Target version:** proposed v1.7.0 (additive; no breaking changes)
 
 ---
@@ -25,13 +25,13 @@ This is explicitly a **composition layer over the 157 existing tools**, plus a *
 
 ### User value
 
-The single most common failure mode for a non-coder using the bridge today is: Claude writes `create_player_controller`, reports "done," and the user presses Play and **nothing happens** — because the generated `PlayerController.cs` was never put on a GameObject, there's no camera, no ground to stand on, no spawn point, and `Input.Pressed("jump")` references an input action that may not be bound. The bridge can *author* a player controller; it cannot, in one ask, hand back a *playable* one. Every genre starts from the same 6-step boilerplate (player body + controller + camera child + collider + spawn + a floor), and a human currently has to know all six steps and drive them tool-by-tool.
+The single most common failure mode for a non-coder using the bridge today is: Codex writes `create_player_controller`, reports "done," and the user presses Play and **nothing happens** — because the generated `PlayerController.cs` was never put on a GameObject, there's no camera, no ground to stand on, no spawn point, and `Input.Pressed("jump")` references an input action that may not be bound. The bridge can *author* a player controller; it cannot, in one ask, hand back a *playable* one. Every genre starts from the same 6-step boilerplate (player body + controller + camera child + collider + spawn + a floor), and a human currently has to know all six steps and drive them tool-by-tool.
 
 `scaffold_game` collapses that to one call and — crucially — produces something **screenshot-verifiable in edit mode** (a player capsule on a floor, framed by `screenshot_from`) and **playable when the user presses Play**. That is the difference between a demo and a toy.
 
 ### The asset-library product angle
 
-The bridge's distribution channel is the **s&box Asset Library** (`sboxskinsgg.claudebridge`). Today it ships pure tooling. The system scaffolds described here are, in effect, a **starter-content / template library** delivered *through conversation* instead of through a downloadable sample project:
+The bridge's distribution channel is the **s&box Asset Library** (`sboxskinsgg.codexbridge`). Today it ships pure tooling. The system scaffolds described here are, in effect, a **starter-content / template library** delivered *through conversation* instead of through a downloadable sample project:
 
 - **Genre presets become "templates"** — the equivalent of Unity's "3D Platformer micro-game" or Roblox's template games, but generated live and immediately editable, not a fixed sample you reverse-engineer.
 - **System scaffolds become "modules"** — a health system, a pickup system, a door — the asset-pack equivalent of buying a "starter kit," except they drop into *your* scene wired to *your* objects.
@@ -52,7 +52,7 @@ YAGNI note: the asset-export-to-library path is a *future* payoff, not Phase 1 s
 
 Why this split and not "one mega `scaffold_game` C# handler":
 
-1. **Composition is exactly what skills are for.** The CLAUDE-style guidance and the existing `sbox-build-feature` skill already establish that multi-step orchestration with screenshot verification lives in markdown, not in a monolithic handler. A `scaffold_game` C# handler that creates 8 GameObjects, writes 5 scripts, sets 20 properties, and wires references would be a 600-line untestable handler that re-implements logic already exposed as tools — and it couldn't adapt (e.g. "use the Shrimple controller I have installed" — `list_libraries`).
+1. **Composition is exactly what skills are for.** The CODEX-style guidance and the existing `sbox-build-feature` skill already establish that multi-step orchestration with screenshot verification lives in markdown, not in a monolithic handler. A `scaffold_game` C# handler that creates 8 GameObjects, writes 5 scripts, sets 20 properties, and wires references would be a 600-line untestable handler that re-implements logic already exposed as tools — and it couldn't adapt (e.g. "use the Shrimple controller I have installed" — `list_libraries`).
 2. **The verify loop must stay in the agent.** Only the agent can `screenshot_from` → read the PNG → notice the floor is missing → fix it. A handler can't see. The skill keeps the human-in-the-loop verification discipline that the whole bridge philosophy is built on.
 3. **But the per-system C# is fiddly and benefits from being a tool.** Generating a *correct* `Health.cs` with `[Sync]` for multiplayer, a damage event, death handling, and a HUD hook is error-prone to hand-write each time and identical every time. That belongs in a deterministic generator (a tool), the way `create_player_controller` already is — *but improved*. Tools also get the play-mode guard, path-traversal hardening, and identifier sanitization for free via the existing dispatch.
 
@@ -157,7 +157,7 @@ For each new tool: name, params, the C# API it calls, what it returns, how a res
 
 ### A. Skill: `sbox-scaffold-game`
 
-- **Type:** bundled skill at `plugins/sbox-claude/skills/sbox-scaffold-game/SKILL.md`. No handler.
+- **Type:** bundled skill at `plugins/sbox-codex/skills/sbox-scaffold-game/SKILL.md`. No handler.
 - **Trigger:** "make me a {genre} game", "scaffold a game", "/sbox-scaffold-game {genre}".
 - **Inputs (conversational):** genre (one of the four; ask if ambiguous), optional theme/name, confirmation before mutating a non-empty scene.
 - **Orchestration:** the shared spine above, branching per genre, calling system-scaffold tools + existing `create_gameobject` / `add_component_to_new_object` / `set_component_reference` / `ensure_input_action` / `add_screen_panel` / `apply_atmosphere` / `add_light` / `save_scene`.
@@ -209,7 +209,7 @@ For each new tool: name, params, the C# API it calls, what it returns, how a res
 ### F. New system tool: `create_health_system`
 
 - **Params:** `name` (default `Health`), `directory`, `maxHealth` (default 100), `regen` (bool), `respawn` (bool), `hostAuthoritative` (bool, default true), `targetId` (optional GUID to place it on).
-- **C# API:** writes a `Component`: `[Property] MaxHealth`, `[Sync] public float Health`, `TakeDamage(float, GameObject attacker=null)`, `Heal(float)`, death → disable/ragdoll hook + optional respawn-at-spawn + notify `ObjectiveManager`. If `hostAuthoritative`, guard mutation with an `IsProxy`/host check (⚠ VERIFY current networking accessor — `Networking.IsHost` "may throw if networking not active" per CLAUDE.md → guard with try/catch or `Networking.IsActive`). If `targetId`, place via the same path as `add_component_with_properties`.
+- **C# API:** writes a `Component`: `[Property] MaxHealth`, `[Sync] public float Health`, `TakeDamage(float, GameObject attacker=null)`, `Heal(float)`, death → disable/ragdoll hook + optional respawn-at-spawn + notify `ObjectiveManager`. If `hostAuthoritative`, guard mutation with an `IsProxy`/host check (⚠ VERIFY current networking accessor — `Networking.IsHost` "may throw if networking not active" per CODEX.md → guard with try/catch or `Networking.IsActive`). If `targetId`, place via the same path as `add_component_with_properties`.
 - **Returns:** `{ created:true, path, className, targetId? }`.
 - **Verification:** compile check post-hotload; structural read-back if placed.
 - **Play-mode guard:** YES.
@@ -262,7 +262,7 @@ For each new tool: name, params, the C# API it calls, what it returns, how a res
 - C# handler class `XHandler : IBridgeHandler` in `MyEditorMenu.cs`, registered via `Register("name", () => new XHandler())`.
 - Add every scene/file-mutating new command to `_sceneMutatingCommands`.
 - Reuse existing helpers: `TryResolveProjectPath`, `SanitizeIdentifier`, `ParseVector3`, `ParseRotation`, `SerializeGo`, the property-coercion switch.
-- Bump `BridgeVersion`, the MCP `package.json` version, the plugin's pinned `@version`, and the tool/handler counts in `CHANGELOG.md`/`README.md`/`CLAUDE.md` (version-skew is a documented footgun).
+- Bump `BridgeVersion`, the MCP `package.json` version, the plugin's pinned `@version`, and the tool/handler counts in `CHANGELOG.md`/`README.md`/`CODEX.md` (version-skew is a documented footgun).
 
 ---
 
@@ -281,11 +281,11 @@ For each new tool: name, params, the C# API it calls, what it returns, how a res
 4. **Live-scene GameObject references via `SetValue` (tool B).** Very likely works (`SetPrefabRefHandler` already `SetValue`s a GameObject), but confirm for a `[Property] GameObject` on a *scene* object and for Component-typed properties. **Verify:** test against the NPC controller's `[Property] GameObject Target`.
 5. **Camera component type name.** `search_types pattern="*Camera*"` — confirm `CameraComponent` and its fields (FOV, etc.) before generating camera rigs.
 6. **Runtime prefab spawning API (tool I).** Confirm the runtime instantiate call (vs. the editor-time path `InstantiatePrefabHandler` uses). **Verify:** `describe_type "SceneUtility"` / `describe_type "PrefabFile"` / `describe_type "GameObject"` for a `Clone`/instantiate that works at play time.
-7. **Networking accessors in generated code.** `Networking.IsHost` can throw if networking isn't active (per CLAUDE.md) — generated health/spawner code must guard with `Networking.IsActive`/try-catch. Confirm current accessor names with `describe_type "Networking"`.
+7. **Networking accessors in generated code.** `Networking.IsHost` can throw if networking isn't active (per CODEX.md) — generated health/spawner code must guard with `Networking.IsActive`/try-catch. Confirm current accessor names with `describe_type "Networking"`.
 8. **CharacterController API drift.** The existing template uses `IsOnGround`, `Punch`, `Accelerate`, `ApplyFriction`, `Move` — confirm these still exist (`describe_type "CharacterController"`) before generating TP/top-down variants on top of them.
 9. **`is_playing` staleness / play-mode guard interaction.** The guard keys off `Game.IsPlaying`; `is_playing.sessionPlaying` can read stale. Not a blocker for scaffolds (they're edit-mode), but the skill should `stop_play` defensively before a big scaffold if it detects play mode.
 10. **Empty/non-empty scene handling.** Scaffolding into a scene that already has content could clobber the user's work. **Mitigation:** the skill checks `get_scene_hierarchy` and asks before mutating a non-empty scene, or scaffolds into a fresh `create_scene`.
-11. **Asset choices for the starter level.** Use known-good dev assets (`models/dev/box.vmdl` per CLAUDE.md examples) for floor/platforms/walls to avoid the broken-asset issues noted in memory (e.g. black trees). Confirm a reliable floor/box model via `search_assets`.
+11. **Asset choices for the starter level.** Use known-good dev assets (`models/dev/box.vmdl` per CODEX.md examples) for floor/platforms/walls to avoid the broken-asset issues noted in memory (e.g. black trees). Confirm a reliable floor/box model via `search_assets`.
 
 ---
 
@@ -316,7 +316,7 @@ Rationale: first-person is the highest-demand genre, exercises every new tool, a
 - **horror** preset (atmosphere + flashlight + find-item + exit door; optional chaser stub).
 - Main-menu wiring (`MenuController` + Play/Quit) as a first-class skill step.
 - **Play-mode verification integration** once that research lands: the skill enters Play, screenshots mid-play, confirms movement/win/lose.
-- **Asset-library template export:** a headless path that runs the generators to emit downloadable starter `.scene`/`.prefab` templates for `sboxskinsgg.claudebridge` — the content-loop payoff.
+- **Asset-library template export:** a headless path that runs the generators to emit downloadable starter `.scene`/`.prefab` templates for `sboxskinsgg.codexbridge` — the content-loop payoff.
 
 ---
 

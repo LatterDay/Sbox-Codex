@@ -1,4 +1,4 @@
-s&box Claude Bridge
+s&box Codex Bridge
 Copyright (c) 2026 sboxskins.gg
 
 This program is free software: you can redistribute it and/or modify it under
@@ -7,7 +7,7 @@ Software Foundation, either version 3 of the License, or (at your option) any
 later version (AGPL-3.0-or-later). See the LICENSE file for the full text.
 
 In short:
-  - You may use the Claude Bridge in your s&box games, free or commercial.
+  - You may use the Codex Bridge in your s&box games, free or commercial.
   - You may modify it for your own use.
   - If you redistribute a modified version — OR run a modified version as a
     network/hosted service — you must release your modified source under
@@ -16,9 +16,9 @@ In short:
 Branding & trademark (NOT covered by the code license)
 ------------------------------------------------------
 The source code is open under AGPL, but the names and branding —
-"s&box Claude Bridge" and "sboxskins.gg" — are not licensed for reuse.
+"s&box Codex Bridge" and "sboxskins.gg" — are not licensed for reuse.
 
-You may fork the code under AGPL, but you may NOT reuse the "s&box Claude
+You may fork the code under AGPL, but you may NOT reuse the "s&box Codex
 Bridge" or "sboxskins.gg" name, logo, or branding to present a fork as the
 original. If you distribute a fork, give it a different name and remove the
 original branding.

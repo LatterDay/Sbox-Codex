@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Installs the s&box Claude Bridge into your project's Libraries folder.
+    Installs the s&box Codex Bridge into your project's Libraries folder.
 
 .DESCRIPTION
     The bridge addon MUST live inside an s&box PROJECT's Libraries folder.
@@ -9,7 +9,7 @@
 
     This installer:
       1. Locates your s&box project (auto-detects or use -ProjectPath)
-      2. Creates <Project>/Libraries/claudebridge/{Editor/}
+      2. Creates <Project>/Libraries/codexbridge/{Editor/}
       3. Copies the .sbproj and MyEditorMenu.cs into it
       4. Tells s&box to regenerate its .csproj files on next launch
       5. Optionally cleans up any old broken install under sbox/addons/
@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "=== s&box Claude Bridge Installer ===" -ForegroundColor Cyan
+Write-Host "=== s&box Codex Bridge Installer ===" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Locate the s&box projects directory ────────────────────────────
@@ -115,11 +115,11 @@ $addonSource = Join-Path $scriptDir "sbox-bridge-addon"
 
 if (-not (Test-Path $addonSource)) {
     Write-Host "Cannot find sbox-bridge-addon folder beside install.ps1." -ForegroundColor Red
-    Write-Host "Run this script from the root of the sbox-claude repo." -ForegroundColor Yellow
+    Write-Host "Run this script from the root of the sbox-codex repo." -ForegroundColor Yellow
     exit 1
 }
 
-$srcSbproj = Join-Path $addonSource "claudebridge.sbproj"
+$srcSbproj = Join-Path $addonSource "codexbridge.sbproj"
 $srcCs     = Join-Path $addonSource "Editor\MyEditorMenu.cs"
 
 if (-not (Test-Path $srcSbproj)) { Write-Host "Missing: $srcSbproj" -ForegroundColor Red; exit 1 }
@@ -127,27 +127,27 @@ if (-not (Test-Path $srcCs))     { Write-Host "Missing: $srcCs"     -ForegroundC
 
 # ── Install into project's Libraries folder ───────────────────────
 $libsDir   = Join-Path $ProjectPath "Libraries"
-$destDir   = Join-Path $libsDir "claudebridge"
+$destDir   = Join-Path $libsDir "codexbridge"
 $editorDir = Join-Path $destDir "Editor"
 
 New-Item -ItemType Directory -Force -Path $libsDir   | Out-Null
 New-Item -ItemType Directory -Force -Path $destDir   | Out-Null
 New-Item -ItemType Directory -Force -Path $editorDir | Out-Null
 
-Copy-Item $srcSbproj (Join-Path $destDir "claudebridge.sbproj")  -Force
+Copy-Item $srcSbproj (Join-Path $destDir "codexbridge.sbproj")  -Force
 Copy-Item $srcCs     (Join-Path $editorDir "MyEditorMenu.cs")    -Force
 
 # If s&box previously scaffolded a stale .csproj here, delete it so the editor regenerates
 # one against the local s&box install path. This is the file that has hardcoded "A:\SteamLibrary"
 # paths and is the #1 source of "Compile of local.<project>.editor Failed" errors after a move.
-$staleCsproj = Join-Path $editorDir "claudebridge.editor.csproj"
+$staleCsproj = Join-Path $editorDir "codexbridge.editor.csproj"
 if (Test-Path $staleCsproj) {
     Remove-Item $staleCsproj -Force
-    Write-Host "Removed stale claudebridge.editor.csproj (s&box will regenerate it)" -ForegroundColor Yellow
+    Write-Host "Removed stale codexbridge.editor.csproj (s&box will regenerate it)" -ForegroundColor Yellow
 }
 
 Write-Host "Installed:" -ForegroundColor Green
-Write-Host ("  {0}" -f (Join-Path $destDir "claudebridge.sbproj")) -ForegroundColor White
+Write-Host ("  {0}" -f (Join-Path $destDir "codexbridge.sbproj")) -ForegroundColor White
 Write-Host ("  {0}" -f (Join-Path $editorDir "MyEditorMenu.cs")) -ForegroundColor White
 Write-Host ""
 
@@ -184,15 +184,15 @@ Write-Host "Installation successful." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Open or restart s&box and load this project." -ForegroundColor White
-Write-Host "  2. Open the dock: View -> Claude Bridge." -ForegroundColor White
-Write-Host "     The dock MUST be visible for the bridge to process requests." -ForegroundColor Yellow
-Write-Host "  3. Register the MCP server with Claude Code (one-time):" -ForegroundColor White
-Write-Host ('       claude mcp add sbox -- node "{0}\sbox-mcp-server\dist\index.js"' -f $scriptDir) -ForegroundColor Green
-Write-Host "     (or, if you prefer npm: claude mcp add sbox -- npx sbox-mcp-server)" -ForegroundColor White
-Write-Host "  4. In Claude Code, ask: 'check the bridge status'" -ForegroundColor White
+Write-Host "  2. Open your s&box project. The View -> Codex Bridge dock is optional." -ForegroundColor White
+Write-Host "     The bridge processes requests from a static editor-frame handler." -ForegroundColor Yellow
+Write-Host "  3. Register the MCP server with Codex (one-time):" -ForegroundColor White
+Write-Host ('       codex mcp add sbox -- node "{0}\sbox-mcp-server\dist\index.js"' -f $scriptDir) -ForegroundColor Green
+Write-Host "     (or, if you prefer npm: codex mcp add sbox -- npx sbox-mcp-server)" -ForegroundColor White
+Write-Host "  4. In Codex, ask: 'check the bridge status'" -ForegroundColor White
 Write-Host ""
 Write-Host "If the dock doesn't appear after restart, check:" -ForegroundColor Yellow
 Write-Host "  <sbox>\logs\sbox-dev.log" -ForegroundColor White
 Write-Host "  for any 'Compile of local.<project>.editor Failed' lines and report" -ForegroundColor White
-Write-Host "  them at https://github.com/lousputthole/sbox-claude/issues" -ForegroundColor White
+Write-Host "  them at https://github.com/LatterDay/Sbox-Codex/issues" -ForegroundColor White
 Write-Host ""

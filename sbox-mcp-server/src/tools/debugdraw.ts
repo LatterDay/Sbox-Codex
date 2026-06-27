@@ -4,9 +4,9 @@ import { BridgeClient } from "../transport/bridge-client.js";
 
 /**
  * debug_draw_* / debug_clear — visualize debug primitives in the scene
- * (ported from the Claude Bridge for Unity's debug_draw family).
+ * (ported from the Codex Bridge for Unity's debug_draw family).
  *
- * Renders in BOTH modes via one ClaudeDebugDraw holder component:
+ * Renders in BOTH modes via one CodexDebugDraw holder component:
  *   • edit scene → Gizmo.Draw.* — visible in the live editor viewport, but NOT
  *     in take_screenshot/screenshot_from (the editor gizmo pass isn't in that
  *     camera render). Confirm edit-mode draws with your own eyes in the editor.

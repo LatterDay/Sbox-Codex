@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# s&box Claude Bridge Installer (Linux/WSL/Mac)
+# s&box Codex Bridge Installer (Linux/WSL/Mac)
 #
 # Installs the bridge into your project's Libraries folder. The bridge
 # WILL NOT compile if placed in s&box's global addons folder — that
@@ -32,7 +32,7 @@ for arg in "$@"; do
 done
 
 echo ""
-echo "=== s&box Claude Bridge Installer ==="
+echo "=== s&box Codex Bridge Installer ==="
 echo ""
 
 # ── List mode ─────────────────────────────────────────────────────
@@ -96,26 +96,26 @@ echo ""
 
 # ── Confirm addon source ─────────────────────────────────────────
 [[ -d "$ADDON_SOURCE" ]] || { echo "Missing: $ADDON_SOURCE"; exit 1; }
-[[ -f "$ADDON_SOURCE/claudebridge.sbproj" ]] || { echo "Missing: claudebridge.sbproj"; exit 1; }
+[[ -f "$ADDON_SOURCE/codexbridge.sbproj" ]] || { echo "Missing: codexbridge.sbproj"; exit 1; }
 [[ -f "$ADDON_SOURCE/Editor/MyEditorMenu.cs" ]] || { echo "Missing: Editor/MyEditorMenu.cs"; exit 1; }
 
-# ── Install into <Project>/Libraries/claudebridge/ ────────────────
-DEST_DIR="$PROJECT_PATH/Libraries/claudebridge"
+# ── Install into <Project>/Libraries/codexbridge/ ────────────────
+DEST_DIR="$PROJECT_PATH/Libraries/codexbridge"
 EDITOR_DIR="$DEST_DIR/Editor"
 mkdir -p "$EDITOR_DIR"
 
-cp -f "$ADDON_SOURCE/claudebridge.sbproj" "$DEST_DIR/claudebridge.sbproj"
+cp -f "$ADDON_SOURCE/codexbridge.sbproj" "$DEST_DIR/codexbridge.sbproj"
 cp -f "$ADDON_SOURCE/Editor/MyEditorMenu.cs" "$EDITOR_DIR/MyEditorMenu.cs"
 
 # Remove stale auto-generated .csproj if present — s&box will regen on next compile
-STALE_CSPROJ="$EDITOR_DIR/claudebridge.editor.csproj"
+STALE_CSPROJ="$EDITOR_DIR/codexbridge.editor.csproj"
 if [[ -f "$STALE_CSPROJ" ]]; then
     rm -f "$STALE_CSPROJ"
-    echo "Removed stale claudebridge.editor.csproj (s&box will regenerate)"
+    echo "Removed stale codexbridge.editor.csproj (s&box will regenerate)"
 fi
 
 echo "Installed:"
-echo "  $DEST_DIR/claudebridge.sbproj"
+echo "  $DEST_DIR/codexbridge.sbproj"
 echo "  $EDITOR_DIR/MyEditorMenu.cs"
 echo ""
 
@@ -148,10 +148,10 @@ echo "Installation successful."
 echo ""
 echo "Next steps:"
 echo "  1. Open or restart s&box and load this project."
-echo "  2. View -> Claude Bridge (the dock MUST be visible for requests to process)."
+echo "  2. Open your s&box project. View -> Codex Bridge is optional."
 echo "  3. Register the MCP server (one-time):"
-echo "       claude mcp add sbox -- node \"$SCRIPT_DIR/sbox-mcp-server/dist/index.js\""
-echo "  4. In Claude Code: 'check the bridge status'"
+echo "       codex mcp add sbox -- node \"$SCRIPT_DIR/sbox-mcp-server/dist/index.js\""
+echo "  4. In Codex: 'check the bridge status'"
 echo ""
 echo "If the dock doesn't appear, tail <sbox>/logs/sbox-dev.log for"
 echo "'Compile of local.<project>.editor Failed' lines."

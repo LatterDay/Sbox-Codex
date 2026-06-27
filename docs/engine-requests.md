@@ -1,7 +1,7 @@
 # s&box Engine / SDK Limitations — Feature & Bug Requests
 
 **Date:** 2026-06-06, updated 2026-06-09 (items 4 resolved; 20-26 added from live-verified session findings)
-**Source project:** the Claude Bridge (`sbox-mcp-server` + the in-editor `claudebridge` addon) — an editor-side automation tool that drives the s&box editor through a sandboxed C# addon plus an external Node process.
+**Source project:** the Codex Bridge (`sbox-mcp-server` + the in-editor `codexbridge` addon) — an editor-side automation tool that drives the s&box editor through a sandboxed C# addon plus an external Node process.
 
 This document lists capabilities that are **blocked by s&box itself** — the engine/SDK provides no API, the sandbox forbids it, or a public API has a confirmed rendering/lifecycle bug. Items the bridge simply hasn't implemented (and could fix on its own) are **excluded** (see the last section).
 
@@ -21,24 +21,24 @@ Each item is self-contained so it can be filed individually. Citations point at 
 - **Use case:** Tools/agents author a `.vpcf` as text and need the compiled `.vpcf_c` without opening the interactive particle editor.
 
 ### 2. A sanctioned local IPC channel for editor addons (the sandbox blocks `System.Net`)
-- **What's blocked:** The C# sandbox excludes `System.Net` (`HttpListener`, `WebSocket`, `TcpListener`), so an editor addon cannot open any socket. The entire bridge transport had to fall back to polling JSON files in a shared temp directory — which is the root cause of temp-dir hangs, a one-request-per-editor-frame throughput cap, and the "dock must be visible" requirement.
+- **What's blocked:** The C# sandbox excludes `System.Net` (`HttpListener`, `WebSocket`, `TcpListener`), so an editor addon cannot open any socket. The entire bridge transport had to fall back to polling JSON files in a shared temp directory — which is the root cause of temp-dir hangs and a one-request-per-editor-frame throughput cap.
 - **Why it's engine-level:** The sandbox whitelist is a hard policy decision only Facepunch controls; there is no in-sandbox substitute for a socket or local IPC channel.
-- **Evidence:** `CLAUDE.md` (Architecture), `README.md`, `bridge-client.ts`.
+- **Evidence:** `CODEX.md` (Architecture), `README.md`, `bridge-client.ts`.
 - **Requested fix:** Provide a sanctioned local IPC mechanism for editor addons — a whitelisted **localhost-only socket / named pipe**, or a first-class editor **"external tool channel"** — so an addon can talk to a local helper process without polling temp files.
 - **Use case:** Bridging the editor to external automation / MCP / tooling processes.
 
-### 3. An always-on editor tick, independent of widget visibility and window focus
-- **What's blocked:** `[EditorEvent.Frame]` only fires while a `[Dock]` widget is visible **and** the window is focused; when the panel is closed or s&box loses focus (Windows throttles frame events), the addon's work queue and heartbeat stop entirely.
-- **Why it's engine-level:** There is no engine-provided always-on editor tick; the SDK only surfaces `[EditorEvent.Frame]`, which the engine gates on visibility/focus.
-- **Evidence:** `CLAUDE.md` (Known Issues), `TROUBLESHOOTING.md`.
-- **Requested fix:** Provide an editor periodic callback (e.g. `[EditorEvent.Tick]` or a registerable timer driven by the editor main loop) that fires regardless of whether any widget is visible and even when the window is unfocused/minimized.
+### 3. An always-on editor tick, independent of window focus/minimize throttling
+- **What's blocked:** `[EditorEvent.Frame]` can be throttled when s&box loses focus or is minimized; when that happens, the addon's work queue and heartbeat can stall.
+- **Why it's engine-level:** There is no engine-provided always-on editor tick; the SDK only surfaces `[EditorEvent.Frame]`, which can be affected by window focus/minimize behavior.
+- **Evidence:** `CODEX.md` (Known Issues), `TROUBLESHOOTING.md`.
+- **Requested fix:** Provide an editor periodic callback (e.g. `[EditorEvent.Tick]` or a registerable timer driven by the editor main loop) that fires even when the window is unfocused/minimized.
 - **Use case:** A background tooling addon that must drain a work queue and emit a heartbeat without a visible panel or foreground focus.
 
 ### 4. ~~Whitelist `System.Math`/`System.MathF` in the sandbox (or complete `MathX`)~~ RESOLVED
 - **RESOLVED (verified live 2026-06-09):** `System.Math` and `System.MathF` now compile in sandboxed game code on the current SDK. Thanks! Narrow follow-ups remain: **`System.Array.Clone()` is still blocked** (confirmed live: "System.Array.Clone() is not allowed when whitelist is enabled") -- either whitelist it or keep it blocked but say so in docs; and **publish the whitelist** (see new item 20).
 - **What was blocked:** Sandboxed game code cannot call `MathF.Sin`, `Math.Abs`, etc., and the always-available helper `MathX` omits `Abs`, `Min`, `Max`, `Sin`, `Cos`, `Tan`, `Atan2`, `Sqrt`, `Pow`, and `PI`/`Tau`. Routine math must be hand-rolled.
 - **Why it's engine-level:** Sandbox whitelist + first-party API surface — only Facepunch can add `System.MathF` to the whitelist or extend `MathX`.
-- **Evidence:** `CLAUDE.md` (Math & Events), `sbox-build-feature/SKILL.md`, `ScaffoldHandlers.cs`.
+- **Evidence:** `CODEX.md` (Math & Events), `sbox-build-feature/SKILL.md`, `ScaffoldHandlers.cs`.
 - **Requested fix:** Whitelist `System.Math`/`System.MathF`, or extend `MathX` to cover the common functions above.
 - **Use case:** Any gameplay math — oscillation, distances, angles — in sandboxed components.
 
@@ -59,7 +59,7 @@ Each item is self-contained so it can be filed individually. Citations point at 
 ### 7. Editor-viewport / arbitrary-camera "render to image" API
 - **What's blocked:** Screenshots can only be rendered from the scene's **Main Camera**; moving the editor viewport (`frame_camera`) has no effect on the captured image. The only workaround is temporarily relocating the Main Camera and restoring it.
 - **Why it's engine-level:** There is no editor API to render the active viewport (or an arbitrary camera/transform) to an image.
-- **Evidence:** `CLAUDE.md` (Visual Verification), `TROUBLESHOOTING.md`, `sbox-build-feature/SKILL.md`.
+- **Evidence:** `CODEX.md` (Visual Verification), `TROUBLESHOOTING.md`, `sbox-build-feature/SKILL.md`.
 - **Requested fix:** Add an editor API to capture the active viewport, or render an arbitrary camera/transform to an image, without mutating the scene's Main Camera.
 - **Use case:** Visual verification of an edit from any chosen viewpoint.
 
@@ -80,7 +80,7 @@ Anything referenced purely via `Cloud.Model/Texture/Sound` is gone after a resta
 The importer accepts `.wav` etc. but not `.mp3`. **Ask:** add `.mp3` import support, or document the canonical in-editor conversion path. *(`sbox-build-feature/SKILL.md`.)*
 
 ### 12. No concave `MeshCollider` component (only `HullCollider`)
-There is no triangle-mesh/concave collider, so procedural concave geometry can't have accurate collision. **Ask:** add a triangle-mesh / `PolygonMesh`-backed collider component. *(`CLAUDE.md`, `sbox-build-feature/SKILL.md`.)* **Use case:** caves, terrain, authored concave `PolygonMesh` geometry.
+There is no triangle-mesh/concave collider, so procedural concave geometry can't have accurate collision. **Ask:** add a triangle-mesh / `PolygonMesh`-backed collider component. *(`CODEX.md`, `sbox-build-feature/SKILL.md`.)* **Use case:** caves, terrain, authored concave `PolygonMesh` geometry.
 
 ### 13. Light components expose no `Intensity`/`Brightness` field
 Brightness must be encoded as the HDR magnitude of `LightColor` (channels >1), conflating color and intensity. **Ask:** add an explicit `Intensity`/`Brightness` float decoupled from color. *(`sbox-build-feature/SKILL.md`, `CHANGELOG.md [1.4.0]`.)*
@@ -92,13 +92,13 @@ Access to the previously-present property now throws at runtime (not a compile e
 These idiomatic bindings are correct on first render but don't update when state changes, forcing imperative `@ref`/`OnUpdate` workarounds. **Ask:** fix reactivity for these binding forms. *(`sbox-build-feature/SKILL.md`.)* **Use case:** declarative HUDs whose visibility/class/text depend on game state.
 
 ### 16. No sandbox-safe API to capture editor console / log output from an addon
-`LogCapture` isn't available in-sandbox, so tooling must scrape `sbox-dev.log` from disk out-of-process (which is exactly what the bridge does). **Ask:** expose an in-editor log/console subscription API (event delivering log lines + severity, or a "fetch recent compile errors" method) usable from a sandboxed addon. *(`MyEditorMenu.cs`, `CLAUDE.md`.)*
+`LogCapture` isn't available in-sandbox, so tooling must scrape `sbox-dev.log` from disk out-of-process (which is exactly what the bridge does). **Ask:** expose an in-editor log/console subscription API (event delivering log lines + severity, or a "fetch recent compile errors" method) usable from a sandboxed addon. *(`MyEditorMenu.cs`, `CODEX.md`.)*
 
 ### 17. No editor API to pause/resume play mode
 Only `SetPlaying`/`StopPlaying` are exposed; `Game.IsPaused` is readable but not settable from tooling. **Ask:** expose pause/resume of play mode to editor addons. *(`MyEditorMenu.cs`, `README.md`.)*
 
 ### 18. No main-thread dispatch primitive for scene APIs
-Scene APIs are main-editor-thread-only and the SDK provides no main-thread dispatch, so addons must hand-roll a frame-loop queue. **Ask:** add a sanctioned "run on the editor main thread" API (e.g. `Editor.Dispatcher.Invoke(Action)` or a `Task` that completes on the main thread). *(`CLAUDE.md`.)* **Use case:** an addon receiving work on a background timer/IO thread that needs to mutate the scene safely.
+Scene APIs are main-editor-thread-only and the SDK provides no main-thread dispatch, so addons must hand-roll a frame-loop queue. **Ask:** add a sanctioned "run on the editor main thread" API (e.g. `Editor.Dispatcher.Invoke(Action)` or a `Task` that completes on the main thread). *(`CODEX.md`.)* **Use case:** an addon receiving work on a background timer/IO thread that needs to mutate the scene safely.
 
 ### 19. Mutating the scene during play mode can desync the serializer and corrupt `.scene` files (robustness bug)
 Editing the scene while `Game.IsPlaying` is true can corrupt the saved `.scene` (the bridge hard-refuses such edits because it actually happened). **Ask:** make play-mode edits safe (separate play/edit scene state on save) or provide a supported API for edits that survive the play/stop transition. *(`TROUBLESHOOTING.md`, `CHANGELOG.md [1.2.0]`.)*

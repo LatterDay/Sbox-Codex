@@ -1,7 +1,7 @@
 # NPC Brains / Gameplay Logic — Design Spec
 
-> **Status:** DESIGN ONLY. No implementation. Feature wave #3 for the s&box Claude Bridge.
-> **Date:** 2026-06-04 · **Targets the bridge at:** `C:\Users\cargi\Desktop\sbox-claude` (MCP server `sbox-mcp-server/`, addon `sbox-bridge-addon/Editor/MyEditorMenu.cs`).
+> **Status:** DESIGN ONLY. No implementation. Feature wave #3 for the s&box Codex Bridge.
+> **Date:** 2026-06-04 · **Targets the bridge at:** `C:\Users\cargi\Desktop\sbox-codex` (MCP server `sbox-mcp-server/`, addon `sbox-bridge-addon/Editor/MyEditorMenu.cs`).
 > **Concrete test games:** Sasquatched (asymmetric horror, the `bigfoot` project) and RUN (co-op roguelite).
 
 ---
@@ -49,7 +49,7 @@ Why code-gen over a runtime config component (one big `BehaviorController` with 
 
 **Hybrid where it earns it:** the *generated component* exposes everything as `[Property]` fields (move speed, sight range, FOV degrees, hearing radius, waypoint list, eye height, give-up time, flee-health, target tag). That means after generation, the bridge can **tune** the brain with the existing `set_property` / `add_component_with_properties` tools and **wire references** (`set_prefab_ref` for a spawn prefab, the new `assign_patrol_route` for waypoints) without regenerating. Best of both: logic is owned code; tuning is data the bridge can drive.
 
-**The states/perception live in ONE generated component** (`NpcBrain`), not five components. A single `enum State` + `switch` in `OnUpdate` is the most navigable, most debuggable shape for both Claude and the user, and avoids cross-component ordering hazards. Perception is a region in that same file (small private helpers), not a separate component, so there's no execution-order coupling.
+**The states/perception live in ONE generated component** (`NpcBrain`), not five components. A single `enum State` + `switch` in `OnUpdate` is the most navigable, most debuggable shape for both Codex and the user, and avoids cross-component ordering hazards. Perception is a region in that same file (small private helpers), not a separate component, so there's no execution-order coupling.
 
 ---
 
@@ -176,13 +176,13 @@ Perception is the part that must be **correct**, **occlusion-aware**, and **chea
 
 **2. Line-of-sight (the core).**
 - Origin = `WorldPosition + Vector3.Up * EyeHeight`. Target point = candidate eye/center.
-- **FOV cone gate first (cheap):** `Vector3.Dot( WorldRotation.Forward, (targetPos - eye).Normal ) >= cos(FovDegrees/2 in rad)`. Use **`MathX`**, never `MathF`/`System.Math` (sandbox forbids them — CLAUDE.md). Need `‹verify›` the exact `MathX` trig available (`MathX.DegreeToRadian`? otherwise multiply by `(MathF…)` — no, use the constant `MathX` exposes or `* 0.0174533f`). Confirm with `describe_type "MathX"`.
+- **FOV cone gate first (cheap):** `Vector3.Dot( WorldRotation.Forward, (targetPos - eye).Normal ) >= cos(FovDegrees/2 in rad)`. Use **`MathX`**, never `MathF`/`System.Math` (sandbox forbids them — CODEX.md). Need `‹verify›` the exact `MathX` trig available (`MathX.DegreeToRadian`? otherwise multiply by `(MathF…)` — no, use the constant `MathX` exposes or `* 0.0174533f`). Confirm with `describe_type "MathX"`.
 - **Range gate:** distance ≤ `SightRange`.
 - **Occlusion trace (authoritative):** `scene.Trace.Ray(eye, targetPos).Ignore(self).Run()` (the verified `RaycastHandler` pattern: `.Hit`, `.GameObject`, `.HitPosition`). If the trace hits the target's GameObject (or nothing between) → visible; if it hits world/tree first → blocked. `‹verify›` the right `.Ignore(...)` / `.WithoutTags(...)` builder on `SceneTrace` so the NPC doesn't occlude itself, via `describe_type "SceneTrace"`.
 
 **3. Hearing / proximity.** Two flavors:
 - **Passive proximity:** any candidate within `HearingRadius` is "heard" regardless of LOS (sets `_lastKnownPos` but NOT `_target`-as-seen — so the NPC investigates, doesn't instantly aggro). This is what makes Search feel smart.
-- **Active noise events (stretch, Phase 2):** a static `NpcBrain.ReportNoise(Vector3 pos, float radius)` the *game* calls (Sasquatch hears a flashlight click / RV engine; RUN mobs hear a gunshot/vehicle). NPCs within `radius` set `_lastKnownPos = pos` and switch to Search. This is a tiny, high-leverage hook for both games and is pure C# (no new bridge tool needed to *use* it — the user/Claude wires the call where the noise happens). Document it; don't build extra tooling.
+- **Active noise events (stretch, Phase 2):** a static `NpcBrain.ReportNoise(Vector3 pos, float radius)` the *game* calls (Sasquatch hears a flashlight click / RV engine; RUN mobs hear a gunshot/vehicle). NPCs within `radius` set `_lastKnownPos = pos` and switch to Search. This is a tiny, high-leverage hook for both games and is pure C# (no new bridge tool needed to *use* it — the user/Codex wires the call where the noise happens). Document it; don't build extra tooling.
 
 **4. Last-known-position memory.** On LOS true: `_target = candidate; _lastKnownPos = candidate.WorldPosition; _timeSinceSeen = 0`. On LOS false: keep `_target` ref but stop refreshing `_lastKnownPos`; `_timeSinceSeen` grows. Search drives to `_lastKnownPos`; after `GiveUpTime` with no re-acquire, drop target and resume `StartState`. This single `_lastKnownPos` + `TimeSince` pair is the entire "lose the player" mechanic.
 
@@ -298,7 +298,7 @@ Friendly bundle for adjusting a brain without regenerating. Accepts any of `sigh
 Force or constrain target selection. **Params:** `npcId`, plus one of: `targetId` (lock to a specific GameObject — e.g. always hunt the host), `mode: enum("nearest","nearest_visible","by_tag")` (default `nearest_visible`), `targetTag?`. Writes `Target`/targeting `[Property]` on the brain (the generated component gets an optional `[Property] GameObject ForcedTarget` and a `[Property] TargetMode Mode`). **Why:** Sasquatched might want "hunt whoever has the RV part"; RUN wants "nearest player." Nearest-player logic lives *in* the component (`Perceive` already enumerates candidates — pick min-distance among visible). This tool just sets the policy + optional hard target. **Handler:** `set_property` on `Mode` and `set_prefab_ref`-style ref-set on `ForcedTarget`. **Verification:** structural read-back of `Mode`; behavioral in play. **Play-mode guard:** yes.
 
 #### 7. `simulate_npc_perception`  *(READ-ONLY; the verifier)*
-The answer to "the bridge can't see a chase in a screenshot." A **read-only edit-mode** query that evaluates the perception math *right now* without play mode: given an `npcId` (reads its `NpcBrain` `SightRange`/`FovDegrees`/`EyeHeight`/`TargetTag` + transform) and either a `targetId` or a `point`, it runs the **same LOS check the component would** — FOV dot-product gate + range + `scene.Trace.Ray(eye, target).Ignore(npc).Run()` — and reports the result and *why*. **Returns** `{ canSee:bool, inRange:bool, inFov:bool, losBlocked:bool, blockedBy:{id,name}?, distance, angleDeg, eye:{x,y,z} }`. **Why this is the keystone verifier:** it makes the perception layer **checkable in edit mode** (no play mode, no flaky screenshot timing) — Claude can place the Sasquatch, place a "camper" behind a tree, and *confirm the tree blocks LOS* structurally. It reuses the exact verified trace + the same FOV math the generator emits, so a green here means the generated brain will agree. **Handler:** `SimulateNpcPerceptionHandler` — pure query, mirrors `RaycastHandler`/`PhysicsOverlapHandler`. **Verification:** it *is* verification. **Play-mode guard:** none (read-only; safe in play too, like `raycast`).
+The answer to "the bridge can't see a chase in a screenshot." A **read-only edit-mode** query that evaluates the perception math *right now* without play mode: given an `npcId` (reads its `NpcBrain` `SightRange`/`FovDegrees`/`EyeHeight`/`TargetTag` + transform) and either a `targetId` or a `point`, it runs the **same LOS check the component would** — FOV dot-product gate + range + `scene.Trace.Ray(eye, target).Ignore(npc).Run()` — and reports the result and *why*. **Returns** `{ canSee:bool, inRange:bool, inFov:bool, losBlocked:bool, blockedBy:{id,name}?, distance, angleDeg, eye:{x,y,z} }`. **Why this is the keystone verifier:** it makes the perception layer **checkable in edit mode** (no play mode, no flaky screenshot timing) — Codex can place the Sasquatch, place a "camper" behind a tree, and *confirm the tree blocks LOS* structurally. It reuses the exact verified trace + the same FOV math the generator emits, so a green here means the generated brain will agree. **Handler:** `SimulateNpcPerceptionHandler` — pure query, mirrors `RaycastHandler`/`PhysicsOverlapHandler`. **Verification:** it *is* verification. **Play-mode guard:** none (read-only; safe in play too, like `raycast`).
 
 > *Rationale:* Phase 2 only because it depends on the brain's property names existing; but it's the highest-value verification tool in the wave and should land immediately after #1.
 
@@ -316,7 +316,7 @@ The answer to "the bridge can't see a chase in a screenshot." A **read-only edit
 
 ## Risks & unknowns (+ API verifications needed at implementation time)
 
-These are the must-confirm-with-`describe_type` items. **None should be guessed from training data** — the bridge's own rule (CLAUDE.md: "reflection is the source of truth").
+These are the must-confirm-with-`describe_type` items. **None should be guessed from training data** — the bridge's own rule (CODEX.md: "reflection is the source of truth").
 
 1. **`NavMeshAgent` member surface — HIGH.** The existing `create_npc_controller` already calls `GetOrAddComponent<NavMeshAgent>()` and `_agent.MoveTo(target.WorldPosition)`, so the type and `MoveTo` are *probably* real — but the brain needs more: setting **desired speed** (does `NavMeshAgent` own `MaxSpeed`/`Acceleration`, or do we set the GO velocity?), reading whether it **reached** a destination (a `Velocity`/`IsNavigating`/distance check?), and **stopping**. Verify with `describe_type "NavMeshAgent"` + `get_method_signature` for `MoveTo`. *Fallback if `NavMeshAgent` is thin:* drive movement directly from `scene.NavMesh.GetSimplePath(pos, dest)` (already verified via `GetNavMeshPathHandler`) and step `WorldPosition` along the returned points — slower but fully verified today.
 

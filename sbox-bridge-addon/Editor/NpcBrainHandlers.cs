@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 //  NPC Brains — Feature Wave #3 (Phase 1 + simulate_npc_perception)
 //
 //  Compiles into the SAME editor assembly as MyEditorMenu.cs, so it can use the
-//  shared helpers there directly: ClaudeBridge.TryResolveProjectPath /
+//  shared helpers there directly: CodexBridge.TryResolveProjectPath /
 //  SanitizeIdentifier / ParseVector3, SceneToolHelpers.*, and the IBridgeHandler
 //  interface. These handlers run in the UNSANDBOXED editor (System.Math/MathF/IO
 //  are all fine here).
@@ -223,13 +223,13 @@ public class CreateNpcBrainHandler : IBridgeHandler
 			var directory = NpcBrainHelpers.Str( p, "directory", "Code" );
 
 			var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 				return Task.FromResult<object>( new { error = pathErr } );
 
 			if ( File.Exists( fullPath ) )
 				return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
-			var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+			var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 			// ── Preset → defaults. The generated file is identical shape; the preset
 			//    only changes [Property] defaults (StartState, CanFlee).
@@ -735,7 +735,7 @@ public class PlacePatrolRouteHandler : IBridgeHandler
 
 		var rawPoints = new List<Vector3>();
 		foreach ( var e in pts.EnumerateArray() )
-			rawPoints.Add( ClaudeBridge.ParseVector3( e ) );
+			rawPoints.Add( CodexBridge.ParseVector3( e ) );
 
 		if ( rawPoints.Count < 2 )
 			return Task.FromResult<object>( new { error = "Provide at least 2 points for a patrol route" } );
@@ -898,13 +898,13 @@ public class CreateNpcSpawnerHandler : IBridgeHandler
 			var directory = NpcBrainHelpers.Str( p, "directory", "Code" );
 
 			var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+			if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 				return Task.FromResult<object>( new { error = pathErr } );
 
 			if ( File.Exists( fullPath ) )
 				return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
-			var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+			var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 			var mode       = NpcBrainHelpers.Str( p, "mode", "waves" ).ToLowerInvariant();
 			if ( mode != "continuous" && mode != "waves" && mode != "burst" ) mode = "waves";
@@ -1155,7 +1155,7 @@ public class SimulateNpcPerceptionHandler : IBridgeHandler
 			}
 			else if ( p.TryGetProperty( "point", out var ptEl ) )
 			{
-				targetPos = ClaudeBridge.ParseVector3( ptEl );
+				targetPos = CodexBridge.ParseVector3( ptEl );
 			}
 			else
 			{

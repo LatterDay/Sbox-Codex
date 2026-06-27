@@ -1,11 +1,11 @@
 ---
 name: sbox-build-feature
-description: Use when building, modifying, or polishing any feature in an s&box game project through the Claude Bridge — gameplay systems, UI panels, character abilities, animation, world generation, anything that produces a visible or runtime change. Codifies the screenshot-driven iteration workflow that prevents the "guess-and-check" loop the bridge is most susceptible to.
+description: Use when building, modifying, or polishing any feature in an s&box game project through the Codex Bridge — gameplay systems, UI panels, character abilities, animation, world generation, anything that produces a visible or runtime change. Codifies the screenshot-driven iteration workflow that prevents the "guess-and-check" loop the bridge is most susceptible to.
 ---
 
 # Building s&box Features Through the Bridge
 
-This skill is the workflow you follow whenever you're about to make non-trivial changes to a player in an s&box project via the bridge. It exists because the bridge gives Claude a lot of power but **no eyes** — without discipline, sessions devolve into guessing about how things look. These steps prevent that.
+This skill is the workflow you follow whenever you're about to make non-trivial changes to a player in an s&box project via the bridge. It exists because the bridge gives Codex a lot of power but **no eyes** — without discipline, sessions devolve into guessing about how things look. These steps prevent that.
 
 **Pair this with the `sbox-api` skill** — that's the *brain* (how to write correct s&box C#: the Unity→s&box translation table, the Ten Rules, and component/UI/networking/physics references). This `sbox-build-feature` skill is the *hands + eyes* (drive the editor, screenshot, verify live). Write it right with `sbox-api`; then build it, run it, and SEE it with the bridge. And the bridge's live reflection (`describe_type`/`search_types`/`get_method_signature`) is the authoritative signature check for your installed SDK.
 
@@ -53,7 +53,7 @@ If you need broader documentation (animation graph, IK setup, rendering pipeline
 
 - One change per `Edit` call. Don't batch unrelated edits.
 - Keep changes scoped to one file at a time when possible.
-- For the bridge addon specifically: **never copy `claudebridge.sbproj` from the repo into a project's `Libraries/`** — the repo version has `Org: sboxskinsgg` (for asset library publish) and a project's working copy must stay `Org: local`. Mixing these causes a compiler-name collision that prevents the project from loading.
+- For the bridge addon specifically: **never copy `codexbridge.sbproj` from the repo into a project's `Libraries/`** — the repo version has `Org: sboxskinsgg` (for asset library publish) and a project's working copy must stay `Org: local`. Mixing these causes a compiler-name collision that prevents the project from loading.
 
 ### 5. Hotload and verify compile
 
@@ -153,9 +153,9 @@ The bridge ships a graphify map of itself at **`docs/graph/`** — every tool ma
 release** (`scripts/regen-graph.ps1`, or re-run `/graphify` for the full doc-inclusive graph). See
 `docs/graph/README.md`.
 
-## Project-level CLAUDE.md
+## Project-level CODEX.md
 
-If the project you're working on has its own `CLAUDE.md`, **read it first**. It captures project-specific decisions (input bindings, sound files, role assignment, scene layout) that this skill can't know about.
+If the project you're working on has its own `CODEX.md`, **read it first**. It captures project-specific decisions (input bindings, sound files, role assignment, scene layout) that this skill can't know about.
 
 ## The thing that always works
 

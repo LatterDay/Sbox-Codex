@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 // Play-mode INPUT DRIVER — drive_player  (EXPERIMENTAL)
 //
 // This file lives in the SAME assembly as MyEditorMenu.cs, so it reuses the
-// IBridgeHandler dispatch contract and the shared ClaudeBridge.ResolveGameObject
+// IBridgeHandler dispatch contract and the shared CodexBridge.ResolveGameObject
 // helper. It is UNSANDBOXED editor code, so System.Math is fine here (NOT MathX —
 // MathX is only required in the C# *strings* we WRITE to disk; this file writes
 // nothing to disk, it drives the live play-mode scene directly).
@@ -19,7 +19,7 @@ using System.Threading.Tasks;
 // ─────────────────────────────────────────────────────
 // simulate_input calls Sandbox.Input.SetAction(action, down) ONCE. The bridge
 // runs each handler to completion inside a SINGLE editor frame (see
-// ClaudeBridge.ProcessPendingOnMainThread — one Execute() per request, returns
+// CodexBridge.ProcessPendingOnMainThread — one Execute() per request, returns
 // within that frame). So SetAction flips the action for ~one frame:
 //   • Input.Pressed("x") (the rising EDGE) frequently MISSES it — by the time the
 //     player controller's OnUpdate samples input, or because the press+release
@@ -268,7 +268,7 @@ internal static class PlayInputDriver
 		// Explicit target id wins.
 		if ( j.TargetId != Guid.Empty )
 		{
-			var go = ClaudeBridge.ResolveGameObject( scene, j.TargetId.ToString() );
+			var go = CodexBridge.ResolveGameObject( scene, j.TargetId.ToString() );
 			if ( go != null )
 			{
 				var c = FindControllerOn( go, j.ComponentType );

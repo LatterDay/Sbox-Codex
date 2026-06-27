@@ -10,15 +10,15 @@ using System.Threading.Tasks;
 // ═══════════════════════════════════════════════════════════════════════════
 // debug_draw_* / debug_clear — visualize debug primitives in the scene.
 //
-// Ported from the Claude Bridge for Unity's debug_draw_* family. s&box has no
+// Ported from the Codex Bridge for Unity's debug_draw_* family. s&box has no
 // bridge debug-viz; this fills the gap so a raycast hit / physics_overlap
 // volume / trigger_zone bounds / NPC sight cone / patrol path can be SEEN
 // (and screenshot-verified) instead of reasoned about blind.
 //
 // ONE component, dual render path:
-//   • EDIT scene → Gizmo.Draw.* inside ClaudeDebugDraw.DrawGizmos()
+//   • EDIT scene → Gizmo.Draw.* inside CodexDebugDraw.DrawGizmos()
 //   • PLAY scene → Game.ActiveScene.DebugOverlay.* re-emitted each OnUpdate()
-// A single NotSaved holder GameObject ("__ClaudeDebugDraw") stores the prim
+// A single NotSaved holder GameObject ("__CodexDebugDraw") stores the prim
 // list; the draw handlers append, debug_clear destroys it.
 //
 // APIs reflected live on this SDK (describe_type, 2026-06-18):
@@ -48,7 +48,7 @@ public sealed class DebugDrawPrim
 /// Holds bridge-issued debug primitives and renders them in both the editor
 /// (DrawGizmos) and play mode (DebugOverlay). One per scene, NotSaved.
 /// </summary>
-public sealed class ClaudeDebugDraw : Component
+public sealed class CodexDebugDraw : Component
 {
 	public List<DebugDrawPrim> Prims { get; set; } = new();
 
@@ -103,20 +103,20 @@ internal static class DebugDrawHelpers
 	// ponytail: one global holder per session, recreated if invalidated by a
 	// scene change / hotload. Debug viz is inherently global, so a single
 	// instance is correct — no per-call scene scan needed.
-	static ClaudeDebugDraw _holder;
+	static CodexDebugDraw _holder;
 
 	public static Scene CurrentScene()
 		=> Game.IsPlaying ? Game.ActiveScene : SceneEditorSession.Active?.Scene;
 
-	public static ClaudeDebugDraw EnsureHolder()
+	public static CodexDebugDraw EnsureHolder()
 	{
 		var scene = CurrentScene();
 		if ( scene == null ) return null;
 		if ( _holder.IsValid() && _holder.Scene == scene ) return _holder;
 		var go = scene.CreateObject( true );
-		go.Name = "__ClaudeDebugDraw";
+		go.Name = "__CodexDebugDraw";
 		go.Flags = GameObjectFlags.NotSaved;
-		_holder = go.AddComponent<ClaudeDebugDraw>();
+		_holder = go.AddComponent<CodexDebugDraw>();
 		return _holder;
 	}
 
@@ -134,7 +134,7 @@ internal static class DebugDrawHelpers
 		var scene = CurrentScene();
 		if ( scene != null )
 		{
-			foreach ( var c in scene.GetAllComponents<ClaudeDebugDraw>().ToList() )
+			foreach ( var c in scene.GetAllComponents<CodexDebugDraw>().ToList() )
 			{
 				if ( c == _holder ) continue;
 				n += c.Prims?.Count ?? 0;

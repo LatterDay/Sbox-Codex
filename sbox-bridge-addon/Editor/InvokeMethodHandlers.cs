@@ -16,18 +16,18 @@ using System.Threading.Tasks;
 // handler resolves a specific GameObject by GUID, finds a public method whose
 // NAME + ARG-COUNT match, coerces each JSON arg to that method's parameter type
 // via the SAME coercion idiom the property setters use
-// (ClaudeBridge.CoercePropertyAndSet / ElementToValueString), invokes it, and
+// (CodexBridge.CoercePropertyAndSet / ElementToValueString), invokes it, and
 // returns the (null-safe) ToString() of the result.
 //
 // Lives in the SAME assembly as MyEditorMenu.cs, so it reuses the shared
-// ClaudeBridge helpers (ResolveGameObject, ElementToValueString,
+// CodexBridge helpers (ResolveGameObject, ElementToValueString,
 // CoercePropertyAndSet) and the IBridgeHandler dispatch contract. This is
 // UNSANDBOXED editor code: System.* is fine (System.Reflection, etc.) — only
 // the C# we WRITE TO DISK has to obey the sandbox (MathX, etc.), and this
 // handler writes nothing.
 //
 // Failure contract: every error path returns `new { error = ... }`, which the
-// dispatch envelope (ClaudeBridge.TryGetHandlerError) reports as success=false.
+// dispatch envelope (CodexBridge.TryGetHandlerError) reports as success=false.
 //
 // Registration line + mutating note are in the implementation summary —
 // MyEditorMenu.cs owns RegisterHandlers (this file stays decoupled).
@@ -57,7 +57,7 @@ public class InvokeMethodHandler : IBridgeHandler
 			if ( string.IsNullOrEmpty( id ) )
 				return Task.FromResult<object>( new { error = "id is required (the GameObject GUID)" } );
 
-			var go = ClaudeBridge.ResolveGameObject( scene, id );
+			var go = CodexBridge.ResolveGameObject( scene, id );
 			if ( go == null )
 				return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
@@ -173,11 +173,11 @@ public class InvokeMethodHandler : IBridgeHandler
 				// the property setters have: primitives/enums/Vector3/Color/Rotation, asset
 				// refs (Model/Material/SoundEvent…) by path, and GameObject/Component refs
 				// by GUID — built into the correct typed value rather than a raw string.
-				var valStr = ClaudeBridge.ElementToValueString( argEls[i] );
+				var valStr = CodexBridge.ElementToValueString( argEls[i] );
 
 				int idx = i;
 				object coerced = null;
-				if ( !ClaudeBridge.CoercePropertyAndSet(
+				if ( !CodexBridge.CoercePropertyAndSet(
 						pType,
 						v => coerced = v,
 						$"{targetMethod.Name} arg[{idx}] ({ps[idx].Name})",

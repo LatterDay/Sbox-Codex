@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 // Playable Game Scaffolds â€” Phase 1
 //
 // This file lives in the SAME assembly as MyEditorMenu.cs, so it reuses the
-// shared helpers on the `ClaudeBridge` static class (TryResolveProjectPath,
+// shared helpers on the `CodexBridge` static class (TryResolveProjectPath,
 // SanitizeIdentifier, ParseVector3, ParseRotation, SerializeGo) and the
 // IBridgeHandler dispatch contract. Handler code here is UNSANDBOXED editor
 // code (System.* is fine).
@@ -27,7 +27,7 @@ using System.Threading.Tasks;
 //
 // All handlers are guarded in try/catch and return `new { error = ... }` on
 // failure so the dispatch envelope reports success=false (see
-// ClaudeBridge.ProcessRequest / TryGetHandlerError in MyEditorMenu.cs).
+// CodexBridge.ProcessRequest / TryGetHandlerError in MyEditorMenu.cs).
 //
 // Registration lines + the _sceneMutatingCommands additions are listed in the
 // implementation summary â€” MyEditorMenu.cs owns those (this file is not edited
@@ -73,7 +73,7 @@ internal static class ScaffoldHelpers
 				if ( pd == null ) continue;
 
 				// Normalize the JSON token to a string, then route through the shared
-				// type-aware coercion (ClaudeBridge.CoercePropertyAndSet). This fixes the
+				// type-aware coercion (CodexBridge.CoercePropertyAndSet). This fixes the
 				// same reference/asset gap as set_property: a Model/Material/GameObject/
 				// Component property used to receive a raw string and silently stayed null.
 				// Now they're loaded/resolved to the right typed value so they persist.
@@ -87,7 +87,7 @@ internal static class ScaffoldHelpers
 					_                    => prop.Value.GetRawText()
 				};
 
-				if ( ClaudeBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out _ ) )
+				if ( CodexBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out _ ) )
 					applied.Add( prop.Name );
 			}
 			catch { /* best-effort, same as AddComponentWithPropertiesHandler */ }
@@ -139,7 +139,7 @@ internal static class ScaffoldHelpers
 		var directory = p.TryGetProperty( "directory", out var d ) && !string.IsNullOrWhiteSpace( d.GetString() ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out fullPath, out var pathErr ) )
 		{
 			error = new { error = pathErr };
 			return false;
@@ -152,7 +152,7 @@ internal static class ScaffoldHelpers
 		}
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 		relPath = $"{directory}/{fileName}";
 		return true;
 	}
@@ -309,11 +309,11 @@ public class AddComponentToNewObjectHandler : IBridgeHandler
 				: typeName;
 
 			if ( p.TryGetProperty( "position", out var pos ) )
-				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+				go.WorldPosition = CodexBridge.ParseVector3( pos );
 			if ( p.TryGetProperty( "rotation", out var rot ) )
-				go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+				go.WorldRotation = CodexBridge.ParseRotation( rot );
 			if ( p.TryGetProperty( "scale", out var scl ) )
-				go.WorldScale = ClaudeBridge.ParseVector3( scl );
+				go.WorldScale = CodexBridge.ParseVector3( scl );
 
 			if ( p.TryGetProperty( "parentId", out var pid ) && pid.ValueKind == JsonValueKind.String
 				&& Guid.TryParse( pid.GetString(), out var parentGuid ) )
@@ -345,7 +345,7 @@ public class AddComponentToNewObjectHandler : IBridgeHandler
 				created = true,
 				component = typeName,
 				appliedProperties = appliedProps,
-				gameObject = ClaudeBridge.SerializeGo( go )
+				gameObject = CodexBridge.SerializeGo( go )
 			} );
 		}
 		catch ( Exception ex )
@@ -418,7 +418,7 @@ public class CreateObjectiveSystemHandler : IBridgeHandler
 			var go = scene.CreateObject( true );
 			go.Name = className;
 			go.Components.Create( typeDesc );
-			return ClaudeBridge.SerializeGo( go );
+			return CodexBridge.SerializeGo( go );
 		}
 		catch ( Exception ex )
 		{
@@ -643,7 +643,7 @@ public class CreateHealthSystemHandler : IBridgeHandler
 		try
 		{
 			go.Components.Create( typeDesc );
-			return ClaudeBridge.SerializeGo( go );
+			return CodexBridge.SerializeGo( go );
 		}
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
@@ -819,7 +819,7 @@ public class CreatePickupHandler : IBridgeHandler
 		go.Name = className;
 
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 		// Trigger collider so OnTriggerEnter fires.
 		try
@@ -858,7 +858,7 @@ public class CreatePickupHandler : IBridgeHandler
 			note = AppendNote( note, $"Built the pickup object + trigger, but {className} is not in the TypeLibrary yet â€” trigger_hotload, then add_component_with_properties (component=\"{className}\") on this GameObject." );
 		}
 
-		return ClaudeBridge.SerializeGo( go );
+		return CodexBridge.SerializeGo( go );
 	}
 
 	static string AppendNote( string existing, string add )
@@ -998,7 +998,7 @@ public class CreateEconomyWalletHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1100,7 +1100,7 @@ public class CreateRoundPhaseMachineHandler : IBridgeHandler
 				{
 					var s = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
 					if ( string.IsNullOrWhiteSpace( s ) ) continue;
-					var id = ClaudeBridge.SanitizeIdentifier( s );
+					var id = CodexBridge.SanitizeIdentifier( s );
 					if ( !string.IsNullOrEmpty( id ) && !phases.Contains( id ) ) phases.Add( id );
 				}
 			}
@@ -1138,7 +1138,7 @@ public class CreateRoundPhaseMachineHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1294,7 +1294,7 @@ public class CreateDayNightClockHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet â€” trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1415,7 +1415,7 @@ public class CreateInteractableHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1563,7 +1563,7 @@ public class CreateWeightedLootTableHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1697,7 +1697,7 @@ public class CreateSaveSystemHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -1823,14 +1823,14 @@ public class CreateLeaderboardPanelHandler : IBridgeHandler
 			var title     = p.TryGetProperty( "title",     out var t  ) && !string.IsNullOrWhiteSpace( t.GetString()  ) ? t.GetString()  : "Leaderboard";
 			int maxRows   = p.TryGetProperty( "maxRows",   out var mr ) && mr.TryGetInt32( out var mri ) ? mri : 10;
 
-			var className  = ClaudeBridge.SanitizeIdentifier( name.EndsWith( ".razor" ) ? Path.GetFileNameWithoutExtension( name ) : name );
+			var className  = CodexBridge.SanitizeIdentifier( name.EndsWith( ".razor" ) ? Path.GetFileNameWithoutExtension( name ) : name );
 			var razorFile  = className + ".razor";
 			var scssFile   = className + ".razor.scss";
 
 			// Resolve both paths
-			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, razorFile ), out var razorPath, out var razorErr ) )
+			if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, razorFile ), out var razorPath, out var razorErr ) )
 				return new { error = razorErr };
-			if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, scssFile ),  out var scssPath,  out var scssErr  ) )
+			if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, scssFile ),  out var scssPath,  out var scssErr  ) )
 				return new { error = scssErr };
 
 			if ( File.Exists( razorPath ) )
@@ -2058,7 +2058,7 @@ public class CreateInventoryHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -2261,7 +2261,7 @@ public class CreateStatModifierSystemHandler : IBridgeHandler
 					foreach ( var el in statsEl.EnumerateArray() )
 					{
 						var s = el.GetString();
-						if ( !string.IsNullOrWhiteSpace( s ) ) statNames.Add( ClaudeBridge.SanitizeIdentifier( s ) );
+						if ( !string.IsNullOrWhiteSpace( s ) ) statNames.Add( CodexBridge.SanitizeIdentifier( s ) );
 					}
 				}
 				else if ( statsEl.ValueKind == JsonValueKind.String )
@@ -2269,7 +2269,7 @@ public class CreateStatModifierSystemHandler : IBridgeHandler
 					foreach ( var s in statsEl.GetString().Split( ',' ) )
 					{
 						var trimmed = s.Trim();
-						if ( !string.IsNullOrWhiteSpace( trimmed ) ) statNames.Add( ClaudeBridge.SanitizeIdentifier( trimmed ) );
+						if ( !string.IsNullOrWhiteSpace( trimmed ) ) statNames.Add( CodexBridge.SanitizeIdentifier( trimmed ) );
 					}
 				}
 			}
@@ -2304,7 +2304,7 @@ public class CreateStatModifierSystemHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 
@@ -2497,7 +2497,7 @@ public class CreatePlacementModeHandler : IBridgeHandler
 			note = $"Generated {className}.cs but it is not in the TypeLibrary yet -- trigger_hotload, then add it with add_component_with_properties.";
 			return null;
 		}
-		try { go.Components.Create( typeDesc ); return ClaudeBridge.SerializeGo( go ); }
+		try { go.Components.Create( typeDesc ); return CodexBridge.SerializeGo( go ); }
 		catch ( Exception ex ) { note = $"Placement failed ({ex.Message})."; return null; }
 	}
 

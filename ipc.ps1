@@ -4,7 +4,7 @@ param(
   [int]$TimeoutSec = 30,
   [switch]$NoWait
 )
-# Raw file-IPC client for the s&box Claude Bridge addon.
+# Raw file-IPC client for the s&box Codex Bridge addon.
 # Writes req_<id>.json (UTF-8 no BOM) to %TEMP%\sbox-bridge-ipc, polls res_<id>.json.
 $dir = Join-Path $env:TEMP 'sbox-bridge-ipc'
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }

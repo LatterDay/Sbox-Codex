@@ -1,4 +1,4 @@
-# s&box Claude Bridge v1.13.0 -- The 10-Tool Plan is Complete
+# s&box Codex Bridge v1.13.0 -- The 10-Tool Plan is Complete
 
 **183 editor handlers. 192 tools total. Four system scaffolds, all verify-gated live.**
 
@@ -73,12 +73,12 @@ None of these were caught by code review. All were caught by the gate. This is w
 ```
 npx sbox-mcp-server@1.13.0
 # or pin it:
-claude mcp add sbox -- npx -y sbox-mcp-server@1.13.0
+codex mcp add sbox -- npx -y sbox-mcp-server@1.13.0
 ```
 
-**Claude Code plugin:** update the plugin and reload. The bundled MCP server pin updates automatically.
+**Codex plugin:** update the plugin and reload. The bundled MCP server pin updates automatically.
 
-**Editor addon:** republish `sboxskinsgg.claudebridge` from the Asset Library. The four new scaffold tools (`create_leaderboard_panel`, `create_inventory`, `create_stat_modifier_system`, `create_placement_mode`) and the atomic IPC + dead-param fixes require the updated addon. The schema cleanup (`get_all_properties`) is MCP-server-side only.
+**Editor addon:** republish `sboxskinsgg.codexbridge` from the Asset Library. The four new scaffold tools (`create_leaderboard_panel`, `create_inventory`, `create_stat_modifier_system`, `create_placement_mode`) and the atomic IPC + dead-param fixes require the updated addon. The schema cleanup (`get_all_properties`) is MCP-server-side only.
 
 Update both halves to keep versions aligned -- `get_bridge_status` warns on a mismatch.
 

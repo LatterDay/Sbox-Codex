@@ -5,7 +5,7 @@ import { BridgeClient } from "../transport/bridge-client.js";
 /**
  * Type discovery and code-search tools.
  *
- * These help Claude reference real s&box APIs instead of guessing. Use
+ * These help Codex reference real s&box APIs instead of guessing. Use
  * describe_type before writing code that touches an unfamiliar type — the
  * Game.TypeLibrary reflection returns properties, methods, events, and
  * attributes for any loaded type. Use search_types to find types matching

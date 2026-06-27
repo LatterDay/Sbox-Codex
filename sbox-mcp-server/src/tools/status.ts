@@ -82,9 +82,9 @@ export function registerStatusTools(
 
       let text: string;
       if (!connected) {
-        text = `Bridge NOT connected — no recent heartbeat in ${ipcDir}. Is s&box running with the Claude Bridge addon?`;
+        text = `Bridge NOT connected — no recent heartbeat in ${ipcDir}. Is s&box running with the Codex Bridge addon?`;
       } else if (roundTripOk) {
-        text = `Bridge connected and responding — addon v${bridgeVersion ?? "?"} / server v${SERVER_VERSION}, ${handlerCount ?? "?"} handlers (IPC: ${ipcDir}, heartbeat ${heartbeatAgeMs ?? "?"}ms ago).${versionsAligned ? "" : ` ⚠️ Version mismatch — restart Claude Code (and/or republish the addon) so the MCP server and addon match.`}`;
+        text = `Bridge connected and responding — addon v${bridgeVersion ?? "?"} / server v${SERVER_VERSION}, ${handlerCount ?? "?"} handlers (IPC: ${ipcDir}, heartbeat ${heartbeatAgeMs ?? "?"}ms ago).${versionsAligned ? "" : ` ⚠️ Version mismatch — restart Codex (and/or republish the addon) so the MCP server and addon match.`}`;
       } else {
         text = `Bridge heartbeat is live but a test round-trip FAILED — the editor isn't draining requests. IPC: ${ipcDir}. Check the s&box editor console for [SboxBridge] lines.`;
       }

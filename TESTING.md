@@ -1,8 +1,8 @@
 # Testing Guide
 
-This document provides a test plan for the s&box Claude Bridge. The MCP server exposes its full toolset (`get_bridge_status` reports the editor-handler count; the rest run MCP-server-side). The phases below are a **representative smoke-test plan**, not an exhaustive pass over every tool — the v1.4.0 authoring batches (visual/atmosphere, characters, scene layout, environment, object utilities) and the v1.5.0 additions (diagnostics, aimed camera, navmesh, spatial, reflections, particles, console/exec, docs search) are covered at a representative level in **Phase 8** below. Verify each tool against a running s&box editor.
+This document provides a test plan for the s&box Codex Bridge. The MCP server exposes its full toolset (`get_bridge_status` reports the editor-handler count; the rest run MCP-server-side). The phases below are a **representative smoke-test plan**, not an exhaustive pass over every tool — the v1.4.0 authoring batches (visual/atmosphere, characters, scene layout, environment, object utilities) and the v1.5.0 additions (diagnostics, aimed camera, navmesh, spatial, reflections, particles, console/exec, docs search) are covered at a representative level in **Phase 8** below. Verify each tool against a running s&box editor.
 
-> **Note:** These tests require s&box running with the Bridge Addon loaded and Claude Code connected via the MCP server. Most tests modify the active project/scene — use a test project, not a production one.
+> **Note:** These tests require s&box running with the Bridge Addon loaded and Codex connected via the MCP server. Most tests modify the active project/scene — use a test project, not a production one.
 >
 > **Removed tools:** `get_console_output`, `clear_console`, `pause_play`, `resume_play`, `build_project`, `get_build_status`, `clean_build`, `export_project`, and `prepare_publish` were removed from the MCP surface in v1.3.0 (no s&box editor API). Steps that referenced them have been retargeted to the tools that replaced them (`read_log` / `get_compile_errors` for console + compile diagnostics).
 

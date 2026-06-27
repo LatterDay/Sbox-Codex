@@ -87,8 +87,8 @@ ENVIRONMENT VARIABLES
   SBOX_BRIDGE_HOST      Legacy/cosmetic — shown in get_bridge_status only
   SBOX_BRIDGE_PORT      Legacy/cosmetic — shown in get_bridge_status only
 
-CONNECT TO CLAUDE CODE
-  claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+CONNECT TO CODEX
+  codex mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
 TOOLS (150 total / 142 s&box-editor handlers — +16 in v1.5.0)
   Project:     get_project_info, list_project_files, read_file, write_file
@@ -147,11 +147,11 @@ const server = new McpServer(
     version: getVersion(),
   },
   {
-    // The `instructions` field surfaces every Claude Code session that uses this
+    // The `instructions` field surfaces every Codex session that uses this
     // server (the way other MCP servers like Supabase / TurboTax do). Use it to
-    // tell Claude how to work effectively with the bridge — the disciplines that
+    // tell Codex how to work effectively with the bridge — the disciplines that
     // are easy to skip without a reminder.
-    instructions: `You are working with the s&box Claude Bridge — a file-based IPC bridge into the s&box game engine editor.
+    instructions: `You are working with the s&box Codex Bridge — a file-based IPC bridge into the s&box game engine editor.
 
 To get good results:
 
@@ -167,9 +167,9 @@ To get good results:
 
 6. First session with the bridge (or when the user asks "how do I start?" / "what can this do?")? Offer to run setup — invoke the \`sbox-setup\` skill: it verifies the connection, detects the user's installed libraries (\`list_libraries\`), recommends a first move, and points to help + feedback.
 
-If you're running inside Claude Code, install the companion plugin for the full workflow:
-    /plugin marketplace add LouSputthole/Sbox-Claude
-    /plugin install sbox-claude
+If you're running inside Codex, install the companion plugin for the full workflow:
+    codex plugin marketplace add LatterDay/Sbox-Codex
+    codex plugin add sbox-codex@sbox-codex
 
 The plugin ships an \`sbox-build-feature\` skill that codifies the workflow above plus a list of common s&box gotchas (MathF not available in sandbox, Cloud assets ephemeral, head bone case-sensitive, CitizenAnimationHelper.IkRightHand works at runtime, etc.). Read its SKILL.md before starting non-trivial features.`,
   },
@@ -223,7 +223,7 @@ async function main(): Promise<void> {
 
   console.error("");
   console.error("  ╔═══════════════════════════════════════════════════╗");
-  console.error("  ║  s&box Claude Bridge — MCP Server                ║");
+  console.error("  ║  s&box Codex Bridge — MCP Server                ║");
   console.error("  ║  Build s&box games through conversation          ║");
   console.error("  ║                                                   ║");
   console.error("  ║  A project by sboxskins.gg                       ║");

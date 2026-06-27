@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 // ═══════════════════════════════════════════════════════════════════════════
 // PLAYTEST HARNESS — playtest / playtest_status  (the gameplay-verification frontier)
 //
-// Same assembly as MyEditorMenu.cs (reuses IBridgeHandler + ClaudeBridge helpers).
+// Same assembly as MyEditorMenu.cs (reuses IBridgeHandler + CodexBridge helpers).
 // Unsandboxed editor code → System.Math / System.Reflection are fine here.
 //
 // WHY AN IN-ADDON RUNNER (not TS round-trips):
@@ -477,7 +477,7 @@ internal static class PlaytestRunner
 
 		if ( j.TargetId != Guid.Empty )
 		{
-			var go = ClaudeBridge.ResolveGameObject( scene, j.TargetId.ToString() );
+			var go = CodexBridge.ResolveGameObject( scene, j.TargetId.ToString() );
 			if ( go != null ) c = FindControllerOn( go, j.ComponentType );
 		}
 		if ( c == null )
@@ -622,7 +622,7 @@ internal static class PlaytestRunner
 		if ( t == typeof( bool ) ) return raw == "true" || raw == "True" || raw == "1";
 		if ( t == typeof( float ) ) return float.Parse( raw, NumberStyles.Float, CultureInfo.InvariantCulture );
 		if ( t == typeof( int ) ) return (int) float.Parse( raw, NumberStyles.Float, CultureInfo.InvariantCulture );
-		if ( t == typeof( Vector3 ) ) return ClaudeBridge.ParseVector3Flexible( ParseElement( raw ) );
+		if ( t == typeof( Vector3 ) ) return CodexBridge.ParseVector3Flexible( ParseElement( raw ) );
 		return raw;
 	}
 
@@ -712,7 +712,7 @@ public class PlaytestHandler : IBridgeHandler
 		}
 		else if ( e.TryGetProperty( "jump", out var jEl ) )
 		{
-			s.Kind = "jump"; s.JumpVel = ClaudeBridge.ParseVector3Flexible( jEl ); s.Frames = 1;
+			s.Kind = "jump"; s.JumpVel = CodexBridge.ParseVector3Flexible( jEl ); s.Frames = 1;
 		}
 		else if ( e.TryGetProperty( "set", out var setEl ) && setEl.ValueKind == JsonValueKind.Object )
 		{

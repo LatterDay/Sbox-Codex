@@ -19,9 +19,9 @@ public interface IBridgeHandler
 }
 
 /// <summary>
-/// Claude Bridge — file-based IPC server for MCP integration.
+/// Codex Bridge — file-based IPC server for MCP integration.
 /// </summary>
-public static class ClaudeBridge
+public static class CodexBridge
 {
 	private static readonly Dictionary<string, IBridgeHandler> _handlers = new();
 	private static bool _running;
@@ -44,7 +44,7 @@ public static class ClaudeBridge
 	// Set on the first editor frame after bootstrap, so we don't re-initialize on every frame.
 	private static bool _initialized;
 
-	static ClaudeBridge()
+	static CodexBridge()
 	{
 		// Static ctor must stay empty. TypeLibrary is explicitly disabled while
 		// PackageLoader.AddAssembly runs static constructors. Even a Log.Info call
@@ -60,13 +60,13 @@ public static class ClaudeBridge
 		// reported and patched in PR #6 by @FurkanZhlp.
 	}
 
-	[Menu( "Editor", "Claude Bridge/Status", "smart_toy" )]
+	[Menu( "Editor", "Codex Bridge/Status", "smart_toy" )]
 	public static void ShowStatus()
 	{
 		var msg = _running
 			? $"Running v{BridgeVersion}\nIPC: {_ipcDir}\nHandlers: {_handlers.Count}"
 			: "Not running";
-		EditorUtility.DisplayDialog( "Claude Bridge", msg );
+		EditorUtility.DisplayDialog( "Codex Bridge", msg );
 	}
 
 	// Resolved via Path.GetTempPath() only. Reading SBOX_BRIDGE_IPC_DIR here would
@@ -135,7 +135,7 @@ public static class ClaudeBridge
 			_pollTimer = new Timer( ReadRequestFiles, null, 500, 50 );
 
 			Log.Info( $"[SboxBridge] Bridge v{BridgeVersion} started — {_handlers.Count} handlers, IPC at {_ipcDir}" );
-			Log.Info( "[SboxBridge] s&box Claude Bridge by sboxskins.gg — https://sboxskins.gg" );
+			Log.Info( "[SboxBridge] s&box Codex Bridge by sboxskins.gg — https://sboxskins.gg" );
 		}
 		catch ( Exception ex )
 		{
@@ -1229,7 +1229,7 @@ public class ListProjectFilesHandler : IBridgeHandler
 		var extension = p.TryGetProperty( "extension",  out var e ) ? e.GetString() : null;
 		var recursive = !p.TryGetProperty( "recursive", out var rec ) || rec.GetBoolean();
 
-		if ( !ClaudeBridge.TryResolveProjectPath( dir, out var searchDir, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( dir, out var searchDir, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr, files = Array.Empty<string>() } );
 
 		if ( !Directory.Exists( searchDir ) )
@@ -1250,7 +1250,7 @@ public class ReadFileHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var filePath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
@@ -1266,7 +1266,7 @@ public class WriteFileHandler : IBridgeHandler
 	{
 		var filePath = p.GetProperty( "path" ).GetString();
 		var content  = p.GetProperty( "content" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
@@ -1284,7 +1284,7 @@ public class CreateScriptHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName  = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
@@ -1292,7 +1292,7 @@ public class CreateScriptHandler : IBridgeHandler
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 		var code = template switch
 		{
 			"component" => $"using Sandbox;\n\npublic sealed class {className} : Component\n{{\n\tprotected override void OnUpdate()\n\t{{\n\t}}\n}}\n",
@@ -1310,7 +1310,7 @@ public class EditScriptHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var filePath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
@@ -1344,7 +1344,7 @@ public class DeleteScriptHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var filePath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
@@ -1542,13 +1542,13 @@ public class CreateGameObjectHandler : IBridgeHandler
 		go.Name = name;
 
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 		if ( p.TryGetProperty( "rotation", out var rot ) )
-			go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+			go.WorldRotation = CodexBridge.ParseRotation( rot );
 
 		if ( p.TryGetProperty( "scale", out var scl ) )
-			go.WorldScale = ClaudeBridge.ParseVector3Flexible( scl ); // object / number(uniform) / string (Fix 1/7)
+			go.WorldScale = CodexBridge.ParseVector3Flexible( scl ); // object / number(uniform) / string (Fix 1/7)
 
 		// Honor the parent id so the new object can be created directly under a parent instead
 		// of always landing at the scene root. keepWorldPosition:false → the object adopts the
@@ -1571,7 +1571,7 @@ public class CreateGameObjectHandler : IBridgeHandler
 				go.Tags.Add( tag.GetString() );
 		}
 
-		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -1624,12 +1624,12 @@ public class DuplicateGameObjectHandler : IBridgeHandler
 		}
 
 		if ( p.TryGetProperty( "offset", out var off ) )
-			clone.WorldPosition = go.WorldPosition + ClaudeBridge.ParseVector3( off );
+			clone.WorldPosition = go.WorldPosition + CodexBridge.ParseVector3( off );
 
 		if ( p.TryGetProperty( "name", out var nm ) )
 			clone.Name = nm.GetString();
 
-		return Task.FromResult<object>( new { duplicated = true, original = id, gameObject = ClaudeBridge.SerializeGo( clone ) } );
+		return Task.FromResult<object>( new { duplicated = true, original = id, gameObject = CodexBridge.SerializeGo( clone ) } );
 	}
 }
 
@@ -1734,14 +1734,14 @@ public class SetTransformHandler : IBridgeHandler
 
 		if ( p.TryGetProperty( "position", out var pos ) )
 		{
-			if ( local ) go.LocalPosition = ClaudeBridge.ParseVector3( pos );
-			else         go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			if ( local ) go.LocalPosition = CodexBridge.ParseVector3( pos );
+			else         go.WorldPosition = CodexBridge.ParseVector3( pos );
 		}
 
 		if ( p.TryGetProperty( "rotation", out var rot ) )
 		{
-			if ( local ) go.LocalRotation = ClaudeBridge.ParseRotation( rot );
-			else         go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+			if ( local ) go.LocalRotation = CodexBridge.ParseRotation( rot );
+			else         go.WorldRotation = CodexBridge.ParseRotation( rot );
 		}
 
 		if ( p.TryGetProperty( "scale", out var scl ) )
@@ -1749,11 +1749,11 @@ public class SetTransformHandler : IBridgeHandler
 			// Scale accepts an object {x,y,z}, a comma string "x,y,z", an array, OR a single
 			// number (uniform). The old ParseVector3 only read object keys, so a bare number
 			// or a "1,1,1" string silently became (0,0,0) and collapsed the object. (Fix 1/7)
-			if ( local ) go.LocalScale = ClaudeBridge.ParseVector3Flexible( scl );
-			else         go.WorldScale  = ClaudeBridge.ParseVector3Flexible( scl );
+			if ( local ) go.LocalScale = CodexBridge.ParseVector3Flexible( scl );
+			else         go.WorldScale  = CodexBridge.ParseVector3Flexible( scl );
 		}
 
-		return Task.FromResult<object>( new { transformed = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { transformed = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -1766,7 +1766,7 @@ public class GetSceneHierarchyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		// Honor the maxDepth parameter documented in the MCP tool schema (default 10).
-		// Without this cap the payload overflows Claude's per-tool-result token budget
+		// Without this cap the payload overflows Codex's per-tool-result token budget
 		// on any non-trivial scene (GitHub issue #4).
 		var maxDepth = p.TryGetProperty( "maxDepth", out var md ) && md.ValueKind == JsonValueKind.Number
 			? md.GetInt32()
@@ -1793,13 +1793,13 @@ public class GetSceneHierarchyHandler : IBridgeHandler
 					sceneName = scene.Name,
 					rootId = idStr,
 					maxDepth,
-					hierarchy = new[] { ClaudeBridge.SerializeGoTree( root, 0, maxDepth ) }
+					hierarchy = new[] { CodexBridge.SerializeGoTree( root, 0, maxDepth ) }
 				} );
 			}
 		}
 
 		var roots = scene.Children
-			.Select( go => ClaudeBridge.SerializeGoTree( go, 0, maxDepth ) )
+			.Select( go => CodexBridge.SerializeGoTree( go, 0, maxDepth ) )
 			.ToArray();
 
 		return Task.FromResult<object>( new
@@ -1818,7 +1818,7 @@ public class GetSelectedObjectsHandler : IBridgeHandler
 	{
 		var selected = SceneEditorSession.Active.Selection
 			.OfType<GameObject>()
-			.Select( go => ClaudeBridge.SerializeGo( go ) )
+			.Select( go => CodexBridge.SerializeGo( go ) )
 			.ToArray();
 
 		return Task.FromResult<object>( new { count = selected.Length, selected } );
@@ -1886,7 +1886,7 @@ public class GetPropertyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var id = p.GetProperty( "id" ).GetString();
-		var go = ClaudeBridge.ResolveGameObject( scene, id );
+		var go = CodexBridge.ResolveGameObject( scene, id );
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
@@ -2040,7 +2040,7 @@ public class SetPropertyHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var id = p.GetProperty( "id" ).GetString();
-		var go = ClaudeBridge.ResolveGameObject( scene, id );
+		var go = CodexBridge.ResolveGameObject( scene, id );
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 
@@ -2070,10 +2070,10 @@ public class SetPropertyHandler : IBridgeHandler
 			if ( valueEl.ValueKind == JsonValueKind.Object )
 			{
 				object typed = null;
-				if ( pt == typeof( Vector3 ) )       typed = ClaudeBridge.ParseVector3( valueEl );
-				else if ( pt == typeof( Vector2 ) )  typed = ClaudeBridge.ParseVector2( valueEl );
-				else if ( pt == typeof( Color ) )    typed = ClaudeBridge.ParseColor( valueEl );
-				else if ( pt == typeof( Rotation ) ) typed = ClaudeBridge.ParseRotation( valueEl );
+				if ( pt == typeof( Vector3 ) )       typed = CodexBridge.ParseVector3( valueEl );
+				else if ( pt == typeof( Vector2 ) )  typed = CodexBridge.ParseVector2( valueEl );
+				else if ( pt == typeof( Color ) )    typed = CodexBridge.ParseColor( valueEl );
+				else if ( pt == typeof( Rotation ) ) typed = CodexBridge.ParseRotation( valueEl );
 
 				if ( typed != null )
 				{
@@ -2086,8 +2086,8 @@ public class SetPropertyHandler : IBridgeHandler
 			// AND asset/object references (Model/Material/GameObject/Component) which the old
 			// raw-string path silently dropped to null. Reports success=false on a bad ref/path
 			// instead of a false "set":true.
-			var valueStr = ClaudeBridge.ElementToValueString( valueEl );
-			if ( !ClaudeBridge.CoercePropertyAndSet( pt, v => propDesc.SetValue( component, v ), propDesc.Name, valueStr, out var setErr ) )
+			var valueStr = CodexBridge.ElementToValueString( valueEl );
+			if ( !CodexBridge.CoercePropertyAndSet( pt, v => propDesc.SetValue( component, v ), propDesc.Name, valueStr, out var setErr ) )
 				return Task.FromResult<object>( new { error = setErr } );
 
 			return Task.FromResult<object>( new { set = true, id, component = component.GetType().Name, property = propertyName, value = valueStr } );
@@ -2167,7 +2167,7 @@ public class AddComponentWithPropertiesHandler : IBridgeHandler
 						_                    => prop.Value.GetRawText()
 					};
 
-					if ( ClaudeBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out var perr ) )
+					if ( CodexBridge.CoercePropertyAndSet( pd.PropertyType, v => pd.SetValue( component, v ), pd.Name, valStr, out var perr ) )
 						appliedProps.Add( prop.Name );
 					else
 						failedProps.Add( new { property = prop.Name, error = perr } );
@@ -2400,7 +2400,7 @@ public class GetAssetInfoHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var filePath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
@@ -2465,7 +2465,7 @@ public class CreateMaterialHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "path is required (e.g. 'materials/walls/brick.vmat')" } );
 		if ( !rel.EndsWith( ".vmat", StringComparison.OrdinalIgnoreCase ) ) rel += ".vmat";
 
-		if ( !ClaudeBridge.TryResolveProjectPath( rel, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( rel, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"Material already exists: {rel}" } );
@@ -2559,7 +2559,7 @@ public class CreateSoundEventHandler : IBridgeHandler
 		var subdir   = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Sounds";
 
 		var fileName = name.EndsWith( ".sound" ) ? name : $"{name}.sound";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( subdir, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
@@ -2619,7 +2619,7 @@ public class CreatePrefabHandler : IBridgeHandler
 			relPath = Path.Combine( subdir, fileName );
 		}
 
-		if ( !ClaudeBridge.TryResolveProjectPath( relPath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( relPath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
@@ -2652,7 +2652,7 @@ public class InstantiatePrefabHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
 		var prefabPath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
@@ -2674,16 +2674,16 @@ public class InstantiatePrefabHandler : IBridgeHandler
 			go.Name = prefabName;
 
 			if ( p.TryGetProperty( "position", out var pos ) )
-				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+				go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 			if ( p.TryGetProperty( "rotation", out var rot ) )
-				go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+				go.WorldRotation = CodexBridge.ParseRotation( rot );
 
 			return Task.FromResult<object>( new
 			{
 				instantiated = true,
 				prefab       = prefabPath,
-				gameObject   = ClaudeBridge.SerializeGo( go ),
+				gameObject   = CodexBridge.SerializeGo( go ),
 				note         = "Basic instantiation — full prefab resource loading requires s&box prefab asset pipeline"
 			} );
 		}
@@ -2712,7 +2712,7 @@ public class GetPrefabInfoHandler : IBridgeHandler
 	public Task<object> Execute( JsonElement p )
 	{
 		var prefabPath = p.GetProperty( "path" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( prefabPath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullPath ) )
@@ -2772,7 +2772,7 @@ public class AddPhysicsHandler : IBridgeHandler
 				break;
 			default: // "box"
 				var box = go.GetOrAddComponent<BoxCollider>();
-				if ( p.TryGetProperty( "scale", out var s ) ) box.Scale = ClaudeBridge.ParseVector3( s );
+				if ( p.TryGetProperty( "scale", out var s ) ) box.Scale = CodexBridge.ParseVector3( s );
 				added.Add( "BoxCollider" );
 				break;
 		}
@@ -2821,7 +2821,7 @@ public class AddColliderHandler : IBridgeHandler
 				break;
 			default: // "box"
 				var box = go.GetOrAddComponent<BoxCollider>();
-				if ( p.TryGetProperty( "scale", out var s ) ) box.Scale = ClaudeBridge.ParseVector3( s );
+				if ( p.TryGetProperty( "scale", out var s ) ) box.Scale = CodexBridge.ParseVector3( s );
 				box.IsTrigger = isTrigger;
 				addedType = "BoxCollider";
 				break;
@@ -2839,8 +2839,8 @@ public class RaycastHandler : IBridgeHandler
 		if ( scene == null )
 			return Task.FromResult<object>( new { error = "No active scene" } );
 
-		var start = ClaudeBridge.ParseVector3( p.GetProperty( "start" ) );
-		var end   = ClaudeBridge.ParseVector3( p.GetProperty( "end" ) );
+		var start = CodexBridge.ParseVector3( p.GetProperty( "start" ) );
+		var end   = CodexBridge.ParseVector3( p.GetProperty( "end" ) );
 
 		try
 		{
@@ -2906,14 +2906,14 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 		float sprintMult  = ReadFloat( p, "sprintMultiplier", 1.5f );
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = BuildControllerCode( className, type, moveSpeed, jumpForce, sprintMult );
 		// Generated game code is SANDBOXED — write UTF-8 without BOM (the s&box compiler reads it).
@@ -2969,7 +2969,7 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 		go.Tags.Add( "player" );
 
 		if ( p.TryGetProperty( "spawnPosition", out var sp ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( sp );
+			go.WorldPosition = CodexBridge.ParseVector3( sp );
 
 		// CharacterController is a built-in type — always in the TypeLibrary, safe to add now.
 		try { go.AddComponent<CharacterController>(); }
@@ -3015,7 +3015,7 @@ public class CreatePlayerControllerHandler : IBridgeHandler
 			$"). The {className} controller is NOT attached yet — it's not in the TypeLibrary until a recompile. " +
 			$"Next: trigger_hotload, then add_component_with_properties (id=this GameObject, component=\"{className}\").";
 
-		return ClaudeBridge.SerializeGo( go );
+		return CodexBridge.SerializeGo( go );
 	}
 
 	// ── Generate the controller .cs by movement mode. EVERY API used here is sandbox-legal
@@ -3179,14 +3179,14 @@ public class CreateNpcControllerHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -3226,14 +3226,14 @@ public class CreateGameManagerHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -3274,14 +3274,14 @@ public class CreateTriggerZoneHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -3336,7 +3336,7 @@ public class CreateRazorUIHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "UI";
 
 		var fileName = name.EndsWith( ".razor" ) ? name : $"{name}.razor";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
@@ -3344,7 +3344,7 @@ public class CreateRazorUIHandler : IBridgeHandler
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
 
-		var componentName = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var componentName = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 		var razor = $@"@using Sandbox;
 @using Sandbox.UI;
 
@@ -3406,7 +3406,7 @@ public class AddSyncPropertyHandler : IBridgeHandler
 		var propertyName = p.GetProperty( "propertyName" ).GetString();
 		var propertyType = p.TryGetProperty( "propertyType", out var ptProp ) ? ptProp.GetString() ?? "float" : "float";
 		var defaultValue = p.TryGetProperty( "defaultValue", out var dvProp ) ? dvProp.GetString() : null;
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
@@ -3452,7 +3452,7 @@ public class AddRpcMethodHandler : IBridgeHandler
 		var filePath   = p.GetProperty( "path" ).GetString();
 		var methodName = p.TryGetProperty( "methodName", out var m ) ? m.GetString() : "MyRpc";
 		var rpcType    = p.TryGetProperty( "rpcType", out var rt ) ? rt.GetString() : "Broadcast";
-		if ( !ClaudeBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( filePath, out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 		if ( !File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File not found: {filePath}" } );
@@ -3490,14 +3490,14 @@ public class CreateNetworkedPlayerHandler : IBridgeHandler
 		string moveSpeedStr = moveSpeed.ToString( System.Globalization.CultureInfo.InvariantCulture ) + "f";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -3557,14 +3557,14 @@ public class CreateLobbyManagerHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 using System.Collections.Generic;
@@ -3626,14 +3626,14 @@ public class CreateNetworkEventsHandler : IBridgeHandler
 		var directory = p.TryGetProperty( "directory", out var d ) ? d.GetString() : "Code";
 
 		var fileName = name.EndsWith( ".cs" ) ? name : $"{name}.cs";
-		if ( !ClaudeBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( Path.Combine( directory, fileName ), out var fullPath, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( File.Exists( fullPath ) )
 			return Task.FromResult<object>( new { error = $"File already exists: {directory}/{fileName}" } );
 
 		Directory.CreateDirectory( Path.GetDirectoryName( fullPath ) );
-		var className = ClaudeBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
+		var className = CodexBridge.SanitizeIdentifier( Path.GetFileNameWithoutExtension( fileName ) );
 
 		var code = $@"using Sandbox;
 
@@ -3793,7 +3793,7 @@ public class SetProjectThumbnailHandler : IBridgeHandler
 	{
 		var rootPath   = Project.Current.GetRootPath();
 		var sourcePath = p.GetProperty( "sourcePath" ).GetString();
-		if ( !ClaudeBridge.TryResolveProjectPath( sourcePath, out var fullSource, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( sourcePath, out var fullSource, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !File.Exists( fullSource ) )
@@ -4068,7 +4068,7 @@ public class AddScreenPanelHandler : IBridgeHandler
 				}
 			}
 
-			return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+			return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 		}
 		catch ( Exception ex )
 		{
@@ -4102,13 +4102,13 @@ public class AddWorldPanelHandler : IBridgeHandler
 				go.SetParent( parentGo, false );
 
 			if ( p.TryGetProperty( "position", out var pos ) )
-				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+				go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 			if ( p.TryGetProperty( "rotation", out var rot ) )
-				go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+				go.WorldRotation = CodexBridge.ParseRotation( rot );
 
 			if ( p.TryGetProperty( "worldScale", out var ws ) )
-				go.WorldScale = ClaudeBridge.ParseVector3( ws );
+				go.WorldScale = CodexBridge.ParseVector3( ws );
 
 			var panel = go.AddComponent<WorldPanel>();
 			panel.LookAtCamera = lookAtCamera;
@@ -4125,7 +4125,7 @@ public class AddWorldPanelHandler : IBridgeHandler
 				}
 			}
 
-			return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+			return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 		}
 		catch ( Exception ex )
 		{
@@ -4263,7 +4263,7 @@ public class InspectNetworkedObjectHandler : IBridgeHandler
 		var id = p.TryGetProperty( "id", out var idEl ) ? idEl.GetString() : null;
 		if ( string.IsNullOrEmpty( id ) )
 			return Task.FromResult<object>( new { error = "id is required" } );
-		var go = ClaudeBridge.ResolveGameObject( scene, id );
+		var go = CodexBridge.ResolveGameObject( scene, id );
 		if ( go == null )
 			return Task.FromResult<object>( new { error = $"GameObject not found: {id}" } );
 		bool allProps = p.TryGetProperty( "allProps", out var ap ) && ap.ValueKind == JsonValueKind.True;
@@ -4378,7 +4378,7 @@ public class SandboxLintHandler : IBridgeHandler
 
 		var dirParam = p.TryGetProperty( "directory", out var dp ) && !string.IsNullOrWhiteSpace( dp.GetString() ) ? dp.GetString() : "Code";
 		string scanDir;
-		if ( !ClaudeBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !Directory.Exists( scanDir ) )
@@ -4462,7 +4462,7 @@ public class RazorLintHandler : IBridgeHandler
 
 		var dirParam = p.TryGetProperty( "directory", out var dp ) && !string.IsNullOrWhiteSpace( dp.GetString() ) ? dp.GetString() : "Code";
 		string scanDir;
-		if ( !ClaudeBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
+		if ( !CodexBridge.TryResolveProjectPath( dirParam, out scanDir, out var pathErr ) )
 			return Task.FromResult<object>( new { error = pathErr } );
 
 		if ( !Directory.Exists( scanDir ) )
@@ -4648,9 +4648,9 @@ public class CaptureViewHandler : IBridgeHandler
 				}
 				else
 				{
-					camPos = ClaudeBridge.ParseVector3( posEl );
+					camPos = CodexBridge.ParseVector3( posEl );
 					if ( p.TryGetProperty( "lookAt", out var laEl ) )
-						camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
+						camRot = Rotation.LookAt( ( CodexBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
 					else if ( p.TryGetProperty( "rotation", out var rotEl ) )
 						camRot = CharacterHelpers.ParseRotation( rotEl );
 					else camRot = Rotation.Identity;
@@ -5073,26 +5073,26 @@ public class TriggerHotloadHandler : IBridgeHandler
 
 // ═══════════════════════════════════════════════════════════════════
 // Status dock — purely informational. The main-thread frame handler
-// lives on ClaudeBridge.OnEditorFrame so RPCs are processed even when
+// lives on CodexBridge.OnEditorFrame so RPCs are processed even when
 // this dock is closed (GitHub issue #2).
 // ═══════════════════════════════════════════════════════════════════
 
-[Dock( "Editor", "Claude Bridge", "smart_toy" )]
+[Dock( "Editor", "Codex Bridge", "smart_toy" )]
 public class BridgePoller : Widget
 {
 	public BridgePoller( Widget parent ) : base( parent )
 	{
 		MinimumSize = new Vector2( 200, 80 );
-		WindowTitle = "Claude Bridge";
+		WindowTitle = "Codex Bridge";
 
 		Layout = Layout.Column();
 		Layout.Margin = 8;
 		Layout.Spacing = 4;
 
-		var title = Layout.Add( new Label( "Claude Bridge", this ) );
+		var title = Layout.Add( new Label( "Codex Bridge", this ) );
 		title.SetStyles( "font-size: 14px; font-weight: bold; color: white;" );
 
-		var status = Layout.Add( new Label( $"Handlers: {ClaudeBridge.HandlerCount} | IPC Active", this ) );
+		var status = Layout.Add( new Label( $"Handlers: {CodexBridge.HandlerCount} | IPC Active", this ) );
 		status.SetStyles( "font-size: 11px; color: #aaa;" );
 
 		Layout.AddSpacingCell( 8 );
@@ -6231,16 +6231,16 @@ public class AddLightHandler : IBridgeHandler
 		}
 
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 		if ( p.TryGetProperty( "rotation", out var rot ) )
-			go.WorldRotation = ClaudeBridge.ParseRotation( rot );
+			go.WorldRotation = CodexBridge.ParseRotation( rot );
 		if ( p.TryGetProperty( "parentId", out var pid ) && Guid.TryParse( pid.GetString(), out var parentGuid ) )
 		{
 			var parent = scene.Directory.FindByGuid( parentGuid );
 			if ( parent != null ) go.SetParent( parent, keepWorldPosition: true );
 		}
 
-		return Task.FromResult<object>( new { created = true, type, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, type, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 
 	/// <summary>Parse a {r,g,b,a?} colour (0-1 floats) from a named property, or return the fallback.</summary>
@@ -6292,7 +6292,7 @@ public class SetFogHandler : IBridgeHandler
 			cf.HeightStart     = F( "heightStart",    cf.HeightStart );
 			cf.HeightWidth     = F( "heightWidth",    cf.HeightWidth );
 			cf.HeightExponent  = F( "heightExponent", cf.HeightExponent );
-			return Task.FromResult<object>( new { created = true, type = "cubemap", gameObject = ClaudeBridge.SerializeGo( go ) } );
+			return Task.FromResult<object>( new { created = true, type = "cubemap", gameObject = CodexBridge.SerializeGo( go ) } );
 		}
 
 		if ( type == "volumetric" )
@@ -6303,10 +6303,10 @@ public class SetFogHandler : IBridgeHandler
 			vf.FalloffExponent = F( "falloff",  vf.FalloffExponent );
 			if ( p.TryGetProperty( "size", out var sz ) )
 			{
-				var s = ClaudeBridge.ParseVector3( sz );
+				var s = CodexBridge.ParseVector3( sz );
 				vf.Bounds = new BBox( -s * 0.5f, s * 0.5f );
 			}
-			return Task.FromResult<object>( new { created = true, type = "volumetric", gameObject = ClaudeBridge.SerializeGo( go ) } );
+			return Task.FromResult<object>( new { created = true, type = "volumetric", gameObject = CodexBridge.SerializeGo( go ) } );
 		}
 
 		// gradient (default)
@@ -6317,7 +6317,7 @@ public class SetFogHandler : IBridgeHandler
 		fog.Height          = F( "height",        fog.Height );
 		fog.FalloffExponent = F( "falloff",       fog.FalloffExponent );
 
-		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, type = "gradient", gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6348,7 +6348,7 @@ public static class VisualHelpers
 			case JsonValueKind.Array:
 			{
 				var s = c.ValueKind == JsonValueKind.String ? c.GetString() : c.GetRawText();
-				var f = ClaudeBridge.ExtractFloats( s );
+				var f = CodexBridge.ExtractFloats( s );
 				if ( f.Length == 0 ) return fallback;
 				return new Color(
 					f.Length > 0 ? f[0] : fallback.r,
@@ -6407,7 +6407,7 @@ public static class VisualHelpers
 			else if ( t == typeof( bool ) ) v = val.GetBoolean();
 			else if ( t == typeof( string ) ) v = val.GetString();
 			else if ( t == typeof( Color ) ) v = ParseColorElement( val, Color.White );
-			else if ( t == typeof( Vector3 ) ) v = ClaudeBridge.ParseVector3( val );
+			else if ( t == typeof( Vector3 ) ) v = CodexBridge.ParseVector3( val );
 			else if ( t == typeof( Vector2 ) ) v = new Vector2( val.TryGetProperty( "x", out var vx ) ? vx.GetSingle() : 0f, val.TryGetProperty( "y", out var vy ) ? vy.GetSingle() : 0f );
 			else if ( t.IsEnum ) v = Enum.Parse( t, val.GetString(), true );
 			else return;
@@ -6453,7 +6453,7 @@ public class AddPostProcessHandler : IBridgeHandler
 			foreach ( var prop in props.EnumerateObject() )
 				VisualHelpers.SetProp( comp, prop.Name, prop.Value );
 
-		return Task.FromResult<object>( new { added = true, effect, camera = camGo.Name, gameObject = ClaudeBridge.SerializeGo( camGo ) } );
+		return Task.FromResult<object>( new { added = true, effect, camera = camGo.Name, gameObject = CodexBridge.SerializeGo( camGo ) } );
 	}
 }
 
@@ -6485,7 +6485,7 @@ public class SetSkyboxHandler : IBridgeHandler
 			try { var mat = Material.Load( mp.GetString() ); if ( mat != null ) sky.SkyMaterial = mat; } catch { }
 		}
 
-		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6624,7 +6624,7 @@ public class AddEnvmapProbeHandler : IBridgeHandler
 		var go = scene.CreateObject( true );
 		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Envmap Probe";
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 		var probe = go.AddComponent<EnvmapProbe>();
 		float h = (p.TryGetProperty( "size", out var sz ) ? sz.GetSingle() : 1024f) * 0.5f;
@@ -6634,7 +6634,7 @@ public class AddEnvmapProbeHandler : IBridgeHandler
 		if ( p.TryGetProperty( "feathering", out var ft ) )
 			probe.Feathering = ft.GetSingle();
 
-		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6679,7 +6679,7 @@ public class SpawnParticleHandler : IBridgeHandler
 		var go = scene.CreateObject( true );
 		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : $"Particles ({kind})";
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 		if ( p.TryGetProperty( "color", out var cc ) )
 			tint = VisualHelpers.ParseColorElement( cc, tint );
 		// Point the emission cone up (+Z) so fire/embers rise.
@@ -6716,7 +6716,7 @@ public class SpawnParticleHandler : IBridgeHandler
 		sr.Scale = 1f;
 		sr.ParticleEffect = pe;
 
-		return Task.FromResult<object>( new { created = true, kind, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, kind, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6738,7 +6738,7 @@ public class AddTrailHandler : IBridgeHandler
 			go = scene.CreateObject( true );
 			go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Trail";
 			if ( p.TryGetProperty( "position", out var pos ) )
-				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+				go.WorldPosition = CodexBridge.ParseVector3( pos );
 		}
 
 		var tr = go.GetOrAddComponent<TrailRenderer>();
@@ -6748,7 +6748,7 @@ public class AddTrailHandler : IBridgeHandler
 		if ( p.TryGetProperty( "pointDistance", out var pd ) ) tr.PointDistance = pd.GetSingle();
 		// Color (Gradient) + Width (Curve) left at defaults — those are separate curve structs.
 
-		return Task.FromResult<object>( new { created = true, note = "Trail is only visible while its GameObject moves.", gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, note = "Trail is only visible while its GameObject moves.", gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6764,11 +6764,11 @@ public class AddBeamHandler : IBridgeHandler
 		var go = scene.CreateObject( true );
 		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Beam";
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 		var be = go.AddComponent<BeamEffect>();
 		be.TargetPosition = p.TryGetProperty( "target", out var tgt )
-			? ClaudeBridge.ParseVector3( tgt )
+			? CodexBridge.ParseVector3( tgt )
 			: go.WorldPosition + Vector3.Up * 128f;
 		be.Scale = VisualHelpers.PF( p.TryGetProperty( "width", out var w ) ? w.GetSingle() : 4f );
 		be.Brightness = VisualHelpers.PF( 1f );
@@ -6783,7 +6783,7 @@ public class AddBeamHandler : IBridgeHandler
 		be.BeamsPerSecond = 2f;
 		be.BeamLifetime = VisualHelpers.PF( 2f );
 
-		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6799,7 +6799,7 @@ public class CreateParticleEffectHandler : IBridgeHandler
 		var go = scene.CreateObject( true );
 		go.Name = p.TryGetProperty( "name", out var n ) ? n.GetString() : "Particle Effect";
 		if ( p.TryGetProperty( "position", out var pos ) )
-			go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+			go.WorldPosition = CodexBridge.ParseVector3( pos );
 		go.WorldRotation = Rotation.From( -90f, 0f, 0f ); // cone emits +Z (up) by default
 
 		float rate      = p.TryGetProperty( "rate", out var r )        ? r.GetSingle()  : 30f;
@@ -6843,7 +6843,7 @@ public class CreateParticleEffectHandler : IBridgeHandler
 		sr.Scale = 1f;
 		sr.ParticleEffect = pe;
 
-		return Task.FromResult<object>( new { created = true, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6868,9 +6868,9 @@ public static class CharacterHelpers
 	/// <summary>Apply position/rotation/scale params to a GameObject.</summary>
 	public static void ApplyTransform( GameObject go, JsonElement p )
 	{
-		if ( p.TryGetProperty( "position", out var pos ) ) go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+		if ( p.TryGetProperty( "position", out var pos ) ) go.WorldPosition = CodexBridge.ParseVector3( pos );
 		if ( p.TryGetProperty( "rotation", out var rot ) ) go.WorldRotation = ParseRotation( rot );
-		if ( p.TryGetProperty( "scale",    out var sc  ) ) go.WorldScale    = ClaudeBridge.ParseVector3( sc );
+		if ( p.TryGetProperty( "scale",    out var sc  ) ) go.WorldScale    = CodexBridge.ParseVector3( sc );
 	}
 
 	/// <summary>Parent the GO to parentId (keep world pos) when provided + found.</summary>
@@ -6928,11 +6928,11 @@ public class SpawnModelHandler : IBridgeHandler
 				warning = $"'{modelPath}' resolved to the ERROR placeholder model (path not mounted). " +
 					"The object spawned but renders as the giant checkered ERROR box. " +
 					"If this is a Cloud asset, install it first with install_asset.",
-				gameObject = ClaudeBridge.SerializeGo( go )
+				gameObject = CodexBridge.SerializeGo( go )
 			} );
 		}
 
-		return Task.FromResult<object>( new { created = true, model = modelPath, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, model = modelPath, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -6973,7 +6973,7 @@ public class SpawnCitizenHandler : IBridgeHandler
 		}
 
 		CharacterHelpers.ApplyParent( go, scene, p );
-		return Task.FromResult<object>( new { created = true, hasAnimator = animator, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { created = true, hasAnimator = animator, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -7017,7 +7017,7 @@ public class DressCitizenHandler : IBridgeHandler
 			container.Tint = tn.GetSingle();
 
 		container.Apply( body );
-		return Task.FromResult<object>( new { dressed = true, applied, missing, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { dressed = true, applied, missing, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -7086,7 +7086,7 @@ public class PoseCitizenHandler : IBridgeHandler
 		if ( p.TryGetProperty( "sitting",     out var si ) ) { helper.IsSitting = si.GetBoolean(); changed.Add( "IsSitting" ); }
 		if ( p.TryGetProperty( "duckLevel",   out var dl ) ) { helper.DuckLevel = dl.GetSingle(); changed.Add( "DuckLevel" ); }
 
-		return Task.FromResult<object>( new { posed = true, changed, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { posed = true, changed, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -7134,7 +7134,7 @@ public class EquipModelHandler : IBridgeHandler
 		if ( anchor != null )
 		{
 			prop.SetParent( anchor, false );
-			prop.LocalPosition = p.TryGetProperty( "offset", out var off ) ? ClaudeBridge.ParseVector3( off ) : Vector3.Zero;
+			prop.LocalPosition = p.TryGetProperty( "offset", out var off ) ? CodexBridge.ParseVector3( off ) : Vector3.Zero;
 			if ( p.TryGetProperty( "rotation", out var rot ) ) prop.LocalRotation = CharacterHelpers.ParseRotation( rot );
 			how = $"parented to '{point}'";
 		}
@@ -7151,7 +7151,7 @@ public class EquipModelHandler : IBridgeHandler
 			return Task.FromResult<object>( new { error = $"Point '{point}' not found — try an attachment (hand_R, hand_L, eyes, hat) or a bone name." } );
 		}
 
-		return Task.FromResult<object>( new { equipped = true, point, how, gameObject = ClaudeBridge.SerializeGo( prop ) } );
+		return Task.FromResult<object>( new { equipped = true, point, how, gameObject = CodexBridge.SerializeGo( prop ) } );
 	}
 }
 
@@ -7187,7 +7187,7 @@ public class SetLookAtHandler : IBridgeHandler
 		{
 			target = scene.CreateObject( true );
 			target.Name = "LookTarget";
-			target.WorldPosition = ClaudeBridge.ParseVector3( tgt );
+			target.WorldPosition = CodexBridge.ParseVector3( tgt );
 		}
 		if ( target != null ) helper.LookAt = target;
 
@@ -7195,7 +7195,7 @@ public class SetLookAtHandler : IBridgeHandler
 		if ( p.TryGetProperty( "headWeight", out var hw ) ) helper.HeadWeight = hw.GetSingle();
 		if ( p.TryGetProperty( "bodyWeight", out var bw ) ) helper.BodyWeight = bw.GetSingle();
 
-		return Task.FromResult<object>( new { lookAt = true, target = target?.Name, gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { lookAt = true, target = target?.Name, gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -7219,7 +7219,7 @@ public class AddRagdollHandler : IBridgeHandler
 		phys.Model = body.Model;
 		if ( p.TryGetProperty( "motionEnabled", out var me ) ) phys.MotionEnabled = me.GetBoolean();
 
-		return Task.FromResult<object>( new { ragdoll = true, note = "ModelPhysics added — the ragdoll flops via physics in PLAY mode (runtime; not visible in the static editor pose).", gameObject = ClaudeBridge.SerializeGo( go ) } );
+		return Task.FromResult<object>( new { ragdoll = true, note = "ModelPhysics added — the ragdoll flops via physics in PLAY mode (runtime; not visible in the static editor pose).", gameObject = CodexBridge.SerializeGo( go ) } );
 	}
 }
 
@@ -7310,7 +7310,7 @@ public class SnapToGroundHandler : IBridgeHandler
 			if ( !tr.Hit )
 				return Task.FromResult<object>( new { snapped = false, reason = "No ground hit below the object (works best on collider-less props; objects with colliders may self-hit)." } );
 			go.WorldPosition = new Vector3( pos.x, pos.y, tr.HitPosition.z + offset );
-			return Task.FromResult<object>( new { snapped = true, groundZ = tr.HitPosition.z, gameObject = ClaudeBridge.SerializeGo( go ) } );
+			return Task.FromResult<object>( new { snapped = true, groundZ = tr.HitPosition.z, gameObject = CodexBridge.SerializeGo( go ) } );
 		}
 		catch ( Exception ex ) { return Task.FromResult<object>( new { error = $"Trace failed: {ex.Message}" } ); }
 	}
@@ -7386,7 +7386,7 @@ public class GridDuplicateHandler : IBridgeHandler
 		if ( countX < 1 ) countX = 1; if ( countX > 50 ) countX = 50;
 		if ( countY < 1 ) countY = 1; if ( countY > 50 ) countY = 50;
 		if ( countZ < 1 ) countZ = 1; if ( countZ > 50 ) countZ = 50;
-		var spacing = p.TryGetProperty( "spacing", out var sp ) ? ClaudeBridge.ParseVector3( sp ) : new Vector3( 100f, 100f, 100f );
+		var spacing = p.TryGetProperty( "spacing", out var sp ) ? CodexBridge.ParseVector3( sp ) : new Vector3( 100f, 100f, 100f );
 
 		var basePos = go.WorldPosition;
 		var created = new List<string>();
@@ -7442,7 +7442,7 @@ public class MeasureDistanceHandler : IBridgeHandler
 			if ( go == null ) return false;
 			pos = go.WorldPosition; return true;
 		}
-		if ( p.TryGetProperty( ptKey, out var ptEl ) ) { pos = ClaudeBridge.ParseVector3( ptEl ); return true; }
+		if ( p.TryGetProperty( ptKey, out var ptEl ) ) { pos = CodexBridge.ParseVector3( ptEl ); return true; }
 		return false;
 	}
 }
@@ -7475,7 +7475,7 @@ public class ScatterPropsHandler : IBridgeHandler
 		try { model = Model.Load( modelPath ); } catch { }
 		if ( model == null ) return Task.FromResult<object>( new { error = $"Model not found: {modelPath}" } );
 
-		var center   = p.TryGetProperty( "center", out var c ) ? ClaudeBridge.ParseVector3( c ) : Vector3.Zero;
+		var center   = p.TryGetProperty( "center", out var c ) ? CodexBridge.ParseVector3( c ) : Vector3.Zero;
 		float radius = p.TryGetProperty( "radius", out var r ) ? r.GetSingle() : 256f;
 		int count    = p.TryGetProperty( "count", out var cn ) ? cn.GetInt32() : 10;
 		if ( count < 1 ) count = 1; if ( count > 300 ) count = 300;
@@ -7695,7 +7695,7 @@ public class SetTagsHandler : IBridgeHandler
 
 // ═════════════════════════════════════════════════════════════════════
 //  Batch 24 — Bridge superpowers (editor side): frame_camera
-//  Lets Claude AIM ITS OWN SCREENSHOTS at any object/point — fixes the
+//  Lets Codex AIM ITS OWN SCREENSHOTS at any object/point — fixes the
 //  "can't see the result" blindness. (read_log / get_compile_errors live in
 //  the MCP server; they read the log file so they work even when s&box has
 //  crashed.)
@@ -7724,7 +7724,7 @@ public class FrameCameraHandler : IBridgeHandler
 		}
 		else if ( p.TryGetProperty( "position", out var posEl ) )
 		{
-			var c = ClaudeBridge.ParseVector3( posEl );
+			var c = CodexBridge.ParseVector3( posEl );
 			float r = p.TryGetProperty( "radius", out var rEl ) ? rEl.GetSingle() : 128f;
 			box = new BBox( c - new Vector3( r, r, r ), c + new Vector3( r, r, r ) );
 			target = $"({c.x:0.#},{c.y:0.#},{c.z:0.#}) r{r:0.#}";
@@ -7749,7 +7749,7 @@ public class FrameCameraHandler : IBridgeHandler
 //  Batch 25 — screenshot aiming + component/tag gaps
 // ═════════════════════════════════════════════════════════════════════
 
-// ───────── screenshot_from (THE fix: aim Claude's screenshots) ─────────
+// ───────── screenshot_from (THE fix: aim Codex's screenshots) ─────────
 //  take_screenshot renders from the scene's MAIN CAMERA (not the viewport).
 //  This saves the main camera's transform, moves it to frame a target,
 //  captures, and restores it — so screenshots can finally be aimed.
@@ -7781,9 +7781,9 @@ public class ScreenshotFromHandler : IBridgeHandler
 		}
 		else if ( p.TryGetProperty( "position", out var posEl ) )
 		{
-			camPos = ClaudeBridge.ParseVector3( posEl );
+			camPos = CodexBridge.ParseVector3( posEl );
 			if ( p.TryGetProperty( "lookAt", out var laEl ) )
-				camRot = Rotation.LookAt( ( ClaudeBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
+				camRot = Rotation.LookAt( ( CodexBridge.ParseVector3( laEl ) - camPos ).Normal, Vector3.Up );
 			else if ( p.TryGetProperty( "rotation", out var rotEl ) )
 				camRot = CharacterHelpers.ParseRotation( rotEl );
 			else camRot = savedRot;
@@ -7944,8 +7944,8 @@ public class GetNavMeshPathHandler : IBridgeHandler
 		if ( !p.TryGetProperty( "from", out var fromEl ) || !p.TryGetProperty( "to", out var toEl ) )
 			return Task.FromResult<object>( new { error = "Requires 'from' and 'to' Vector3 params" } );
 
-		var from = ClaudeBridge.ParseVector3( fromEl );
-		var to   = ClaudeBridge.ParseVector3( toEl );
+		var from = CodexBridge.ParseVector3( fromEl );
+		var to   = CodexBridge.ParseVector3( toEl );
 
 		try
 		{
@@ -8003,7 +8003,7 @@ public class PhysicsOverlapHandler : IBridgeHandler
 		if ( !p.TryGetProperty( "center", out var centerEl ) )
 			return Task.FromResult<object>( new { error = "requires center (Vector3)" } );
 
-		var center = ClaudeBridge.ParseVector3( centerEl );
+		var center = CodexBridge.ParseVector3( centerEl );
 
 		try
 		{
@@ -8019,7 +8019,7 @@ public class PhysicsOverlapHandler : IBridgeHandler
 			{
 				// BOX overlap. The Box(Vector3,…) overload is EXTENTS (half-size), so use
 				// the BBox overload with FromPositionAndSize( center, fullSize ) for clarity.
-				var size = ClaudeBridge.ParseVector3( sizeEl );
+				var size = CodexBridge.ParseVector3( sizeEl );
 				trace = scene.Trace.Box( BBox.FromPositionAndSize( center, size ), center, center );
 			}
 			else
@@ -8125,7 +8125,7 @@ public class SpawnVpcfHandler : IBridgeHandler
 				? nEl.GetString()
 				: "Particle (vpcf)";
 			if ( p.TryGetProperty( "position", out var pos ) )
-				go.WorldPosition = ClaudeBridge.ParseVector3( pos );
+				go.WorldPosition = CodexBridge.ParseVector3( pos );
 
 			var lps = go.AddComponent<LegacyParticleSystem>();
 			lps.Particles = particles;
@@ -8219,7 +8219,7 @@ public class RestartEditorHandler : IBridgeHandler
 
 // ═════════════════════════════════════════════════════════════════════
 //  Batch 31 — list_libraries: what addons/libraries are installed in this
-//  project (reads Libraries/ + each .sbproj). Lets Claude DISCOVER what's
+//  project (reads Libraries/ + each .sbproj). Lets Codex DISCOVER what's
 //  available to build on (e.g. fish.scc = Shrimple Character Controller,
 //  facepunch.playercontroller) and leverage it via add_component_with_properties
 //  instead of writing movement/tools from scratch.
@@ -8462,7 +8462,7 @@ public class SetAnimgraphParamHandler : IBridgeHandler
 			}
 			else if ( hint == "vector" || ( hint == null && vEl.ValueKind == JsonValueKind.Object ) )
 			{
-				body.Set( name, ClaudeBridge.ParseVector3( vEl ) ); kind = "vector";
+				body.Set( name, CodexBridge.ParseVector3( vEl ) ); kind = "vector";
 			}
 			else if ( hint == "int" )
 			{

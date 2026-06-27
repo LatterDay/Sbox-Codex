@@ -45,14 +45,14 @@ jobs:
 
 ## 2. Semantic graphify pass — NO key needed (corrected)
 
-**Correction to earlier notes:** the full doc-inclusive pass does **not** require a Gemini key. Per the graphify skill spec itself: *"If `GEMINI_API_KEY`/`GOOGLE_API_KEY` are unset, fall straight through to Claude subagent dispatch — the host session itself is the LLM."* Gemini is an optional offload, not a requirement. Any prompt for an API key is a misread of the skill.
+**Correction to earlier notes:** the full doc-inclusive pass does **not** require a Gemini key. Per the graphify skill spec itself: *"If `GEMINI_API_KEY`/`GOOGLE_API_KEY` are unset, fall straight through to Codex subagent dispatch — the host session itself is the LLM."* Gemini is an optional offload, not a requirement. Any prompt for an API key is a misread of the skill.
 
 **Sized today:** 88 markdown files, ~266k words, 0 semantic-cache hits → ~9 general-purpose subagents (~30k words each), one focused session.
 
 **Flow mockup:**
 ```
 1. AST pass (free, deterministic):       graphify update . --force        ← already done, 2026-06-09
-2. Chunk the 88 .md files into ~9 chunks (cookbook refs, docs/, CLAUDE.md+README tier, plans/)
+2. Chunk the 88 .md files into ~9 chunks (cookbook refs, docs/, CODEX.md+README tier, plans/)
 3. Dispatch 9 general-purpose subagents in parallel, each with the
    extraction-spec prompt → writes chunk_N.json (nodes/edges/hyperedges)
 4. Merge chunks → .graphify_semantic_new.json → save_semantic_cache
@@ -84,7 +84,7 @@ jobs:
 
 **Rule:** every friction → an issue tagged `dogfood` in the repo; 3+ repeats of a manual sequence → a tool candidate with grounding "Gravehold Gn".
 
-**Acceptance per phase:** screenshot read by Claude + a human playtest note (gotcha #1 — the bridge can't feel the loop).
+**Acceptance per phase:** screenshot read by Codex + a human playtest note (gotcha #1 — the bridge can't feel the loop).
 
 ---
 
@@ -94,7 +94,7 @@ jobs:
 
 **Shape decision (mirrors the v1.7.0 scaffold debate):** a **skill** orchestrating existing tools, not a mega-handler — keeps the C# surface small and lets each kit evolve in markdown.
 
-**Mockup — `plugins/sbox-claude/skills/sbox-genre-kits/SKILL.md`:**
+**Mockup — `plugins/sbox-codex/skills/sbox-genre-kits/SKILL.md`:**
 ```
 /sbox-genre-kit tycoon      → wallet + clock + phase machine + interactable shop
                               + placement mode + save system + floor/lighting blockout
@@ -105,7 +105,7 @@ Each kit:
   1. checks bridge + lists which scaffolds it will generate (dry-run first)
   2. generates in dependency order, hotloads + compile-verifies after each
   3. authors the minimal scene (floor, light, player, camera) via existing tools
-  4. screenshot → Claude reads it → fixes → human playtest checklist printed
+  4. screenshot → Codex reads it → fixes → human playtest checklist printed
 ```
 
 **Dependency:** wants tools #1–#4 + #8–#10 from the 10-tool plan built first. Kits ship one at a time — tycoon first (Gravehold G1–G3 *is* the tycoon kit's shakedown).
@@ -195,7 +195,7 @@ server.tool("update_bridge", "Update the in-project bridge addon to match this M
 //    → respond { updated: true, restartRequired: true }  (restart_editor offered next)
 ```
 - npm package gains a `bundled-addon/` dir (the addon .cs files ship inside the server package — single source of truth, version-locked by the same publish).
-- `get_bridge_status` already returns `versionsAligned: false` — the MCP server instruction block tells Claude to *offer* `update_bridge` whenever it sees that.
+- `get_bridge_status` already returns `versionsAligned: false` — the MCP server instruction block tells Codex to *offer* `update_bridge` whenever it sees that.
 
 **Acceptance:** install old addon, run `update_bridge` (dry → real → restart) → status shows aligned versions.
 

@@ -1,4 +1,4 @@
-# Graph Report - sbox-claude  (2026-06-25)
+# Graph Report - sbox-codex  (2026-06-25)
 
 ## Corpus Check
 - 151 files · ~804,238 words
@@ -289,7 +289,7 @@
 3. `JsonElement` - 179 edges
 4. `Task` - 160 edges
 5. `BridgeClient` - 49 edges
-6. `ClaudeBridge` - 40 edges
+6. `CodexBridge` - 40 edges
 7. `PlaytestRunner` - 33 edges
 8. `Job` - 27 edges
 9. `Changelog` - 24 edges
@@ -297,15 +297,15 @@
 
 ## Surprising Connections (you probably didn't know these)
 - `Synced Day/Night Cycle with Smoothstep Twilight` --semantically_similar_to--> `create_day_night_clock Tool`  [INFERRED] [semantically similar]
-  plugins/sbox-claude/skills/sbox-cookbook/references/engine/worldgen-rendering.md → CHANGELOG.md
+  plugins/sbox-codex/skills/sbox-cookbook/references/engine/worldgen-rendering.md → CHANGELOG.md
 - `Raycast-Tag Interaction Dispatcher (abstract Interactable Component)` --semantically_similar_to--> `create_interactable Tool (IPressable surface)`  [INFERRED] [semantically similar]
-  plugins/sbox-claude/skills/sbox-cookbook/references/genres/document-sim.md → REVIEW-2026-06-09.md
+  plugins/sbox-codex/skills/sbox-cookbook/references/genres/document-sim.md → REVIEW-2026-06-09.md
 - `Host-Authoritative Money ([Sync(FromHost)] + gated mutators)` --semantically_similar_to--> `create_economy_wallet Tool`  [INFERRED] [semantically similar]
-  plugins/sbox-claude/skills/sbox-cookbook/references/genres/roleplay.md → CLAUDE.md
+  plugins/sbox-codex/skills/sbox-cookbook/references/genres/roleplay.md → CODEX.md
 - `razor_lint Tool` --references--> `UI & Razor Panels Reference`  [INFERRED]
-  docs/plans/2026-06-09-next-10-tools.md → plugins/sbox-claude/skills/sbox-api/references/ui-razor.md
+  docs/plans/2026-06-09-next-10-tools.md → plugins/sbox-codex/skills/sbox-api/references/ui-razor.md
 - `Centralized GameObjectSystem Agent Tick (No Per-Agent OnUpdate)` --semantically_similar_to--> `NpcBrain Finite State Machine (Idle/Patrol/Chase/Search/Flee/Ambush)`  [INFERRED] [semantically similar]
-  plugins/sbox-claude/skills/sbox-cookbook/references/engine/components-lifecycle.md → docs/superpowers/specs/2026-06-04-npc-brains-design.md
+  plugins/sbox-codex/skills/sbox-cookbook/references/engine/components-lifecycle.md → docs/superpowers/specs/2026-06-04-npc-brains-design.md
 
 ## Import Cycles
 - None detected.
@@ -321,11 +321,11 @@
 - **Four-Skill Suite: sbox-api + sbox-build-feature + sbox-cookbook + sbox-scaffold-game** — sbox_build_feature_skill, sbox_cookbook_skill, sbox_scaffold_game_skill, networking_reference [EXTRACTED 0.95]
 - **Game Director Scaffolds: create_economy_wallet + create_round_phase_machine + create_day_night_clock** — changelog_create_economy_wallet, changelog_create_round_phase_machine, changelog_create_day_night_clock, changelog_game_director_trio [EXTRACTED 1.00]
 - **Host-Migration Resilience Pattern (tags + synced state + watchdog)** — board_game_tag_based_membership, board_game_host_watchdog, party_microgame_tag_teardown, player_controller_host_migration_refs [INFERRED 0.85]
-- **Scaffold Generator Verification Pipeline (describe_type → generate → hotload → confirm)** — plans_next10_build_protocol, tool_backlog_sandbox_lint_requirement, claude_md_create_round_phase_machine, claude_md_create_economy_wallet [EXTRACTED 0.95]
-- **Host-Authoritative Economy Pattern (sync + gated mutators + persistence)** — roleplay_host_auth_money, claude_md_create_economy_wallet, tycoon_request_apply_confirm, services_backend_optimistic_store [INFERRED 0.85]
+- **Scaffold Generator Verification Pipeline (describe_type → generate → hotload → confirm)** — plans_next10_build_protocol, tool_backlog_sandbox_lint_requirement, codex_md_create_round_phase_machine, codex_md_create_economy_wallet [EXTRACTED 0.95]
+- **Host-Authoritative Economy Pattern (sync + gated mutators + persistence)** — roleplay_host_auth_money, codex_md_create_economy_wallet, tycoon_request_apply_confirm, services_backend_optimistic_store [INFERRED 0.85]
 - **NPC Brain Phase 1 Tool Group (create_npc_brain + place_patrol_route + assign_patrol_route + create_npc_spawner)** — docs_npc_brains_create_npc_brain, docs_npc_brains_place_patrol_route, docs_npc_brains_assign_patrol_route, docs_npc_brains_create_npc_spawner [EXTRACTED 1.00]
 - **Placement System: Ghost Preview + Client Validation + Host Commit** — cookbook_placement_ghost_preview, cookbook_placement_host_commit, cookbook_networking_host_authoritative_writes [INFERRED 0.85]
-- **sbox-claude Plugin Skill Bundle (cookbook + build-feature + setup + scaffold-game + sbox-api + sbox-game-dev)** — readme_sbox_cookbook_skill, readme_sbox_build_feature_skill, readme_sbox_setup_skill, readme_sbox_scaffold_game_skill, readme_sbox_game_dev_agent [EXTRACTED 1.00]
+- **sbox-codex Plugin Skill Bundle (cookbook + build-feature + setup + scaffold-game + sbox-api + sbox-game-dev)** — readme_sbox_cookbook_skill, readme_sbox_build_feature_skill, readme_sbox_setup_skill, readme_sbox_scaffold_game_skill, readme_sbox_game_dev_agent [EXTRACTED 1.00]
 - **Host-Authoritative Simulation Pattern (shared across shopkeeper, social-deduction, survival-horror, vehicles, AI director)** — shopkeeper_host_authority_idiom, social_deduction_authority_model, survival_horror_escalating_spawner, ai_director_composed_multipliers, vehicles_raycast_wheel [INFERRED 0.85]
 - **Playable Scaffold = sbox-scaffold-game skill orchestrating set_component_reference + add_component_to_new_object + create_objective_system** — scaffolds_scaffold_game_skill, scaffolds_set_component_reference, scaffolds_add_component_to_new_object, scaffolds_create_objective_system [EXTRACTED 0.95]
 - **Adaptive Pacing (AI Director) as Cross-Genre Concept used in survival-horror, social-deduction, and gacha-crawler** — ai_director_composed_multipliers, survival_horror_escalating_spawner, social_deduction_cmd_use_target, gacha_ev_normalization [INFERRED 0.75]
@@ -358,7 +358,7 @@ Nodes (48): Caller Information, Change Detection, Common Patterns, Connection, C
 
 ### Community 6 - "Bridge Test Plan"
 Cohesion: 0.50
-Nodes (4): Path Traversal Security Tests, Test Phase 1 - Foundation (15 tools), Error Recovery Test Scenario, s&box Claude Bridge Test Plan
+Nodes (4): Path Traversal Security Tests, Test Phase 1 - Foundation (15 tools), Error Recovery Test Scenario, s&box Codex Bridge Test Plan
 
 ### Community 7 - "Gameplay Scaffold Handlers"
 Cohesion: 0.06
@@ -394,7 +394,7 @@ Nodes (21): DriveJob, DrivePlayerHandler, DrivePlayerStatusHandler, PlayInputDri
 
 ### Community 15 - "Bridge Core & Coercion"
 Cohesion: 0.08
-Nodes (18): Action, DateTime, double, ClaudeBridge, PlayState, Func, HashSet, Menu (+10 more)
+Nodes (18): Action, DateTime, double, CodexBridge, PlayState, Func, HashSet, Menu (+10 more)
 
 ### Community 16 - "AI Director & Survival Patterns"
 Cohesion: 0.06
@@ -426,7 +426,7 @@ Nodes (29): CardDef GameResource — Cost, Type, Effects List, Art, Card-Battler
 
 ### Community 23 - "Install & Onboarding"
 Cohesion: 0.05
-Nodes (42): The Brain: sbox-cookbook as AI Knowledge Base, 1. Install the addon — *everyone*, 2. Connect the Claude side — *pick one*, 3. (Optional) Open the bridge dock, 4. Verify, A note on the reviews, Architecture, Build s&box games by talking to Claude — or any AI. (+34 more)
+Nodes (42): The Brain: sbox-cookbook as AI Knowledge Base, 1. Install the addon — *everyone*, 2. Connect the Codex side — *pick one*, 3. (Optional) Open the bridge dock, 4. Verify, A note on the reviews, Architecture, Build s&box games by talking to Codex — or any AI. (+34 more)
 
 ### Community 24 - "CI Parity Audit"
 Cohesion: 0.07
@@ -722,7 +722,7 @@ Nodes (14): SyncFlags.FromHost + Private Setter Pattern, INetworkListener Interf
 
 ### Community 99 - "Community 99"
 Cohesion: 0.06
-Nodes (34): A. Claude Code plugin — easiest, B. npm + manual MCP registration, C. Fully manual / from source, Characters & models, Components, Console & C# execution, Discovery & library detection, Documentation search (+26 more)
+Nodes (34): A. Codex plugin — easiest, B. npm + manual MCP registration, C. Fully manual / from source, Characters & models, Components, Console & C# execution, Discovery & library detection, Documentation search (+26 more)
 
 ### Community 100 - "Community 100"
 Cohesion: 0.19
@@ -750,11 +750,11 @@ Nodes (13): Alternative: EventBus money (non-`[Sync]`) vs `[Sync(FromHost)]`, An
 
 ### Community 106 - "Community 106"
 Cohesion: 0.14
-Nodes (17): Component, CultureInfo, DebugDrawKind, ClaudeDebugDraw, DebugClearHandler, DebugDrawBoxHandler, DebugDrawHelpers, DebugDrawLineHandler (+9 more)
+Nodes (17): Component, CultureInfo, DebugDrawKind, CodexDebugDraw, DebugClearHandler, DebugDrawBoxHandler, DebugDrawHelpers, DebugDrawLineHandler (+9 more)
 
 ### Community 107 - "Community 107"
 Cohesion: 0.14
-Nodes (13): MCP Server (TypeScript/Node), 1. Install the bridge addon in s&box, 2. Register the MCP server with Claude Code, 3. Open s&box, Documentation, Fastest install — the Claude Code plugin, How it works, License (+5 more)
+Nodes (13): MCP Server (TypeScript/Node), 1. Install the bridge addon in s&box, 2. Register the MCP server with Codex, 3. Open s&box, Documentation, Fastest install — the Codex plugin, How it works, License (+5 more)
 
 ### Community 108 - "Community 108"
 Cohesion: 0.15
@@ -778,7 +778,7 @@ Nodes (22): Build the MCP server, Configuration, Environment variables, Fixing a
 
 ### Community 113 - "Community 113"
 Cohesion: 0.17
-Nodes (11): License, Credits, Install the plugin, sbox-claude — Claude Code Plugin, Troubleshooting, Using the agent, Using the skill, Verify it's working (+3 more)
+Nodes (11): License, Credits, Install the plugin, sbox-codex — Codex Plugin, Troubleshooting, Using the agent, Using the skill, Verify it's working (+3 more)
 
 ### Community 114 - "Community 114"
 Cohesion: 0.22
@@ -850,7 +850,7 @@ Nodes (9): AI as Client-Owned Robot Human Bot, Elo Rating (textbook K=32 copy-pa
 
 ### Community 132 - "Community 132"
 Cohesion: 0.17
-Nodes (11): `copy_asset_with_dependencies` (Wave 2), `create_interactable` (Wave 1), `create_save_system` (Wave 2), `create_weighted_loot_table` (Wave 1), `razor_lint` (Wave 2), s&box Claude Bridge v1.12.0 -- Six New Tools, a CI Gate, and a Whitelist Correction, `sandbox_lint` (Wave 1), The New Tools (+3 more)
+Nodes (11): `copy_asset_with_dependencies` (Wave 2), `create_interactable` (Wave 1), `create_save_system` (Wave 2), `create_weighted_loot_table` (Wave 1), `razor_lint` (Wave 2), s&box Codex Bridge v1.12.0 -- Six New Tools, a CI Gate, and a Whitelist Correction, `sandbox_lint` (Wave 1), The New Tools (+3 more)
 
 ### Community 133 - "Community 133"
 Cohesion: 0.22
@@ -930,11 +930,11 @@ Nodes (11): [1.1.0] — 2026-04-27, Added — Code Discovery, Added — Componen
 
 ### Community 152 - "Community 152"
 Cohesion: 0.20
-Nodes (9): `create_inventory`, `create_leaderboard_panel`, `create_placement_mode`, `create_stat_modifier_system`, Hardened, s&box Claude Bridge v1.13.0 -- The 10-Tool Plan is Complete, The New Tools, The Verify-Gate Works (+1 more)
+Nodes (9): `create_inventory`, `create_leaderboard_panel`, `create_placement_mode`, `create_stat_modifier_system`, Hardened, s&box Codex Bridge v1.13.0 -- The 10-Tool Plan is Complete, The New Tools, The Verify-Gate Works (+1 more)
 
 ### Community 153 - "Community 153"
 Cohesion: 0.20
-Nodes (9): 1. `debug_draw_*` + `debug_clear`  — BUILD FIRST  (risk: low-med — API confirmed), 2. `set_time_scale`  — CHEAPEST WIN  (risk: low — API confirmed), 3. `get_profiler_stats`  (risk: low — API confirmed), 4. `run_tests` + `get_test_results`  (risk: HIGH — likely no clean path, do LAST), 5. `sim_advance` / frame-stepping  — DEFER  (risk: high), Build order, Candidates, ranked, Progress (2026-06-18) — branch `claude/unity-carryover-meta-tools` (+1 more)
+Nodes (9): 1. `debug_draw_*` + `debug_clear`  — BUILD FIRST  (risk: low-med — API confirmed), 2. `set_time_scale`  — CHEAPEST WIN  (risk: low — API confirmed), 3. `get_profiler_stats`  (risk: low — API confirmed), 4. `run_tests` + `get_test_results`  (risk: HIGH — likely no clean path, do LAST), 5. `sim_advance` / frame-stepping  — DEFER  (risk: high), Build order, Candidates, ranked, Progress (2026-06-18) — branch `codex/unity-carryover-meta-tools` (+1 more)
 
 ### Community 154 - "Community 154"
 Cohesion: 0.20
@@ -978,7 +978,7 @@ Nodes (7): [1.12.0] -- 2026-06-09, Added -- CI & gates, Added -- Wave 1 tools (c
 
 ### Community 164 - "Community 164"
 Cohesion: 0.33
-Nodes (5): Built on the current API — verified by reflection, Get it, s&box Claude Bridge v1.9.0 — We Gave the AI a Brain, See it, verify it, The Brain
+Nodes (5): Built on the current API — verified by reflection, Get it, s&box Codex Bridge v1.9.0 — We Gave the AI a Brain, See it, verify it, The Brain
 
 ### Community 165 - "Community 165"
 Cohesion: 0.29
@@ -1030,7 +1030,7 @@ Nodes (5): Always-On Editor Tick Independent of Widget Visibility, Sanctioned Lo
 
 ### Community 177 - "Community 177"
 Cohesion: 0.40
-Nodes (5): Community 81 — Scaffold Family Cluster (Create*Handler + ScaffoldHelpers), Graph Report — 2838 Nodes, 3758 Edges, 147 Communities, IBridgeHandler as Architectural Spine (176 edges, highest betweenness), Semantic Graphify Pass — No API Key Required (Claude Subagents), Graphify Bridge Map Refresh (2026-06-09)
+Nodes (5): Community 81 — Scaffold Family Cluster (Create*Handler + ScaffoldHelpers), Graph Report — 2838 Nodes, 3758 Edges, 147 Communities, IBridgeHandler as Architectural Spine (176 edges, highest betweenness), Semantic Graphify Pass — No API Key Required (Codex Subagents), Graphify Bridge Map Refresh (2026-06-09)
 
 ### Community 178 - "Community 178"
 Cohesion: 0.40
@@ -1046,7 +1046,7 @@ Nodes (3): BuildTerrainMeshHandler, List<(Vector2 pos, float radius)>, List<(Vec
 
 ### Community 181 - "Community 181"
 Cohesion: 0.40
-Nodes (5): Bridge addon not bundled — installed separately in project Libraries/, sbox-mcp-server npm package (fetched via npx), sbox-claude Claude Code Plugin README, Plugin bundled skills (sbox-build-feature, sbox-api, sbox-cookbook, sbox-scaffold-game, sbox-setup), Plugin version pinning (sbox-mcp-server@1.9.0)
+Nodes (5): Bridge addon not bundled — installed separately in project Libraries/, sbox-mcp-server npm package (fetched via npx), sbox-codex Codex Plugin README, Plugin bundled skills (sbox-build-feature, sbox-api, sbox-cookbook, sbox-scaffold-game, sbox-setup), Plugin version pinning (sbox-mcp-server@1.9.0)
 
 ### Community 182 - "Community 182"
 Cohesion: 0.40
@@ -1086,7 +1086,7 @@ Nodes (4): CI Parity Audit Script (audit-parity.mjs + GitHub Action), update_bri
 
 ### Community 191 - "Community 191"
 Cohesion: 0.50
-Nodes (4): Knowledge Graph Communities (147 total), Graph Report sbox-claude 2026-06-09, IBridgeHandler god node (176 edges), 1854 isolated nodes knowledge gaps
+Nodes (4): Knowledge Graph Communities (147 total), Graph Report sbox-codex 2026-06-09, IBridgeHandler god node (176 edges), 1854 isolated nodes knowledge gaps
 
 ### Community 192 - "Community 192"
 Cohesion: 0.50
@@ -1166,7 +1166,7 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `IBridgeHandler` connect `Physics & VFX Handlers` to `Camera & Lighting Handlers`, `Component & Scene Handlers`, `Networking Codegen Handlers`, `Community 102`, `Gameplay Scaffold Handlers`, `Community 169`, `Community 106`, `World-Gen Handlers`, `Level Layout Handlers`, `Play-Input Driver`, `Bridge Core & Coercion`, `Community 143`, `Community 179`, `Community 180`, `Community 149`, `Community 55`, `NPC Brain Handlers`, `Community 122`?**
   _High betweenness centrality (0.023) - this node is a cross-community bridge._
-- **Why does `ClaudeBridge` connect `Bridge Core & Coercion` to `Physics & VFX Handlers`, `Camera & Lighting Handlers`, `Component & Scene Handlers`, `Networking Codegen Handlers`, `Level Layout Handlers`?**
+- **Why does `CodexBridge` connect `Bridge Core & Coercion` to `Physics & VFX Handlers`, `Camera & Lighting Handlers`, `Component & Scene Handlers`, `Networking Codegen Handlers`, `Level Layout Handlers`?**
   _High betweenness centrality (0.006) - this node is a cross-community bridge._
 - **Why does `Communities (257 total, 48 thin omitted)` connect `Graph Report Meta` to `Community 116`?**
   _High betweenness centrality (0.006) - this node is a cross-community bridge._

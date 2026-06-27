@@ -1,6 +1,6 @@
 # Installation Guide
 
-There is **one** correct place to install the Claude Bridge: inside your s&box **project's** `Libraries/` folder. s&box's global `addons/` folder is built-in only and **will not compile custom C#** — if anything tells you to install there, ignore it. The installer below handles this for you.
+There is **one** correct place to install the Codex Bridge: inside your s&box **project's** `Libraries/` folder. s&box's global `addons/` folder is built-in only and **will not compile custom C#** — if anything tells you to install there, ignore it. The installer below handles this for you.
 
 Total setup time: ~5 minutes.
 
@@ -8,7 +8,7 @@ Total setup time: ~5 minutes.
 
 - **s&box** installed via Steam
 - **Node.js 18+** ([download](https://nodejs.org/))
-- **Claude Code** ([setup guide](https://docs.anthropic.com/en/docs/claude-code))
+- **Codex** ([setup guide](https://docs.openai.com/en/docs/codex-code))
 - An s&box **project** you intend to use the bridge with (create one in s&box first if you don't have one yet)
 
 ---
@@ -18,8 +18,8 @@ Total setup time: ~5 minutes.
 ### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
+git clone https://github.com/LatterDay/Sbox-Codex.git
+cd sbox-codex
 
 # Auto-detects your project if you have exactly one in Documents\s&box projects
 .\install.ps1
@@ -35,8 +35,8 @@ cd sbox-claude
 ### Linux / WSL / macOS
 
 ```bash
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
+git clone https://github.com/LatterDay/Sbox-Codex.git
+cd sbox-codex
 
 ./install.sh                                # auto-detect
 ./install.sh /path/to/your/sbox/project     # explicit
@@ -44,9 +44,9 @@ cd sbox-claude
 ./install.sh --remove-stale                 # also clean old addons-folder installs
 ```
 
-The installer copies two files into `<your-project>/Libraries/claudebridge/`:
+The installer copies two files into `<your-project>/Libraries/codexbridge/`:
 
-- `claudebridge.sbproj` (library manifest)
+- `codexbridge.sbproj` (library manifest)
 - `Editor/MyEditorMenu.cs` (the bridge itself)
 
 s&box will auto-generate the matching `.csproj` files on next launch.
@@ -59,16 +59,16 @@ npm install
 npm run build
 ```
 
-### Register with Claude Code (one-time)
+### Register with Codex (one-time)
 
 ```bash
-claude mcp add sbox -- node /full/path/to/sbox-claude/sbox-mcp-server/dist/index.js
+codex mcp add sbox -- node /full/path/to/sbox-codex/sbox-mcp-server/dist/index.js
 ```
 
 Or, if the published npm package is available:
 
 ```bash
-claude mcp add sbox -- npx sbox-mcp-server
+codex mcp add sbox -- npx sbox-mcp-server
 ```
 
 ---
@@ -77,20 +77,20 @@ claude mcp add sbox -- npx sbox-mcp-server
 
 1. Open s&box and load your project.
 2. Find your project folder (default: `Documents\s&box projects\<yourgame>`).
-3. Create `Libraries\claudebridge\Editor\` inside that project.
-4. Copy `sbox-bridge-addon\claudebridge.sbproj` from this repo into `Libraries\claudebridge\`.
-5. Copy `sbox-bridge-addon\Editor\MyEditorMenu.cs` from this repo into `Libraries\claudebridge\Editor\`.
+3. Create `Libraries\codexbridge\Editor\` inside that project.
+4. Copy `sbox-bridge-addon\codexbridge.sbproj` from this repo into `Libraries\codexbridge\`.
+5. Copy `sbox-bridge-addon\Editor\MyEditorMenu.cs` from this repo into `Libraries\codexbridge\Editor\`.
 6. Restart s&box.
 
-> Do **not** copy `claudebridge.editor.csproj` — that file has hard-coded paths to s&box on a specific machine. s&box will regenerate a fresh one against your local install on next launch.
+> Do **not** copy `codexbridge.editor.csproj` — that file has hard-coded paths to s&box on a specific machine. s&box will regenerate a fresh one against your local install on next launch.
 
 ---
 
 ## Verify it's working
 
 1. Start (or restart) s&box and load your project.
-2. **View → Claude Bridge** to open the dock. **The dock must stay visible** — the bridge's frame handler only fires while the dock is on-screen.
-3. In Claude Code, ask:
+2. Open your s&box project. The **View → Codex Bridge** dock is optional; the bridge runs from a static editor-frame handler.
+3. In Codex, ask:
 
 ```
 "Check the bridge status."
@@ -111,14 +111,14 @@ If both work, you're set. If anything fails, jump to `TROUBLESHOOTING.md`.
 ### Update the MCP server
 
 ```bash
-cd sbox-claude
+cd sbox-codex
 git pull
 cd sbox-mcp-server
 npm install
 npm run build
 ```
 
-Restart any open Claude Code sessions so they pick up the new server.
+Restart any open Codex sessions so they pick up the new server.
 
 ### Update the bridge addon
 
@@ -129,7 +129,7 @@ Re-run the installer — it overwrites the project copy:
 ./install.sh      # Linux/Mac
 ```
 
-Then in s&box, ask Claude to call `trigger_hotload` (or restart s&box if hotload gets stuck).
+Then in s&box, ask Codex to call `trigger_hotload` (or restart s&box if hotload gets stuck).
 
 ---
 
@@ -154,11 +154,11 @@ This almost always means the MCP server (Node) and the s&box addon (C#) resolved
 **different** temp directories — Node uses `os.tmpdir()` (reads `TEMP` first), C#
 uses `Path.GetTempPath()` (reads `TMP` first), and on some machines those differ.
 
-1. In s&box, open **Editor → Claude Bridge → Status** (or check the editor
+1. In s&box, open **Editor → Codex Bridge → Status** (or check the editor
    console for `[SboxBridge] Bridge … IPC at <dir>`). Note that directory.
 2. Point the MCP server at the same directory:
    ```bash
-   claude mcp add sbox --env SBOX_BRIDGE_IPC_DIR="<that dir>" -- npx sbox-mcp-server
+   codex mcp add sbox --env SBOX_BRIDGE_IPC_DIR="<that dir>" -- npx sbox-mcp-server
    ```
 
 The addon side resolves its directory from `Path.GetTempPath()` only and does not
@@ -169,15 +169,15 @@ MCP-server side.
 
 ## Uninstall
 
-### Remove the MCP server from Claude Code
+### Remove the MCP server from Codex
 
 ```bash
-claude mcp remove sbox
+codex mcp remove sbox
 ```
 
 ### Remove the bridge addon from your project
 
-Delete `<your-project>/Libraries/claudebridge/`.
+Delete `<your-project>/Libraries/codexbridge/`.
 
 ---
 
@@ -198,8 +198,8 @@ The bridge can be published to the s&box Asset Library so users can install it w
 
 ### Steps
 
-1. Update `Org` and `Ident` in `sbox-bridge-addon/claudebridge.sbproj` to match your sbox.game organization.
-2. Open the bridge as its own project in s&box editor (open the `claudebridge.sbproj` directly).
+1. Update `Org` and `Ident` in `sbox-bridge-addon/codexbridge.sbproj` to match your sbox.game organization.
+2. Open the bridge as its own project in s&box editor (open the `codexbridge.sbproj` directly).
 3. **Edit → Publish Project**, add a thumbnail and description, set visibility to Public, **Publish**.
 
 The addon is then available in the in-editor Asset Library under the chosen name.

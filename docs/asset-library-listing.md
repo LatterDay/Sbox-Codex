@@ -1,34 +1,34 @@
-# Claude Bridge for s&box
-### Build s&box games by talking to Claude — or any AI.
+# Codex Bridge for s&box
+### Build s&box games by talking to Codex — or any AI.
 
-**200+ tools · 192 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Claude builds it, screenshots it, and fixes it.
+**200+ tools · 192 handlers** that let an AI work *inside* your s&box editor — writing scripts, creating GameObjects, wiring components, and building whole systems: physics, networking, UI, lighting, characters, terrain, and more. You describe what you want; Codex builds it, screenshots it, and fixes it.
 
 But the tools aren't the real story. **The bridge ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
-📖 **Full docs, guides & changelog:** **[sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge)** — [setup](https://sboxskins.gg/claudebridge/plugin) · [changelog](https://sboxskins.gg/claudebridge/changelog) · [troubleshooting](https://sboxskins.gg/claudebridge/troubleshooting) · [FAQ](https://sboxskins.gg/claudebridge/faq)
+📖 **Full docs, guides & changelog:** **[sboxskins.gg/codexbridge](https://sboxskins.gg/codexbridge)** — [setup](https://sboxskins.gg/codexbridge/plugin) · [changelog](https://sboxskins.gg/codexbridge/changelog) · [troubleshooting](https://sboxskins.gg/codexbridge/troubleshooting) · [FAQ](https://sboxskins.gg/codexbridge/faq)
 
-📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LouSputthole/Sbox-Claude/issues)
+📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LatterDay/Sbox-Codex/issues)
 
 ---
 
 ## ⚡ Start here: the one-command plugin (recommended)
 
-If you use Claude Code, install the plugin first. It's the whole experience in one shot:
+If you use Codex, install the plugin first. It's the whole experience in one shot:
 
-1. `/plugin marketplace add LouSputthole/Sbox-Claude` — registers the repo as a plugin source
-2. `/plugin install sbox-claude` — installs the plugin
-3. Restart Claude Code (or run `/reload-plugins`)
+1. `codex plugin marketplace add LatterDay/Sbox-Codex` — registers the repo as a plugin source
+2. `codex plugin add sbox-codex@sbox-codex` — installs the plugin
+3. Restart Codex (or run `/reload-plugins`)
 
 That single install gives you:
 
 - **The brain** — `sbox-cookbook`, a code-grounded recipe library of how real s&box games are built (the #1 reason to use this — see below).
 - **A specialist agent** tuned to build games *with the bridge* — it knows the workflow, the gotchas, and when to reach for the cookbook.
-- **The screenshot workflow skill** — codifies the build → screenshot → verify → fix loop so Claude isn't building blind.
+- **The screenshot workflow skill** — codifies the build → screenshot → verify → fix loop so Codex isn't building blind.
 - **Onboarding** — on first connect it checks the bridge, detects your libraries, and suggests a first move.
 
 You still install the **s&box addon** from this page (see **Install** below). The plugin always pulls the latest MCP server automatically.
 
-Not on Claude Code? The bridge still works with any MCP client via npm (see **Install → Method B**) — you just wire the brain in yourself.
+Not on Codex? The bridge still works with any MCP client via npm (see **Install → Method B**) — you just wire the brain in yourself.
 
 ---
 
@@ -54,15 +54,15 @@ And it carries the cross-cutting laws that bite *every* system — authority gat
 
 ## A note on the reviews
 
-I've seen the thumbs-down reviews from early in the Claude Bridge release, and I want to address them directly.
+I've seen the thumbs-down reviews from early in the Codex Bridge release, and I want to address them directly.
 
 I'm quite certain it shipped in a rough, broken state for the first week or two — my apologies for that. Every review since has been positive, so I'm glad it's resolved. Either way, I want the feedback.
 
-I built this tool for people who have game ideas but don't necessarily know how to code. The goal isn't to replace creativity. It's to give more people a way to build their dream game by letting Claude act like a coding assistant *inside* the editor. You describe what you want, and Claude helps write scripts, create objects, wire components, and build systems that would otherwise be out of reach for non-programmers.
+I built this tool for people who have game ideas but don't necessarily know how to code. The goal isn't to replace creativity. It's to give more people a way to build their dream game by letting Codex act like a coding assistant *inside* the editor. You describe what you want, and Codex helps write scripts, create objects, wire components, and build systems that would otherwise be out of reach for non-programmers.
 
 That said — if the tool didn't work for you, that matters. A bad install, a broken tool call, a timeout, a confusing setup step, or missing docs is on me to fix.
 
-The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Claude can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games, plus a direct reference to the live s&box API. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
+The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Codex can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games, plus a direct reference to the live s&box API. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
 
 If you had a bad experience, please reach out: **sboxskins@gmail.com**. Tell me what happened, what broke, what confused you, or what the bridge should do better. I'll move quickly on real issues and keep improving it.
 
@@ -72,30 +72,30 @@ Thanks to everyone giving it a shot, testing it, breaking it, and helping make i
 
 ## How it works
 
-You describe what you want. Claude does the work.
+You describe what you want. Codex does the work.
 
 > **You:** *"Make a player controller with WASD, mouse look, double-jump, and a flashlight."*
-> **Claude:** writes the script, adds the component, wires the input, sets up the spotlight — then aims a camera, screenshots it, and checks its own work.
+> **Codex:** writes the script, adds the component, wires the input, sets up the spotlight — then aims a camera, screenshots it, and checks its own work.
 
 > **You:** *"Build me an inventory system with a hotbar."*
-> **Claude:** opens the cookbook's inventory recipe, builds it the way real games do (host-authoritative items, networked, drag-and-drop UI) — then runs `networking_lint` and `inspect_networked_object` to confirm it actually replicates.
+> **Codex:** opens the cookbook's inventory recipe, builds it the way real games do (host-authoritative items, networked, drag-and-drop UI) — then runs `networking_lint` and `inspect_networked_object` to confirm it actually replicates.
 
 **✅ Great at — coding game systems through conversation.**
 Player controllers, NPC behavior, networking & multiplayer, UI panels, sound events, prefab wiring, runtime game logic, custom components. With the brain in the loop, it builds inventories, economies, save systems, shops, progression, and whole genre loops the way shipped games do — clean, working s&box C#, iterating from your feedback.
 
 **🟡 Serviceable at — map building.**
-Terrain sculpting, forest/cave/trail generation, prop scatter. Claude can **aim a camera and screenshot its own work**, so it's no longer building blind — but final visual polish still wants your eyes.
+Terrain sculpting, forest/cave/trail generation, prop scatter. Codex can **aim a camera and screenshot its own work**, so it's no longer building blind — but final visual polish still wants your eyes.
 
 **⛔ Not yet — particle authoring.**
-Claude can *play* a compiled `.vpcf` particle, but s&box compiles those in its particle editor, not through the bridge. Build the effect in-editor, and Claude can spawn + place it.
+Codex can *play* a compiled `.vpcf` particle, but s&box compiles those in its particle editor, not through the bridge. Build the effect in-editor, and Codex can spawn + place it.
 
 ---
 
 ## Using the plugin
 
-Once it's installed and the bridge is connected, you just **talk to Claude in your project folder** — there are no commands to memorize. A few ways to drive it:
+Once it's installed and the bridge is connected, you just **talk to Codex in your project folder** — there are no commands to memorize. A few ways to drive it:
 
-**1. Describe what you want.** Plain English; Claude writes the C#, wires it up, and checks its own work:
+**1. Describe what you want.** Plain English; Codex writes the C#, wires it up, and checks its own work:
 > *"Add a double-jump and a sprint with a stamina bar."*
 > *"Make the campfire flicker and cast warm light at night."*
 > *"Spawn 5 patrolling guards that chase the player on sight."*
@@ -105,12 +105,12 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 > *"Give me a save system with autosave and versioned saves."*
 > *"Add an inventory with a hotbar and drag-and-drop."*
 
-**3. Let it verify itself.** For anything visual, Claude aims a camera, screenshots it, reads the result back, and fixes the angle/lighting before showing you. For multiplayer it runs `networking_lint` + `inspect_networked_object` to confirm state actually replicates. You don't have to ask — the `sbox-build-feature` skill enforces the build → screenshot → verify → fix loop automatically.
+**3. Let it verify itself.** For anything visual, Codex aims a camera, screenshots it, reads the result back, and fixes the angle/lighting before showing you. For multiplayer it runs `networking_lint` + `inspect_networked_object` to confirm state actually replicates. You don't have to ask — the `sbox-build-feature` skill enforces the build → screenshot → verify → fix loop automatically.
 
-**4. Hand off big tasks to the specialist agent.** For a self-contained feature, point Claude at the bundled agent:
+**4. Hand off big tasks to the specialist agent.** For a self-contained feature, point Codex at the bundled agent:
 > *"Use the sbox-game-dev agent to build a wave-survival mode with a round timer, escalating spawns, and a HUD."*
 
-**Working for you under the hood:** the `sbox-cookbook` brain (proven patterns from 51 shipped games), `sbox-api` (correct s&box C# — no Unity-pattern hallucination), and `sbox-build-feature` (the screenshot loop). You can also invoke any skill explicitly, e.g. `/sbox-claude:sbox-build-feature`. On first connect, the onboarding wizard checks the bridge, detects your installed libraries, and suggests a first move.
+**Working for you under the hood:** the `sbox-cookbook` brain (proven patterns from 51 shipped games), `sbox-api` (correct s&box C# — no Unity-pattern hallucination), and `sbox-build-feature` (the screenshot loop). You can also invoke any skill explicitly, e.g. `/sbox-codex:sbox-build-feature`. On first connect, the onboarding wizard checks the bridge, detects your installed libraries, and suggests a first move.
 
 **Tips for best results:** save before a big batch (Ctrl+S), keep `.scene` files in Git, and ask for systems *by name* so the brain routes you to a proven recipe. Don't edit the scene during play mode — the bridge refuses it with a clear message.
 
@@ -148,7 +148,7 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 
 **Debug & playtest** — draw debug shapes (`debug_draw_line` / `box` / `sphere` / `ray`) that render in the editor **and** in play; pause / slow-mo / fast-forward the running game (`set_time_scale`); and read live performance counters — FPS, frame/GPU ms, memory, per-system timings (`get_profiler_stats`). **Verify a playable loop** with `playtest` — a scripted gameplay sequence (move / look / action / jump / set / wait / capture / assert) run in play mode that asserts results *in-frame* (so a jump's transient airborne frame is catchable), with `playtest_status` returning the pass/fail transcript.
 
-**Docs & live API search** — Claude searches the **official s&box docs pulled straight from Facepunch's GitHub** (`search_docs` / `get_doc_page` / `list_doc_categories`) *and* inspects the **real loaded SDK** by live reflection (`describe_type` / `search_types` / `get_method_signature` — every type, method, and property the editor actually has). So it works from the current API and real docs instead of stale guesses — a big reason the generated C# actually compiles.
+**Docs & live API search** — Codex searches the **official s&box docs pulled straight from Facepunch's GitHub** (`search_docs` / `get_doc_page` / `list_doc_categories`) *and* inspects the **real loaded SDK** by live reflection (`describe_type` / `search_types` / `get_method_signature` — every type, method, and property the editor actually has). So it works from the current API and real docs instead of stale guesses — a big reason the generated C# actually compiles.
 
 **Publishing** — validate the project, configure settings, set thumbnails, fetch package details.
 
@@ -198,25 +198,25 @@ Once it's installed and the bridge is connected, you just **talk to Claude in yo
 
 ### v1.6 — animation & better eyes
 - **Bring characters to life** — `set_animgraph_param` drives a Citizen's AnimationGraph (walk, crouch, aim, gestures); `play_animation` plays a named sequence; `list_animations` shows every animation a model has (a Citizen has 500+).
-- **See it from every side** — `screenshot_orbit` captures an object from several angles in one call, so Claude can verify 3D work from the front, back, and sides instead of guessing from a single view.
+- **See it from every side** — `screenshot_orbit` captures an object from several angles in one call, so Codex can verify 3D work from the front, back, and sides instead of guessing from a single view.
 - **Know how big things are** — `get_bounds` returns an object's world-space size, center, and extents for precise placement and framing.
 
 ### v1.5 — reliability & autonomy
-- **Claude reads its own errors** — `read_log` + `get_compile_errors` surface compile failures and logs, even when the editor has stalled. No more guessing.
-- **Aimed screenshots** — `screenshot_from` points the camera at any object/point so Claude can actually *see* what it built (and fix the angle).
-- **Builds on what you already have** — `list_libraries` detects installed addons (like the Shrimple Character Controller) so Claude drives them instead of reinventing.
-- **Compile-from-the-bridge** — `recompile_asset` compiles a material/asset Claude writes or edits.
+- **Codex reads its own errors** — `read_log` + `get_compile_errors` surface compile failures and logs, even when the editor has stalled. No more guessing.
+- **Aimed screenshots** — `screenshot_from` points the camera at any object/point so Codex can actually *see* what it built (and fix the angle).
+- **Builds on what you already have** — `list_libraries` detects installed addons (like the Shrimple Character Controller) so Codex drives them instead of reinventing.
+- **Compile-from-the-bridge** — `recompile_asset` compiles a material/asset Codex writes or edits.
 - **Nav + spatial** — bake navmesh, query paths, sphere/box overlap.
-- **Auto-restart** — the bridge can **restart the s&box editor itself** (`restart_editor`) to recompile and apply changes, so new code and bridge updates take effect *without you manually restarting*. Claude closes its own edit → compile → verify loop.
+- **Auto-restart** — the bridge can **restart the s&box editor itself** (`restart_editor`) to recompile and apply changes, so new code and bridge updates take effect *without you manually restarting*. Codex closes its own edit → compile → verify loop.
 - **In-session docs search** — query the official s&box docs without leaving the conversation.
 - **Security & correctness pass** — handler errors now report failure (previously masked as success), path-traversal protection on all file ops, atomic IPC, and honest tool schemas.
 
 ### v1.4 — the Scene Authoring update (+32 tools)
-The bridge went from editing one object at a time to composing entire scenes: **lighting & atmosphere** (lights, fog, post-FX, skyboxes, reflection probes, mood presets), **characters** (spawn / dress / pose Citizens, equip props, gaze, ragdolls, expressions), **scene layout** (snap, align, distribute, grid-duplicate, measure), **environment** (seeded scatter, randomize, group), and **object utilities** (find by name/component/tag, bulk tint/model/tags). *Verifiable-first:* every non-experimental tool renders in the editor or returns concrete data, so Claude can confirm its own work.
+The bridge went from editing one object at a time to composing entire scenes: **lighting & atmosphere** (lights, fog, post-FX, skyboxes, reflection probes, mood presets), **characters** (spawn / dress / pose Citizens, equip props, gaze, ragdolls, expressions), **scene layout** (snap, align, distribute, grid-duplicate, measure), **environment** (seeded scatter, randomize, group), and **object utilities** (find by name/component/tag, bulk tint/model/tags). *Verifiable-first:* every non-experimental tool renders in the editor or returns concrete data, so Codex can confirm its own work.
 
 ### v1.3 — stability & liveness
 - **Honest connection status** — a real heartbeat replaced the old "always connected" false positive; a closed/crashed editor now shows as disconnected within seconds.
-- **Frame loop runs without the dock** — the request queue + heartbeat moved to a **static** frame handler, so tool calls process whether or not the Claude Bridge dock is open on-screen.
+- **Frame loop runs without the dock** — the request queue + heartbeat moved to a **static** frame handler, so tool calls process whether or not the Codex Bridge dock is open on-screen.
 - **Clearer timeouts** — they now tell you *which* side failed (editor not running, wrong temp dir, stalled handler, IPC mismatch). Realign with `SBOX_BRIDGE_IPC_DIR`.
 - **Editor bootstrap crash fixed.**
 
@@ -230,8 +230,8 @@ Reliable first-time install (correct `Libraries/` target), no more `tool.frame` 
 ## Under the hood
 
 - **File-based IPC — no network, no open ports.** The MCP server writes request files to a temp dir; the addon polls them inside the editor, runs them on the main editor thread, and writes responses back. Everything stays on your machine.
-- **Two pieces** — a Node.js MCP server (talks to Claude Code) + a C# editor addon (does the work in s&box).
-- **Self-verifying** — Claude screenshots its work, reads its own logs/compile errors, and can lint networking + inspect what replicates, so it can close the build-and-check loop instead of hoping.
+- **Two pieces** — a Node.js MCP server (talks to Codex) + a C# editor addon (does the work in s&box).
+- **Self-verifying** — Codex screenshots its work, reads its own logs/compile errors, and can lint networking + inspect what replicates, so it can close the build-and-check loop instead of hoping.
 - **Fault-tolerant** — a single broken tool is isolated; it can't take the whole bridge offline.
 - **Path-safe & play-mode-safe** — file ops are confined to your project; scene edits are refused during play mode with a clear error.
 - **Library-aware** — detects the addons already in your project and builds on them.
@@ -240,29 +240,29 @@ Reliable first-time install (correct `Libraries/` target), no more `tool.frame` 
 
 ## Install
 
-**Two pieces:** the **addon** (runs in s&box) and the **MCP server** (a Node.js process linking Claude Code to the addon over file IPC). Install the addon once, then connect the Claude side with whichever method you like.
+**Two pieces:** the **addon** (runs in s&box) and the **MCP server** (a Node.js process linking Codex to the addon over file IPC). Install the addon once, then connect the Codex side with whichever method you like.
 
 ### 1. Install the addon — *everyone*
-Click **Install** on this Asset Library page. s&box drops it into your project's `Libraries/claudebridge/` automatically.
+Click **Install** on this Asset Library page. s&box drops it into your project's `Libraries/codexbridge/` automatically.
 
-### 2. Connect the Claude side — *pick one*
+### 2. Connect the Codex side — *pick one*
 
-**Method A — Claude Code plugin (recommended).** Use the one-command plugin at the top of this page (`/plugin install sbox-claude`, after `/plugin marketplace add LouSputthole/Sbox-Claude`). It registers the MCP server for you and keeps it updated — *and* bundles the cookbook brain, the specialist agent, the screenshot workflow skill, and onboarding. This is the path that gives you the full experience.
+**Method A — Codex plugin (recommended).** Use the plugin commands at the top of this page (`codex plugin add sbox-codex@sbox-codex`, after `codex plugin marketplace add LatterDay/Sbox-Codex`). It registers the MCP server for you and keeps it updated — *and* bundles the cookbook brain, the specialist agent, the screenshot workflow skill, and onboarding. This is the path that gives you the full experience.
 
 **Method B — manual / npm.**
 1. Install **Node.js 18+** → https://nodejs.org/
-2. Install **Claude Code**, if you don't have it → https://docs.anthropic.com/en/docs/claude-code
+2. Install **Codex**, if you don't have it → https://docs.openai.com/en/docs/codex-code
 3. Register the server in a terminal:
    ```
-   claude mcp add sbox -- npx sbox-mcp-server@latest
+   codex mcp add sbox -- npx sbox-mcp-server@latest
    ```
-   (Works with any MCP client, not just Claude Code — you just don't get the bundled brain/agent/skill.)
+   (Works with any MCP client, not just Codex — you just don't get the bundled brain/agent/skill.)
 
 ### 3. (Optional) Open the bridge dock
-In s&box: **View → Claude Bridge** opens the Status dock, handy for confirming the connection at a glance. **You do *not* need to keep it open** — since v1.3 the bridge's frame loop is a **static** handler that processes requests whether or not the dock is on-screen. Open it if you want the status readout; close it if you'd rather not.
+In s&box: **View → Codex Bridge** opens the Status dock, handy for confirming the connection at a glance. **You do *not* need to keep it open** — since v1.3 the bridge's frame loop is a **static** handler that processes requests whether or not the dock is on-screen. Open it if you want the status readout; close it if you'd rather not.
 
 ### 4. Verify
-In Claude Code (in your project folder), ask *"Check the bridge status"* — you want `connected: true` with a live handler count. Then try:
+In Codex (in your project folder), ask *"Check the bridge status"* — you want `connected: true` with a live handler count. Then try:
 > *"Create a cube at 0, 0, 100 with a box model."*
 > *"Write a player controller with WASD and mouse look."*
 > *"Build me a host-authoritative currency system."* (watch it reach for the cookbook)
@@ -272,7 +272,7 @@ In Claude Code (in your project folder), ask *"Check the bridge status"* — you
 ## Architecture
 
 ```
-Claude Code  ──stdio──>  MCP Server (Node.js)  ──file IPC──>  Editor Addon (C#)  ──>  s&box Editor
+Codex  ──stdio──>  MCP Server (Node.js)  ──file IPC──>  Editor Addon (C#)  ──>  s&box Editor
                                                   %TEMP%/sbox-bridge-ipc/
 ```
 
@@ -340,34 +340,34 @@ Every tool the bridge exposes, grouped by area (192 editor handlers + a handful 
 
 ## Troubleshooting
 
-See **[TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md)** for the most common failure modes. The #1 issue is an **IPC-dir mismatch** — if every tool call times out, the MCP server and the editor addon are watching different temp dirs. Set `SBOX_BRIDGE_IPC_DIR` to the *same* path on both sides (or clear it on both so they share the default `%TEMP%/sbox-bridge-ipc/`). The #2 issue is the **editor not actually running / not finished compiling** — if `get_bridge_status` pings but other tools time out, the editor side isn't processing requests yet; let it finish loading or restart it. (Note: an old guide said the bridge dock must stay open — that's no longer true. Since v1.3 the frame loop is static and runs with the dock closed.)
+See **[TROUBLESHOOTING.md](https://github.com/LatterDay/Sbox-Codex/blob/main/TROUBLESHOOTING.md)** for the most common failure modes. The #1 issue is an **IPC-dir mismatch** — if every tool call times out, the MCP server and the editor addon are watching different temp dirs. Set `SBOX_BRIDGE_IPC_DIR` to the *same* path on both sides (or clear it on both so they share the default `%TEMP%/sbox-bridge-ipc/`). The #2 issue is the **editor not actually running / not finished compiling** — if `get_bridge_status` pings but other tools time out, the editor side isn't processing requests yet; let it finish loading or restart it. (Note: the bridge dock is optional. Since v1.3 the frame loop is static and runs with the dock closed.)
 
 ## Updating
 - **Addon:** reinstall from the Asset Library when a new version drops.
-- **MCP server:** `npx sbox-mcp-server@latest` pulls the newest version on the next Claude session (the plugin does this automatically).
+- **MCP server:** `npx sbox-mcp-server@latest` pulls the newest version on the next Codex session (the plugin does this automatically).
 
 ## Compatibility
-s&box current SDK · Node.js 18+ · Claude Code (or any MCP client) · Windows, Linux, macOS
+s&box current SDK · Node.js 18+ · Codex (or any MCP client) · Windows, Linux, macOS
 
 ## Tips
 - **Use the plugin.** The cookbook brain + specialist agent + screenshot skill is most of the value, and it's one command.
-- **Save before a big batch.** Hit Ctrl+S, then turn Claude loose.
+- **Save before a big batch.** Hit Ctrl+S, then turn Codex loose.
 - **Use Git** for your project — keep `.scene` files under version control for anything non-trivial.
 - **Ask for systems by name.** "Build me an inventory / a save system / a host-authoritative economy" lets the brain route you to a proven recipe.
 - **Don't mutate the scene during play mode** — the bridge will refuse with a clear message.
 
 ## License
-**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but the **"s&box Claude Bridge" / "sboxskins.gg" name and branding are not licensed for reuse** — you may not use them to present a fork as the original (see **NOTICE**).
+**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but the **"s&box Codex Bridge" / "sboxskins.gg" name and branding are not licensed for reuse** — you may not use them to present a fork as the original (see **NOTICE**).
 
 ## Links
-- **Docs:** https://sboxskins.gg/claudebridge — overview · plugin · changelog · troubleshooting · FAQ
-- **GitHub:** https://github.com/LouSputthole/Sbox-Claude
-- **Issues / bugs:** https://github.com/LouSputthole/Sbox-Claude/issues
+- **Docs:** https://sboxskins.gg/codexbridge — overview · plugin · changelog · troubleshooting · FAQ
+- **GitHub:** https://github.com/LatterDay/Sbox-Codex
+- **Issues / bugs:** https://github.com/LatterDay/Sbox-Codex/issues
 - **npm:** https://www.npmjs.com/package/sbox-mcp-server
 - **Feedback:** sboxskins@gmail.com
 
 ---
 
-**Two pieces, zero ceremony. 200+ tools · 192 handlers + a brain trained on real shipped games. Describe your game — Claude builds it.**
+**Two pieces, zero ceremony. 200+ tools · 192 handlers + a brain trained on real shipped games. Describe your game — Codex builds it.**
 
 *Built by [sboxskins.gg](https://sboxskins.gg), the s&box community marketplace.*

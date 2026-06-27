@@ -56,7 +56,7 @@ export function registerSelfTestTools(server: McpServer, bridge: BridgeClient): 
         const pi = await send("get_project_info");
         if (!pi.success) {
           add("connectivity", false, pi.error ?? "no response");
-          return report(checks, "BROKEN — bridge not responding. Is s&box running with the Claude Bridge addon?");
+          return report(checks, "BROKEN — bridge not responding. Is s&box running with the Codex Bridge addon?");
         }
         projectRoot = ((pi.data as Record<string, unknown>)?.path as string) ?? null;
         add("connectivity", true, "get_project_info round-trip OK");

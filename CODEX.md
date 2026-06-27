@@ -1,6 +1,6 @@
-# s&box + Claude Code MCP Integration
+# s&box + Codex MCP Integration
 
-> Let non-coders build s&box games through conversation with Claude Code.
+> Let non-coders build s&box games through conversation with Codex.
 
 ## Status: v1.17.1 -- 192 handlers / 201 tools (run `get_bridge_status` for the live tool/handler count)
 
@@ -35,14 +35,14 @@
 
 ### What's new in v1.15.0
 
-**+5 debug-draw tools ported from the Claude Bridge for Unity. 190 handlers / 199 tools (was 185/194).** Additive — no existing tool contract changed.
+**+5 debug-draw tools ported from the Codex Bridge for Unity. 190 handlers / 199 tools (was 185/194).** Additive — no existing tool contract changed.
 
-- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere` / `debug_clear`** — world-space debug primitives on a NotSaved `ClaudeDebugDraw` holder; render via `Gizmo.Draw` in the editor viewport and `Scene.DebugOverlay` in play (the latter capturable via `capture_view`). Visualize raycast hits / overlap volumes / trigger bounds / NPC sight ranges / patrol paths. Live-verified both render paths.
+- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere` / `debug_clear`** — world-space debug primitives on a NotSaved `CodexDebugDraw` holder; render via `Gizmo.Draw` in the editor viewport and `Scene.DebugOverlay` in play (the latter capturable via `capture_view`). Visualize raycast hits / overlap volumes / trigger bounds / NPC sight ranges / patrol paths. Live-verified both render paths.
 - **Limitation:** edit-mode gizmos show in the live editor but NOT in `take_screenshot`/`screenshot_from` (the gizmo pass isn't in that camera render) — use `capture_view` in play mode to see them through the bridge.
 
 ### What's new in v1.14.0
 
-**+2 engine/workflow meta-tools ported from the Claude Bridge for Unity. 185 handlers / 194 tools (was 183/192).** Additive — no existing tool contract changed.
+**+2 engine/workflow meta-tools ported from the Codex Bridge for Unity. 185 handlers / 194 tools (was 183/192).** Additive — no existing tool contract changed.
 
 - **`set_time_scale`** — play-mode time control (`Scene.TimeScale`): `0` pause, `0.1` slow-mo, `2`+ fast-forward. Errors outside play mode. Returns applied + previous.
 - **`get_profiler_stats`** — read-only `Sandbox.Diagnostics.PerformanceStats` dump: FPS, frame/GPU ms, allocations, memory, exceptions, per-category timings averaged over `frames`.
@@ -71,7 +71,7 @@
 - **`copy_asset_with_dependencies`** -- copies an asset + full dependency closure (`Editor.Asset.GetReferences(deep:true)`), shadow-guards both dependency paths and destination against core trees (`models/citizen`, `models/dev`, `materials/dev`, `materials/default`). Kills gotchas #4 and #5 (ERROR mesh + endless recompile from shadowing).
 - **CI gate:** `scripts/audit-parity.mjs` (TS<->C# parity + 4-way version lock) + `.github/workflows/ci.yml` (runs on push/PR to main).
 - **Syntax gate:** `scripts/check-csharp-syntax.py` (tree-sitter pre-sync parse of all `.cs` addon files; known FP on `CreateSaveSystemHandler` `$@`-template region -- treat advisory).
-- **Whitelist correction:** `System.Math` and `System.MathF` NOW COMPILE in s&box game code on the current SDK -- the old "MathX only" rule was stale. `Array.Clone()` is still blocked. `CLAUDE.md` and `docs/BRIDGE_GOTCHAS.md` corrected; `sandbox_lint` tuned accordingly.
+- **Whitelist correction:** `System.Math` and `System.MathF` NOW COMPILE in s&box game code on the current SDK -- the old "MathX only" rule was stale. `Array.Clone()` is still blocked. `CODEX.md` and `docs/BRIDGE_GOTCHAS.md` corrected; `sandbox_lint` tuned accordingly.
 - **Bridge map:** full semantic rebuild without an API key (3548 nodes / 4473 edges / 257 communities, 50 human-named). Previous graph was code/AST only.
 
 ### What's new in v1.11.0
@@ -108,13 +108,13 @@
 
 **New skill — `sbox-cookbook`.** A master **router** skill indexing code-grounded recipes mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** + **15 systems** + **14 genre** recipes; it routes "how do I build a tycoon / an inventory / a save system?" to a grounded how-to. Full bundled skill set: `sbox-api`, `sbox-build-feature`, `sbox-setup`, `sbox-scaffold-game`, `sbox-cookbook`.
 
-**License — relicensed GPL-3.0 → AGPL-3.0-or-later** (LICENSE + all `license` fields). Plus a branding/trademark note (see `NOTICE`): the code is open under AGPL, but the "s&box Claude Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
+**License — relicensed GPL-3.0 → AGPL-3.0-or-later** (LICENSE + all `license` fields). Plus a branding/trademark note (see `NOTICE`): the code is open under AGPL, but the "s&box Codex Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
 
 ### What's new in v1.5.0
 
 **+16 tools** — self-diagnosis, aimed screenshots, navmesh + spatial queries, real `.vpcf` particles, console/C# execution, and live docs search — plus a **security & correctness hardening pass** from an external code audit. Grouped:
 
-- **Diagnostics (MCP-server-side):** `read_log` (tail/filter `sbox-dev.log`, auto-located via Steam `libraryfolders.vdf` or `SBOX_LOG_PATH`), `get_compile_errors` (surface the latest C# compile failures from the log — Claude can finally see its own errors instead of guessing).
+- **Diagnostics (MCP-server-side):** `read_log` (tail/filter `sbox-dev.log`, auto-located via Steam `libraryfolders.vdf` or `SBOX_LOG_PATH`), `get_compile_errors` (surface the latest C# compile failures from the log — Codex can finally see its own errors instead of guessing).
 - **Camera:** `screenshot_from` (**aim a screenshot at any object/point** — see the gotcha below), `frame_camera` (move the editor viewport to focus an object/point).
 - **Navigation:** `bake_navmesh` (enable + bake `NavMesh.BakeNavMesh`, async), `get_navmesh_path` (query a walkable route via `GetSimplePath`; returns the path or `reachable:false`).
 - **Spatial:** `physics_overlap` (sphere/box volume query — the volume counterpart to `raycast`).
@@ -148,7 +148,7 @@ New TS modules this release: `tools/diagnostics.ts`, `tools/docs.ts`, `tools/nav
 ## Architecture
 
 ```
-Claude Code → (stdio) → MCP Server → (file IPC) → Bridge Addon → s&box Editor
+Codex → (stdio) → MCP Server → (file IPC) → Bridge Addon → s&box Editor
                           Node.js        %TEMP%/sbox-bridge-ipc/     C# in Editor
 ```
 
@@ -163,7 +163,7 @@ Claude Code → (stdio) → MCP Server → (file IPC) → Bridge Addon → s&box
 IPC directory: `%TEMP%/sbox-bridge-ipc/` (typically `C:\Users\<user>\AppData\Local\Temp\sbox-bridge-ipc\`)
 
 Two components:
-1. **MCP Server** (`sbox-mcp-server/`) — TypeScript/Node.js, stdio transport, talks to Claude Code
+1. **MCP Server** (`sbox-mcp-server/`) — TypeScript/Node.js, stdio transport, talks to Codex
 2. **Bridge Addon** — C# editor library, lives in the s&box **project's Libraries folder**
 
 ### Bridge map (knowledge graph)
@@ -181,7 +181,7 @@ for the full doc-inclusive graph. See `docs/graph/README.md`.
 
 ### Addon Location
 - **DO NOT** put addons in the global `sbox/addons/` folder — those are built-in only and won't compile custom code
-- **DO** put addons in the project's `Libraries/` folder (e.g., `bigfoot/Libraries/claudebridge/`)
+- **DO** put addons in the project's `Libraries/` folder (e.g., `bigfoot/Libraries/codexbridge/`)
 - s&box auto-scaffolds `Editor/`, `Code/`, `UnitTests/` with proper `.csproj` files when you create a library through the editor
 
 ### Compilation
@@ -239,7 +239,7 @@ for the full doc-inclusive graph. See `docs/graph/README.md`.
 - **`take_screenshot` renders from the scene's Main Camera — ONE fixed angle.** This is the #1 reason visual changes "can't be verified": the Main Camera may not be pointed at the thing you changed. Use **`screenshot_from`** to move the Main Camera to frame a target object/point, capture, and restore it. `screenshot_from` is the tool that makes the authoring layer screenshot-verifiable. (`frame_camera` only moves the editor *viewport*, which the screenshot doesn't use.)
 - **Particles:** the runtime `ParticleEffect` tools (`spawn_particle` / `create_particle_effect` / `add_trail` / `add_beam`) are **experimental and do not render through the bridge**. Use **`spawn_vpcf`** (a compiled `.vpcf` via `LegacyParticleSystem`) for visible particles. See `CHANGELOG.md` [1.5.0] Known Issues re: source `.vpcf` assets.
 - **`is_playing.sessionPlaying` can read stale** (it reports `true` in edit mode after a restart). Trust the `gameFlag` field instead.
-- **Self-diagnosis works even when the editor is down:** `read_log` and `get_compile_errors` read `sbox-dev.log` directly (MCP-server-side), so Claude can diagnose a crashed/stalled editor without a live round-trip.
+- **Self-diagnosis works even when the editor is down:** `read_log` and `get_compile_errors` read `sbox-dev.log` directly (MCP-server-side), so Codex can diagnose a crashed/stalled editor without a live round-trip.
 
 ### API Schema
 - The full s&box type schema can be downloaded as JSON from `sbox.game/api`
@@ -252,8 +252,8 @@ for the full doc-inclusive graph. See `docs/graph/README.md`.
 ## Project Structure
 
 ```
-sbox-claude/
-├── CLAUDE.md                          ← YOU ARE HERE
+sbox-codex/
+├── CODEX.md                          ← YOU ARE HERE
 ├── README.md                          ← User-facing docs
 ├── INSTALL.md                         ← Installation guide
 ├── LICENSE                            ← AGPL-3.0-or-later
@@ -301,15 +301,15 @@ sbox-claude/
     └── ...                            # Old WebSocket-based addon (non-functional)
 
 # ACTUAL working addon location (per-project):
-<s&box project>/Libraries/claudebridge/
-├── claudebridge.sbproj               # Auto-generated by s&box
+<s&box project>/Libraries/codexbridge/
+├── codexbridge.sbproj               # Auto-generated by s&box
 ├── Editor/
-│   ├── claudebridge.editor.csproj    # Auto-generated by s&box
+│   ├── codexbridge.editor.csproj    # Auto-generated by s&box
 │   └── MyEditorMenu.cs               # ALL bridge code — server + handlers
 ├── Code/
-│   └── claudebridge.csproj           # Auto-generated
+│   └── codexbridge.csproj           # Auto-generated
 └── UnitTests/
-    └── claudebridge.unittest.csproj  # Auto-generated
+    └── codexbridge.unittest.csproj  # Auto-generated
 ```
 
 ---
@@ -319,12 +319,12 @@ sbox-claude/
 ### Prerequisites
 - s&box installed via Steam
 - Node.js 18+ installed
-- Claude Code installed
+- Codex installed
 
 ### Step 1: Create the Library in s&box
 1. Open s&box with your project
 2. Go to Library Manager
-3. Create a new library called "claudebridge"
+3. Create a new library called "codexbridge"
 4. s&box will scaffold the folder structure
 
 ### Step 2: Copy the Bridge Code
@@ -337,14 +337,14 @@ npm install
 npm run build
 ```
 
-### Step 4: Register with Claude Code
+### Step 4: Register with Codex
 ```bash
-claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+codex mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 ```
 
 ### Step 5: Restart s&box
-- Open the "Claude Bridge" dock from View menu
-- Check status: Editor → Claude Bridge → Status
+- Open the "Codex Bridge" dock from View menu
+- Check status: Editor → Codex Bridge → Status
 
 ---
 

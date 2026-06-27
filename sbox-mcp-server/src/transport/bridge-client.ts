@@ -98,7 +98,7 @@ export function describeTimeout(opts: {
   if (!reqConsumed) {
     return (
       `Request '${command}' timed out after ${timeoutMs}ms. The s&box editor never picked up the request ` +
-      `(its req_*.json file was not consumed). Likely causes: s&box isn't running, the Claude Bridge addon ` +
+      `(its req_*.json file was not consumed). Likely causes: s&box isn't running, the Codex Bridge addon ` +
       `failed to load, or the editor and MCP server resolved different IPC directories (server is using: ` +
       `${ipcDir}). Open the s&box editor console and check for [SboxBridge] lines — it logs the directory it ` +
       `is watching; set SBOX_BRIDGE_IPC_DIR on both sides if they disagree.`
@@ -199,7 +199,7 @@ export class BridgeClient {
     }
     throw new Error(
       `Cannot connect to s&box Bridge. No live status at ${this.statusPath()}. Is s&box running with the ` +
-        `Claude Bridge addon? (MCP server IPC dir: ${this.ipcDir})`
+        `Codex Bridge addon? (MCP server IPC dir: ${this.ipcDir})`
     );
   }
 
@@ -222,7 +222,7 @@ export class BridgeClient {
           error:
             err instanceof Error
               ? err.message
-              : "Not connected to s&box Bridge. Make sure s&box is running with the Claude Bridge addon installed.",
+              : "Not connected to s&box Bridge. Make sure s&box is running with the Codex Bridge addon installed.",
         };
       }
     }

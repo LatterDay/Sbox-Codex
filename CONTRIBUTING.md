@@ -1,11 +1,11 @@
-# Contributing to Sbox-Claude
+# Contributing to Sbox-Codex
 
-Thanks for your interest in contributing! This project lets non-coders build s&box games through conversation with Claude Code.
+Thanks for your interest in contributing! This project lets non-coders build s&box games through conversation with Codex.
 
 ## Architecture Overview
 
 ```
-Claude Code  --stdio-->  MCP Server (TypeScript)  --file IPC-->  Bridge Addon (C#, inside s&box)
+Codex  --stdio-->  MCP Server (TypeScript)  --file IPC-->  Bridge Addon (C#, inside s&box)
 ```
 
 **Not WebSocket** — s&box's sandboxed C# blocks `System.Net`. The MCP server writes `req_<id>.json` into a shared temp dir; the addon polls, processes on the main editor thread, and writes `res_<id>.json` back. (Older docs mention WebSocket / port 29015 — that's obsolete; `SBOX_BRIDGE_HOST`/`PORT` are cosmetic.)
@@ -101,15 +101,15 @@ The tool/handler count drifts every release, so don't hardcode it in docs. Keep 
 
 ## File Path Security
 
-All C# handlers that accept file paths **must** resolve them through the shared `ClaudeBridge.TryResolveProjectPath` helper, which canonicalizes the path and enforces project containment (separator-safe — `/project-evil` can't match `/project`). As of v1.5.0 this is centralized in one helper across all 25 file/asset call sites — do **not** hand-roll a new containment check.
+All C# handlers that accept file paths **must** resolve them through the shared `CodexBridge.TryResolveProjectPath` helper, which canonicalizes the path and enforces project containment (separator-safe — `/project-evil` can't match `/project`). As of v1.5.0 this is centralized in one helper across all 25 file/asset call sites — do **not** hand-roll a new containment check.
 
 ```csharp
-if ( !ClaudeBridge.TryResolveProjectPath( userPath, out var fullPath, out var error ) )
+if ( !CodexBridge.TryResolveProjectPath( userPath, out var fullPath, out var error ) )
     return Task.FromResult<object>( new { error } );   // reported as success=false
 // fullPath is now safe to use
 ```
 
-When you generate a C# type/member name from a user-supplied string, run it through `ClaudeBridge.SanitizeIdentifier` so spaces/punctuation/keywords don't emit uncompilable code.
+When you generate a C# type/member name from a user-supplied string, run it through `CodexBridge.SanitizeIdentifier` so spaces/punctuation/keywords don't emit uncompilable code.
 
 ## Generated-code templates
 
@@ -129,7 +129,7 @@ Several tools emit C# source code as multi-line interpolated strings (`$@"..."`)
 - Register via `Register( "command_name", () => new XHandler() )` in `RegisterHandlers()`
 - Tab indentation, Allman-ish braces with s&box spacing
 - Use `Log.Info()` / `Log.Warning()` for debug output (prefix bridge logs with `[SboxBridge]`)
-- Resolve file paths via `ClaudeBridge.TryResolveProjectPath`; sanitize generated identifiers via `ClaudeBridge.SanitizeIdentifier`
+- Resolve file paths via `CodexBridge.TryResolveProjectPath`; sanitize generated identifiers via `CodexBridge.SanitizeIdentifier`
 - Return an object with an `error` field to signal failure (dispatch maps it to `success=false`)
 
 ### TypeScript (MCP Server)
@@ -158,11 +158,11 @@ npm run build
 # Watch mode (auto-rebuild)
 npm run dev
 
-# Connect to Claude Code for testing
-claude mcp add sbox -- node $(pwd)/dist/index.js
+# Connect to Codex for testing
+codex mcp add sbox -- node $(pwd)/dist/index.js
 ```
 
-The Bridge Addon compiles automatically when s&box loads it from your **project's `Libraries/claudebridge/`** folder (NOT the global `addons/` folder — that's built-in only and won't compile custom code). C# changes require an s&box restart (or `trigger_hotload`) to recompile; MCP-server (TypeScript) changes require a Claude Code restart to reconnect.
+The Bridge Addon compiles automatically when s&box loads it from your **project's `Libraries/codexbridge/`** folder (NOT the global `addons/` folder — that's built-in only and won't compile custom code). C# changes require an s&box restart (or `trigger_hotload`) to recompile; MCP-server (TypeScript) changes require a Codex restart to reconnect.
 
 ## Known Limitations
 

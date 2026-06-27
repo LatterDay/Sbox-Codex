@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 // API is corpus-confirmed: Scene.TimeScale is a public settable float
 // (sdoomresurrection Code/ui/Pause.cs: `Scene.TimeScale = 0f` / `= 1f`;
 // ss1 Code/Manager.cs: animated ramps). Game.ActiveScene is the running play
-// scene (CLAUDE.md "Verified s&box APIs").
+// scene (CODEX.md "Verified s&box APIs").
 //
 // Targets Game.ActiveScene and REQUIRES play mode — the edit scene does not
 // tick, so scaling it is meaningless. This is therefore NOT a scene-mutating
@@ -28,7 +28,7 @@ using System.Threading.Tasks;
 // global IBridgeHandler contract. Unsandboxed editor code — System.* is fine.
 //
 // ⚠ Compile-verify live before shipping (editor was offline at authoring time):
-//   sync to <project>/Libraries/claudebridge/Editor/, restart_editor (or
+//   sync to <project>/Libraries/codexbridge/Editor/, restart_editor (or
 //   trigger_hotload), get_compile_errors, then start_play + set_time_scale 0.1
 //   + capture_view to confirm slow-mo.
 // ═══════════════════════════════════════════════════════════════════════════

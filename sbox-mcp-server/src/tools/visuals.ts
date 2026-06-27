@@ -6,7 +6,7 @@ import { BridgeClient } from "../transport/bridge-client.js";
  * Visual & atmosphere tools (Batch 17): lighting, post-processing, fog, sky,
  * reflection probes, and compose-it-all presets.
  *
- * These wrap s&box's visual components with sensible parameters so Claude can
+ * These wrap s&box's visual components with sensible parameters so Codex can
  * author scene mood directly, instead of hand-driving add_component_with_properties
  * (which can't even set a Color). After any change, screenshot the scene and read
  * the result — this layer is where the screenshot loop matters most.

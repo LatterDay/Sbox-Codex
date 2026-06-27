@@ -1,21 +1,21 @@
-# s&box Claude Bridge — Reliability + Polish / Trust (Design Spec)
+# s&box Codex Bridge — Reliability + Polish / Trust (Design Spec)
 
 **Date:** 2026-06-04
 **Status:** DESIGN ONLY — not implemented. No code edits made.
 **Direction:** #4 — make the bridge feel solid and trustworthy.
 **Scope:** (1) a self-cleaning `run_self_test` health-check battery; (2) a prioritized fix punch-list for known rough edges; (3) a richer `get_bridge_status`.
 
-> All file/line references are against the repo at `C:\Users\cargi\Desktop\sbox-claude` as read on 2026-06-04. The C# addon is `sbox-bridge-addon\Editor\MyEditorMenu.cs`; the MCP server is `sbox-mcp-server\src\`. Anything marked **[CONFIRM LIVE]** must be verified against a running bridge during implementation (per the constraint that we must not call the live `mcp__sbox__*` tools here).
+> All file/line references are against the repo at `C:\Users\cargi\Desktop\sbox-codex` as read on 2026-06-04. The C# addon is `sbox-bridge-addon\Editor\MyEditorMenu.cs`; the MCP server is `sbox-mcp-server\src\`. Anything marked **[CONFIRM LIVE]** must be verified against a running bridge during implementation (per the constraint that we must not call the live `mcp__sbox__*` tools here).
 
 ---
 
 ## Goal
 
-Give a user (or Claude) **one command** they can run right after install that proves the bridge actually works end-to-end, and that catches regressions before a release ships — plus close the handful of small, documented rough edges that make the bridge feel flaky or confusing. Success = "I ran `run_self_test`, it said `8/8 PASS`, and I trust the install," and the top punch-list items (`create_material`, stale `is_playing`, dock readout, error-message quality) are no longer footguns.
+Give a user (or Codex) **one command** they can run right after install that proves the bridge actually works end-to-end, and that catches regressions before a release ships — plus close the handful of small, documented rough edges that make the bridge feel flaky or confusing. Success = "I ran `run_self_test`, it said `8/8 PASS`, and I trust the install," and the top punch-list items (`create_material`, stale `is_playing`, dock readout, error-message quality) are no longer footguns.
 
 ## Why
 
-The public reviews carried "it was broken/confusing for me" notes. The bridge has 150+ tools but no single, safe smoke test — so a partially-broken install (wrong IPC dir, addon didn't fully compile, version skew, a regressed handler) is only discovered tool-by-tool, mid-task, as confusing timeouts or wrong-looking results. The existing diagnostics (`get_bridge_status`, `get_compile_errors`, `read_log`) answer "is the bridge *reachable*?" but not "does the bridge actually *do the work* correctly?" A round-trip battery answers the second question, and is exactly the kind of artifact that catches regressions in CI-of-the-mind before each release. The punch-list items are small individually but each one has burned a real user (they're already documented in `CLAUDE.md` Known Issues + `TROUBLESHOOTING.md`).
+The public reviews carried "it was broken/confusing for me" notes. The bridge has 150+ tools but no single, safe smoke test — so a partially-broken install (wrong IPC dir, addon didn't fully compile, version skew, a regressed handler) is only discovered tool-by-tool, mid-task, as confusing timeouts or wrong-looking results. The existing diagnostics (`get_bridge_status`, `get_compile_errors`, `read_log`) answer "is the bridge *reachable*?" but not "does the bridge actually *do the work* correctly?" A round-trip battery answers the second question, and is exactly the kind of artifact that catches regressions in CI-of-the-mind before each release. The punch-list items are small individually but each one has burned a real user (they're already documented in `CODEX.md` Known Issues + `TROUBLESHOOTING.md`).
 
 ---
 
@@ -70,7 +70,7 @@ This is the only check whose exact field choice can't be finalized without the l
 
 ### Output format
 
-Return a single text block: a human-scannable header line + a per-check table + the raw JSON for machine/Claude parsing. Example:
+Return a single text block: a human-scannable header line + a per-check table + the raw JSON for machine/Codex parsing. Example:
 
 ```
 s&box Bridge self-test — 7/8 PASS, 1 SKIP   (runId: l4k2p9, 11.3s)
@@ -94,7 +94,7 @@ Rules:
 
 - **Top line is the verdict** — `N/M PASS` plus `HEALTHY` (no FAIL), `DEGRADED` (only SKIPs), or `BROKEN` (≥1 FAIL). A user should be able to read just the first line.
 - Each FAIL line includes the real `res.error` and a one-line hint ("→ see TROUBLESHOOTING §13" for `create_material`-class failures, etc.).
-- The trailing JSON is stable-shaped so Claude or a future CI harness can assert on it.
+- The trailing JSON is stable-shaped so Codex or a future CI harness can assert on it.
 - A `verbose:false` default keeps it to the table; `verbose:true` appends each command's raw `data`.
 
 ### Cleanup guarantee (even on partial failure)
@@ -114,11 +114,11 @@ Edge case — **connection dies mid-battery:** subsequent `bridge.send` calls re
 
 ## Fix punch-list (prioritized)
 
-Mined from `CLAUDE.md` "Known Issues / TODO" and `TROUBLESHOOTING.md`. Ordered by trust impact ÷ risk.
+Mined from `CODEX.md` "Known Issues / TODO" and `TROUBLESHOOTING.md`. Ordered by trust impact ÷ risk.
 
 ### P1 — `create_material` "dictionary-key" bug = TS↔C# param-name mismatch
 
-- **Symptom (documented):** `create_material` errors with a dictionary-key error; current workaround is to write the `.vmat` via `write_file` (`TROUBLESHOOTING.md §13`, `CLAUDE.md`).
+- **Symptom (documented):** `create_material` errors with a dictionary-key error; current workaround is to write the `.vmat` via `write_file` (`TROUBLESHOOTING.md §13`, `CODEX.md`).
 - **Root cause (found in code):** the TS tool and the C# handler disagree on the parameter contract.
   - TS `create_material` (`materials.ts:37`) sends **`path`**, `shader`, **`properties`** (a `z.record`).
   - C# `CreateMaterialHandler` (`MyEditorMenu.cs:1873`) reads **`p.GetProperty("name")`** and **`p.TryGetProperty("directory", …)`**, and ignores `properties` entirely.
@@ -128,20 +128,20 @@ Mined from `CLAUDE.md` "Known Issues / TODO" and `TROUBLESHOOTING.md`. Ordered b
 
 ### P2 — `is_playing.sessionPlaying` reads stale (false "playing" in edit mode)
 
-- **Symptom (documented):** `sessionPlaying` reports `true` in edit mode after a restart; guidance is "trust `gameFlag`" (`CLAUDE.md`, `TROUBLESHOOTING.md §5` side note).
+- **Symptom (documented):** `sessionPlaying` reports `true` in edit mode after a restart; guidance is "trust `gameFlag`" (`CODEX.md`, `TROUBLESHOOTING.md §5` side note).
 - **Root cause (found in code):** `IsPlayingHandler` (`MyEditorMenu.cs:1743`) computes `sessionPlaying = Game.ActiveScene != session.Scene` and folds it into `isPlaying = tracked || gameFlag || sessionPlaying`. After a restart, `Game.ActiveScene` and `SceneEditorSession.Active.Scene` can legitimately differ in edit mode, so `sessionPlaying` is `true` and poisons the top-level `isPlaying`.
 - **Proposed fix:** stop letting the unreliable signal drive the authoritative answer. Make `isPlaying = gameFlag || tracked` (drop `sessionPlaying` from the OR), and keep `sessionPlaying` in the payload **only as a diagnostic field** (clearly the least-trustworthy of the three). Optionally rename it in docs to make its advisory status obvious. `gameFlag` (`Game.IsPlaying`) is the engine's own truth; `tracked` (`PlayState.IsPlaying`, set by start/stop handlers) covers the brief window before `Game.IsPlaying` flips. This makes the top-level field trustworthy without removing the diagnostic.
 - **Risk:** Low. Narrows when `isPlaying` is `true`; the play-mode *guard* in dispatch keys off `Game.IsPlaying` directly (`MyEditorMenu.cs:581`), not this handler, so the safety guard is unaffected. Requires an addon republish (C# change). Update the three doc mentions.
 
-### P3 — Dock "Handlers: N" readout / "handlers 0" cosmetic + the stale "dock must be open" docs
+### P3 — Dock "Handlers: N" readout / "handlers 0" cosmetic + dock-optional docs
 
-- **Symptom (documented):** the dock "Handlers: N" readout and a "handlers 0" cosmetic; separately, `CLAUDE.md`/`TROUBLESHOOTING.md §2` still say the dock **must be visible** for the frame loop to run.
+- **Symptom (documented):** the dock "Handlers: N" readout and a "handlers 0" cosmetic; older `CODEX.md`/`TROUBLESHOOTING.md §2` wording also overstated the dock as required even though the static frame handler made it optional.
 - **Root cause (found in code):**
-  - The dock label is built **once** in the `BridgePoller` constructor: `new Label($"Handlers: {ClaudeBridge.HandlerCount} | IPC Active")` (`MyEditorMenu.cs:3572`). Handlers register on the **first editor frame** (`OnEditorFrame` → `RegisterHandlers`, `MyEditorMenu.cs:507`+`:516`), not in the static ctor (which is deliberately empty, PR #6). If the dock is constructed before that first frame, `HandlerCount` is `0` → permanent "Handlers: 0", and it never refreshes even after registration completes.
-  - The "dock must be open" claim is **stale**: the frame handler is now a `static [EditorEvent.Frame] OnEditorFrame()` on `ClaudeBridge` itself (`MyEditorMenu.cs:507`), explicitly moved off the `BridgePoller` widget so the queue drains "whether or not the user opens the dock panel" (its own comment, `:504`; this was GitHub issue #2's fix). The heartbeat is also driven from that static frame loop (`:530`). So the dock being open is **not** required for processing or heartbeat on current code — but the docs (and the `README`/`INSTALL` "keep the dock open" rule) still insist it is.
+  - The dock label is built **once** in the `BridgePoller` constructor: `new Label($"Handlers: {CodexBridge.HandlerCount} | IPC Active")` (`MyEditorMenu.cs:3572`). Handlers register on the **first editor frame** (`OnEditorFrame` → `RegisterHandlers`, `MyEditorMenu.cs:507`+`:516`), not in the static ctor (which is deliberately empty, PR #6). If the dock is constructed before that first frame, `HandlerCount` is `0` → permanent "Handlers: 0", and it never refreshes even after registration completes.
+  - The old dock-required claim is **stale**: the frame handler is now a `static [EditorEvent.Frame] OnEditorFrame()` on `CodexBridge` itself (`MyEditorMenu.cs:507`), explicitly moved off the `BridgePoller` widget so the queue drains "whether or not the user opens the dock panel" (its own comment, `:504`; this was GitHub issue #2's fix). The heartbeat is also driven from that static frame loop (`:530`). So the dock being open is **not** required for processing or heartbeat on current code.
 - **Proposed fix:**
-  - **Dock label:** make it live. Either give `BridgePoller` a small repaint tick that re-reads `ClaudeBridge.HandlerCount` (and shows running/heartbeat state), or at minimum rebuild the label text on the first paint after `_initialized` is true. Show `Handlers: N | v1.6.0 | IPC live` so a "0" can't linger past startup. The authoritative count already exists (`ClaudeBridge.HandlerCount`, `MyEditorMenu.cs:366`).
-  - **Docs:** this needs a decision (see Open Questions). **[CONFIRM LIVE]** whether `[EditorEvent.Frame]` on a static method genuinely ticks while the dock is closed/minimized on the current SDK. If yes, correct `CLAUDE.md` (lines ~127, ~511 region) and `TROUBLESHOOTING.md §2` + `README` to say the dock is a *status display, not required for operation* (keeping the "keep the editor window non-minimized" caveat, since OS frame-throttling on minimize is a separate real effect). If the live check shows frames actually stop when the dock is closed, then instead make that dependency explicit and keep the dock-required wording — but the code comments currently claim independence, so the docs are at best internally contradictory today.
+  - **Dock label:** make it live. Either give `BridgePoller` a small repaint tick that re-reads `CodexBridge.HandlerCount` (and shows running/heartbeat state), or at minimum rebuild the label text on the first paint after `_initialized` is true. Show `Handlers: N | v1.6.0 | IPC live` so a "0" can't linger past startup. The authoritative count already exists (`CodexBridge.HandlerCount`, `MyEditorMenu.cs:366`).
+  - **Docs:** say the dock is a *status display, not required for operation* (keeping the "keep the editor window non-minimized" caveat, since OS frame-throttling on minimize is a separate real effect).
 - **Risk:** Low for the label (cosmetic, isolated to `BridgePoller`). Docs change is zero-code but must be backed by the live check so we don't swap one wrong claim for another.
 
 ### P4 — Friendlier / structured error messages from handlers
@@ -156,7 +156,7 @@ Mined from `CLAUDE.md` "Known Issues / TODO" and `TROUBLESHOOTING.md`. Ordered b
 
 ### P5 — `set_material_property` requires `MaterialOverride` first (confusing precondition)
 
-- **Symptom (documented):** `set_material_property` requires `MaterialOverride` to be set first (`CLAUDE.md` Known Issues).
+- **Symptom (documented):** `set_material_property` requires `MaterialOverride` to be set first (`CODEX.md` Known Issues).
 - **Root cause (found in code):** `SetMaterialPropertyHandler` (`MyEditorMenu.cs:3094`) returns `"No MaterialOverride set — assign a material first via assign_material"` when `renderer.MaterialOverride == null` (`:3122`). That's a real engine constraint (you can't set a property on a material that isn't there), and the message already names the fix — so this is the *least* broken item. The "rough edge" is purely that it's a surprising two-step.
 - **Proposed fix (minimal):** keep the guard (auto-creating a material override silently would be surprising in the other direction and could clobber a model's default material). Improvement = make the message even more actionable ("set_material_property needs a material on the renderer first: call assign_material with a .vmat, or create_material then assign_material"), and document the two-step in the README materials row. Optionally add an `autoCreate:true` opt-in later that creates a blank override — but **defer** (YAGNI; not requested, and has surprising side-effects).
 - **Risk:** Very low (message-only). Mostly a documentation clarification.
@@ -164,8 +164,8 @@ Mined from `CLAUDE.md` "Known Issues / TODO" and `TROUBLESHOOTING.md`. Ordered b
 ### Punch-list priority summary
 
 1. **P1 `create_material` param mismatch** — highest: it's an outright-broken advertised tool, the fix is mostly server-side (ships without addon skew), and the self-test Check 7 guards it.
-2. **P2 `is_playing` stale field** — corrects a wrong answer Claude/users act on; low risk; small C# change.
-3. **P3 dock readout + stale "dock must be open" docs** — cosmetic code + a doc correction that removes a contradiction users trip over; pair with a live check.
+2. **P2 `is_playing` stale field** — corrects a wrong answer Codex/users act on; low risk; small C# change.
+3. **P3 dock readout + dock-optional docs** — cosmetic code + a doc correction that removes a contradiction users trip over.
 4. **P4 error-message quality** — one-line dispatch win + two targeted "list valid options" handlers.
 5. **P5 `set_material_property` precondition** — message/docs clarification only.
 
@@ -190,8 +190,8 @@ This is server-side-only (uses the already-shipped C# command), so it works agai
 
 ## Risks & unknowns
 
-- **Live-API confirmations (cannot run the bridge here):** all items tagged **[CONFIRM LIVE]** — chiefly (a) which component scalar/bool is safely round-trippable via `set_property`/`get_property` for self-test Check 3; (b) that `models/dev/box.vmdl` resolves for Check 4; (c) that `recompile_asset` succeeds on a trivial KV1 `.vmat` for Check 7; (d) that `delete_script` removes a non-`.cs` file for cleanup; (e) whether `[EditorEvent.Frame]` truly ticks with the dock closed (P3 docs). Each has a defined fallback in this spec, so none blocks the design.
-- **Version/count drift across files** (not in scope to fix here, but noted): `CLAUDE.md` header says v1.5.2 while `CHANGELOG` top is 1.6.0 (157/149); `index.ts --help` still says "150 total / 142" and "v1.5.0"; `README` says v1.5.2 / "150+". The new tools (`run_self_test`) and any doc edits should land with a single reconciliation pass so we don't add a 158th tool against stale counts. (This is the same class of issue the v1.5.0 audit already reconciled once.)
+- **Live-API confirmations (cannot run the bridge here):** all items tagged **[CONFIRM LIVE]** — chiefly (a) which component scalar/bool is safely round-trippable via `set_property`/`get_property` for self-test Check 3; (b) that `models/dev/box.vmdl` resolves for Check 4; (c) that `recompile_asset` succeeds on a trivial KV1 `.vmat` for Check 7; (d) that `delete_script` removes a non-`.cs` file for cleanup. Each has a defined fallback in this spec, so none blocks the design.
+- **Version/count drift across files** (not in scope to fix here, but noted): `CODEX.md` header says v1.5.2 while `CHANGELOG` top is 1.6.0 (157/149); `index.ts --help` still says "150 total / 142" and "v1.5.0"; `README` says v1.5.2 / "150+". The new tools (`run_self_test`) and any doc edits should land with a single reconciliation pass so we don't add a 158th tool against stale counts. (This is the same class of issue the v1.5.0 audit already reconciled once.)
 - **Screenshot timing flake:** s&box names screenshots at 1-second granularity (`diagnostics.ts:457` comment) and `take_screenshot`/`screenshot_from` ignore the `path` arg (`TROUBLESHOOTING §10`). Check 6 must take a "before" mtime immediately before the call and poll for a newer PNG (the `screenshot_orbit` code already does exactly this — reuse it), and must SKIP-not-FAIL if the folder can't be located, to avoid a flaky check.
 - **Self-test runs against the user's real open scene.** It creates objects in the active editor scene, then deletes them. Mitigations: unique `__selftest_<runId>` prefix, `finally` cleanup, post-run sweep, play-mode refusal. It does **not** save the scene, so even a missed cleanup leaves no on-disk change unless the user saves. Worth stating in the tool description ("creates and deletes a few temp objects in your current scene; does not save").
 - **`delete_script` semantics for assets:** if it refuses non-`.cs` paths, the temp `.vmat` (and its `.vmat_c`) could be orphaned. Fallback already specified: report the leftover path explicitly rather than claim clean. Consider writing the temp `.vmat` under a clearly-temp subdir to make manual cleanup trivial.
@@ -209,14 +209,14 @@ This is server-side-only (uses the already-shipped C# command), so it works agai
   6. **P1 follow-up** `CreateMaterialHandler` rewrite (read `path`, `TryGetProperty` with friendly error, optional `properties`).
   7. **P3** dock label made live.
 - **Phase 3 (docs/cosmetic):**
-  8. **P3** correct the "dock must be open" wording (after the live frame-tick confirmation) across `CLAUDE.md`/`TROUBLESHOOTING`/`README`.
+  8. **P3** keep dock wording aligned across `CODEX.md`/`TROUBLESHOOTING`/`README`: dock optional, minimized editor may throttle frames.
   9. **P5** `set_material_property` message + README materials note.
-  10. Reconcile tool counts / version strings across `CLAUDE.md`, `README`, `index.ts --help`, `CHANGELOG`.
+  10. Reconcile tool counts / version strings across `CODEX.md`, `README`, `index.ts --help`, `CHANGELOG`.
 
 ## Open questions for the user
 
 1. **Self-test default verbosity / safety:** OK for `run_self_test` to create+delete a handful of temp objects in the **currently open scene** (never saving it)? Or should it require an empty/throwaway scene, or auto-create+discard a temp scene? (Temp-scene isolation is safer but heavier and adds `create_scene`/`load_scene` to the battery.)
-2. **P3 dock dependency — source of truth:** do you want the docs corrected to "dock optional" (if the live check confirms the static frame loop ticks with the dock closed), or do you prefer to *keep* requiring the dock open as a conservative rule even though the code no longer depends on it? This decides whether P3 is a doc fix or a behavior statement.
+2. **P3 editor focus dependency — source of truth:** do you want the docs to keep warning about minimized-editor throttling as a conservative rule, or should that be softened unless a live check reproduces it?
 3. **`create_material` contract direction (P1 follow-up):** prefer the handler move to a **`path`-based** contract (consistent with the rest of the API) — accepting a one-release window where old addon + new server must both update — or keep `name`+`directory` and only fix the TS mapping (works against the shipped addon, but leaves the API inconsistent)?
 4. **Does `create_material` need to honor `properties`** (Color/Roughness/Metalness in the generated `.vmat`), or is "create blank, then `set_material_property`" the intended workflow? (Affects how much P1 touches.)
 5. **Should `run_self_test` be invoked automatically by the `sbox-setup` wizard** on first connect (one extra ~10s call but instant confidence), or stay strictly on-demand?

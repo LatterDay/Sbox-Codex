@@ -4,7 +4,7 @@
 >
 > **Validation note:** The bridge addon is **editor C#** — it cannot be unit-tested outside s&box. The test harness for each tool is the **screenshot loop**: build → sync to the active addon → hotload → invoke the tool in the live editor → `take_screenshot` → read the PNG → confirm the visual result. (Mirrors how v1.3.2's C# was validated; only the Node/TS layer is unit-testable, and these tools are thin Zod schemas not worth unit-testing.)
 
-**Goal:** Add a "Batch 17 — Visual & Atmosphere" set of bridge tools so Claude can author lighting, post-processing, fog, sky, and reflection-probes in s&box (plus two compose-it-all presets), instead of hand-driving `add_component_with_properties` with guessed property names.
+**Goal:** Add a "Batch 17 — Visual & Atmosphere" set of bridge tools so Codex can author lighting, post-processing, fog, sky, and reflection-probes in s&box (plus two compose-it-all presets), instead of hand-driving `add_component_with_properties` with guessed property names.
 
 **Architecture:** Same pattern as the existing 100 tools — C# `IBridgeHandler` classes registered in `MyEditorMenu.cs` `RegisterHandlers()` (new Batch 17 block), a TS Zod tool module `src/tools/visuals.ts`, and a `registerVisualTools(server, bridge)` call wired into `index.ts`. Handlers reuse the existing scene-access (`SceneEditorSession.Active.Scene`), component-create, and property-set helpers already in the addon (DRY — same machinery `add_component_with_properties` uses). All tools are scene-mutating → add their command names to `_sceneMutatingCommands` so the play-mode guard covers them.
 
@@ -45,7 +45,7 @@
   - Shared private helpers: `FindMainCamera(scene)`, `ApplyLightIntensity(light, color, brightness)`
 - **Create** `sbox-mcp-server/src/tools/visuals.ts` — Zod schemas + `registerVisualTools(server, bridge)`
 - **Modify** `sbox-mcp-server/src/index.ts` — import + call `registerVisualTools(server, bridge)`
-- **Modify** `CLAUDE.md` / `README` tool list + `--help` in `index.ts` — bump tool count, list Batch 17
+- **Modify** `CODEX.md` / `README` tool list + `--help` in `index.ts` — bump tool count, list Batch 17
 - **Modify** `CHANGELOG.md` — v1.4.0 entry (new tools = minor bump)
 
 ---
@@ -89,9 +89,9 @@
 - [ ] Add all 7 command names to `_sceneMutatingCommands`.
 - [ ] Register all 7 in `RegisterHandlers()` (Batch 17 block).
 - [ ] `registerVisualTools(server, bridge)` imported + called in `index.ts`.
-- [ ] Update `--help` tool listing + `CLAUDE.md`/README counts (100 → 107).
+- [ ] Update `--help` tool listing + `CODEX.md`/README counts (100 → 107).
 - [ ] `CHANGELOG.md`: **v1.4.0** entry ("Batch 17 — Visual & Atmosphere: lighting, post-processing, fog, sky, envmap + atmosphere/post-fx presets").
-- [ ] Build MCP server (`npm --prefix sbox-mcp-server run build`), sync `MyEditorMenu.cs` to the active addon (`Libraries/sboxskinsgg.claudebridge/Editor/`), hotload, and run the full screenshot pass over Tasks 1-6 in the live Sasquatched scene.
+- [ ] Build MCP server (`npm --prefix sbox-mcp-server run build`), sync `MyEditorMenu.cs` to the active addon (`Libraries/sboxskinsgg.codexbridge/Editor/`), hotload, and run the full screenshot pass over Tasks 1-6 in the live Sasquatched scene.
 
 ---
 

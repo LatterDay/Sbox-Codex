@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common failure modes and their fixes, ordered roughly by how often each one hits. Also online: [sboxskins.gg/claudebridge/troubleshooting](https://sboxskins.gg/claudebridge/troubleshooting).
+Common failure modes and their fixes, ordered roughly by how often each one hits. Also online: [sboxskins.gg/codexbridge/troubleshooting](https://sboxskins.gg/codexbridge/troubleshooting).
 
 Quick orientation:
 
@@ -19,13 +19,13 @@ Quick orientation:
 **Fix:**
 
 1. Find the directory the **addon** is actually using:
-   - **Editor → Claude Bridge → Status** shows it, or
+   - **Editor → Codex Bridge → Status** shows it, or
    - check the editor console for `[SboxBridge] … IPC at <dir>`, or
    - read `status.json` in the candidate temp dir — its `ipcDir` field is authoritative.
 2. Point the MCP server at that same directory with `SBOX_BRIDGE_IPC_DIR`:
    ```bash
-   claude mcp remove sbox
-   claude mcp add sbox --env SBOX_BRIDGE_IPC_DIR="<that dir>" -- npx sbox-mcp-server
+   codex mcp remove sbox
+   codex mcp add sbox --env SBOX_BRIDGE_IPC_DIR="<that dir>" -- npx sbox-mcp-server
    ```
    (If you launch via `node …/dist/index.js`, set the same env var.)
 
@@ -39,11 +39,11 @@ The addon side resolves its directory from `Path.GetTempPath()` only and does **
 
 **Symptom:** `get_bridge_status` reports a live heartbeat, but tool calls don't drain.
 
-**Cause:** The bridge processes queued requests from a **static** `[EditorEvent.Frame]` handler (since v1.3.0). It runs whether or not the Claude Bridge dock is open, so a **closed dock is not the cause**. Two real causes remain: a single very slow handler blocking the frame it runs on, or the editor window being **minimized** long enough that the OS throttles frame events for the process.
+**Cause:** The bridge processes queued requests from a **static** `[EditorEvent.Frame]` handler (since v1.3.0). It runs whether or not the Codex Bridge dock is open, so a **closed dock is not the cause**. Two real causes remain: a single very slow handler blocking the frame it runs on, or the editor window being **minimized** long enough that the OS throttles frame events for the process.
 
 **Fix:** Keep the s&box editor window visible (not minimized). If one specific call hangs, suspect that handler — read `read_log` / `get_compile_errors` to see what it's doing. The dock does **not** need to be open.
 
-**Verify:** Ask Claude to call `is_playing` — it should respond in well under a second.
+**Verify:** Ask Codex to call `is_playing` — it should respond in well under a second.
 
 **If the heartbeat itself is stale** (`get_bridge_status` says disconnected): s&box isn't running, the project failed to load, or the bridge addon failed to compile — see §6.
 
@@ -51,7 +51,7 @@ The addon side resolves its directory from `Path.GetTempPath()` only and does **
 
 ## 3. C# compile failure — "Compile of 'local.\<project>.editor' Failed:"
 
-**Symptom:** Tools stop working after you (or Claude) edited a script; the editor shows a broken-reference or compile error.
+**Symptom:** Tools stop working after you (or Codex) edited a script; the editor shows a broken-reference or compile error.
 
 **First: just read the error.** Don't guess — use the v1.5.0 self-diagnosis tools:
 
@@ -113,7 +113,7 @@ Then read the PNG. (`frame_camera` only moves the *editor viewport*, which the s
 
 **Cause:** An older `install.ps1` copied the addon into `<sbox>/addons/sbox-bridge-addon/`. s&box's global `addons/` folder is built-in only and **silently refuses to compile custom C#**, so nothing appears and nothing tells you why.
 
-**Fix:** Run the current installer, which targets your **project's** `Libraries/claudebridge/` folder, and clean up the stale copy:
+**Fix:** Run the current installer, which targets your **project's** `Libraries/codexbridge/` folder, and clean up the stale copy:
 
 ```powershell
 .\install.ps1 -RemoveStaleAddons
@@ -122,12 +122,12 @@ Then read the PNG. (`frame_camera` only moves the *editor viewport*, which the s
 ./install.sh --remove-stale
 ```
 
-By hand: copy `sbox-bridge-addon/claudebridge.sbproj` → `<your-project>/Libraries/claudebridge/claudebridge.sbproj`, and `sbox-bridge-addon/Editor/MyEditorMenu.cs` → `<your-project>/Libraries/claudebridge/Editor/MyEditorMenu.cs`.
+By hand: copy `sbox-bridge-addon/codexbridge.sbproj` → `<your-project>/Libraries/codexbridge/codexbridge.sbproj`, and `sbox-bridge-addon/Editor/MyEditorMenu.cs` → `<your-project>/Libraries/codexbridge/Editor/MyEditorMenu.cs`.
 
-**Stale `.csproj` after moving machines/drives:** the auto-generated `Editor/claudebridge.editor.csproj` references s&box DLLs with absolute paths. If you copied it from another machine, delete it — s&box regenerates a correct one on next launch (the installer does this automatically):
+**Stale `.csproj` after moving machines/drives:** the auto-generated `Editor/codexbridge.editor.csproj` references s&box DLLs with absolute paths. If you copied it from another machine, delete it — s&box regenerates a correct one on next launch (the installer does this automatically):
 
 ```powershell
-Remove-Item "<your-project>\Libraries\claudebridge\Editor\claudebridge.editor.csproj"
+Remove-Item "<your-project>\Libraries\codexbridge\Editor\codexbridge.editor.csproj"
 ```
 
 ---
@@ -142,28 +142,28 @@ Remove-Item "<your-project>\Libraries\claudebridge\Editor\claudebridge.editor.cs
 
 ---
 
-## 8. `claude mcp add sbox` succeeds, but Claude says no `sbox` tools exist
+## 8. `codex mcp add sbox` succeeds, but Codex says no `sbox` tools exist
 
 **Cause:** the MCP server process started and immediately exited. Usually one of:
 
 - `dist/index.js` doesn't exist (you forgot `npm run build`).
-- The path passed to `claude mcp add` was wrong or relative.
+- The path passed to `codex mcp add` was wrong or relative.
 - Node.js is older than 18.
 
 **Fix:**
 
 ```bash
-cd sbox-claude/sbox-mcp-server
+cd sbox-codex/sbox-mcp-server
 npm install
 npm run build
 ls dist/index.js          # must exist
 node -v                   # must be 18.x or newer
 
-claude mcp remove sbox
-claude mcp add sbox -- node "/absolute/path/to/sbox-claude/sbox-mcp-server/dist/index.js"
+codex mcp remove sbox
+codex mcp add sbox -- node "/absolute/path/to/sbox-codex/sbox-mcp-server/dist/index.js"
 ```
 
-If you're using the **plugin**, run `/reload-plugins` (or restart Claude Code) and check `~/.claude/plugins/`.
+If you're using the **plugin**, reinstall it with `codex plugin add sbox-codex@sbox-codex`, then start a new Codex session.
 
 ---
 
@@ -206,7 +206,7 @@ List the most-recent file there and read it. (And remember §4 — it's the Main
 
 ## 12. `Couldn't add project` / compiler-name collision on s&box startup
 
-**Cause:** the project has **both** a local-dev `Libraries/claudebridge/` **and** an asset-library-installed copy (e.g. `Libraries/sboxskinsgg.claudebridge/`) claiming the same compiler name.
+**Cause:** the project has **both** a local-dev `Libraries/codexbridge/` **and** an asset-library-installed copy (e.g. `Libraries/sboxskinsgg.codexbridge/`) claiming the same compiler name.
 
 **Fix:** keep one. Either set the local copy's `Org` to `local` in its `.sbproj`, or remove the asset-library copy. **Never** sync the repo's `.sbproj` (which has `Org: sboxskinsgg`, for publishing) into a project's `Libraries/` — a project working copy must stay `Org: local`.
 
@@ -237,5 +237,5 @@ List the most-recent file there and read it. (And remember §4 — it's the Main
 
 1. Run `get_bridge_status` and copy the full result (IPC dir, heartbeat age, bridge version, round-trip result).
 2. Run `get_compile_errors` (or grab the `[SboxBridge]` block from `sbox-dev.log`).
-3. Copy the exact Claude Code error text for the failing tool.
-4. Open an issue at https://github.com/LouSputthole/Sbox-Claude/issues with all three. The startup banner alone (`[SboxBridge] … N handlers, IPC at …`) confirms where the addon loaded from and how many tools registered.
+3. Copy the exact Codex error text for the failing tool.
+4. Open an issue at https://github.com/LatterDay/Sbox-Codex/issues with all three. The startup banner alone (`[SboxBridge] … N handlers, IPC at …`) confirms where the addon loaded from and how many tools registered.

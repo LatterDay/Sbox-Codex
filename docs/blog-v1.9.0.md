@@ -1,4 +1,4 @@
-# s&box Claude Bridge v1.9.0 — We Gave the AI a Brain
+# s&box Codex Bridge v1.9.0 — We Gave the AI a Brain
 
 **The best AI tool for building s&box games just got a knowledge base.** v1.9.0 ships `sbox-cookbook`: a deep, code-grounded library of how real games are actually built — so the AI reaches for proven, shipped patterns instead of guessing.
 
@@ -50,19 +50,19 @@ Pair these with the screenshot-driven workflow the plugin already ships, and you
 
 Recipes are only as good as the API they assume. So before shipping, we **reflected the live SDK** and confirmed every API the cookbook and the generated C# rely on against the *current* engine — not stale training data. And the bridge keeps doing this at build time: the live editor reflection (`describe_type`, `search_types`, `get_method_signature`) is always the authoritative signature check for *your* installed SDK. If a recipe ever disagrees with what's actually installed, reflection wins.
 
-**License:** v1.9.0 is relicensed to **AGPL-3.0-or-later** — fully open source, copyleft. (One note: the code is open, but the "s&box Claude Bridge" name and branding aren't a license to pass a fork off as the original. See `NOTICE`.)
+**License:** v1.9.0 is relicensed to **AGPL-3.0-or-later** — fully open source, copyleft. (One note: the code is open, but the "s&box Codex Bridge" name and branding aren't a license to pass a fork off as the original. See `NOTICE`.)
 
 ---
 
 ## Get it
 
-The brain lives in the **Claude Code plugin** — and that's the way to run this. The bare MCP server gives you the tools; the plugin gives you the tools *plus* the brain: the `sbox-cookbook` knowledge base, a specialist agent tuned to build games with the bridge, the screenshot-driven build workflow, and first-run onboarding. The recipes and the tuned agent are the difference between an AI that improvises and one that builds like it's read the source of every good game in the ecosystem. Install the plugin:
+The brain lives in the **Codex plugin** — and that's the way to run this. The bare MCP server gives you the tools; the plugin gives you the tools *plus* the brain: the `sbox-cookbook` knowledge base, a specialist agent tuned to build games with the bridge, the screenshot-driven build workflow, and first-run onboarding. The recipes and the tuned agent are the difference between an AI that improvises and one that builds like it's read the source of every good game in the ecosystem. Install the plugin:
 
 ```
-/plugin marketplace add LouSputthole/Sbox-Claude
-/plugin install sbox-claude
+codex plugin marketplace add LatterDay/Sbox-Codex
+codex plugin add sbox-codex@sbox-codex
 ```
 
-Then restart Claude Code. Open your s&box project, connect the bridge, and ask it to build something real.
+Then restart Codex. Open your s&box project, connect the bridge, and ask it to build something real.
 
 The model didn't get smarter this release. It got **experienced.** Go build something.

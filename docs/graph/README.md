@@ -1,6 +1,6 @@
 # Bridge Map — graphify knowledge graph
 
-This folder holds a **knowledge graph of the s&box Claude Bridge**: a map of how every
+This folder holds a **knowledge graph of the s&box Codex Bridge**: a map of how every
 piece connects to every other piece. It was built with [graphify](https://github.com/) by
 running an AST pass over the code plus a semantic pass over the docs, so the graph links the
 **MCP tools** to the **C# handlers** that implement them and to the **docs/skills** that
@@ -48,7 +48,7 @@ graphify explain "MyEditorMenu.cs"                    --graph docs/graph/graph.j
 
 `query` does a broad BFS traversal (good for "what is X connected to?"); add `--dfs` to trace a
 specific chain. `path` finds the shortest path between two concepts; `explain` gives a
-plain-language description of one node and its neighbors. (Inside Claude Code you can also just
+plain-language description of one node and its neighbors. (Inside Codex you can also just
 ask in plain language — the `/graphify` skill treats a question as a query against this graph.)
 
 ## ⚠️ This map CAN GO STALE
@@ -66,4 +66,4 @@ changes. If the graph predates a tool/handler/doc change, regenerate it:
 - **Full doc-inclusive refresh:** re-run the **`/graphify`** skill on the repo. That does the full
   AST + semantic (LLM) pass, so the doc/skill/changelog edges and community labels are rebuilt too.
   This is the authoritative regen and is what maintainers should run as part of a release (see
-  `CLAUDE.md` and the `sbox-build-feature` skill).
+  `CODEX.md` and the `sbox-build-feature` skill).

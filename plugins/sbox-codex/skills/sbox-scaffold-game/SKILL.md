@@ -1,6 +1,6 @@
 ---
 name: sbox-scaffold-game
-description: Use when the user asks for a whole playable game in one go through the s&box Claude Bridge — "make me a first-person game", "scaffold a game", "give me something I can press Play on". Orchestrates the existing bridge tools plus the gameplay scaffolds (objective/health/pickup/interactable/loot-table/save-system + wallet/phase-machine/day-night-clock + set_component_reference + add_component_to_new_object) into a first-person starter you can enter play mode in and move around, see a level, and win or lose. Handles the generate→hotload→place sequencing and the screenshot verify loop.
+description: Use when the user asks for a whole playable game in one go through the s&box Codex Bridge — "make me a first-person game", "scaffold a game", "give me something I can press Play on". Orchestrates the existing bridge tools plus the gameplay scaffolds (objective/health/pickup/interactable/loot-table/save-system + wallet/phase-machine/day-night-clock + set_component_reference + add_component_to_new_object) into a first-person starter you can enter play mode in and move around, see a level, and win or lose. Handles the generate→hotload→place sequencing and the screenshot verify loop.
 ---
 
 # Scaffold a Playable s&box Game
@@ -48,8 +48,9 @@ yet — that note is your signal to hotload and place in Phase B.
 ```
 mcp__sbox__get_bridge_status
 ```
-If it times out: s&box isn't running or the **Claude Bridge dock is closed** (the
-dock must stay visible for the frame loop). Stop until it responds.
+If it times out: s&box isn't running, the editor is minimized/throttled, or the
+bridge addon is not loaded. The Codex Bridge dock is optional on current builds.
+Stop until it responds.
 
 Defensively make sure you're not in play mode (scene-mutating tools are refused
 during play):

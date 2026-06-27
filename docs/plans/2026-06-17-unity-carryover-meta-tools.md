@@ -5,7 +5,7 @@ from 51 games). The Unity bridge build-out pulled ahead in a *different* lane �
 meta-tools** that drive and inspect a running scene rather than generate gameplay code. This wave
 ports the high-value, s&box-feasible ones.
 
-**Hard gate (this project's rule):** s&box must be running with the `claudebridge` addon. For every
+**Hard gate (this project's rule):** s&box must be running with the `codexbridge` addon. For every
 tool: `describe_type` the API live BEFORE writing C#, then generate → hotload/restart →
 `get_compile_errors` → screenshot-verify. No blind ships.
 
@@ -17,7 +17,7 @@ Unity: `debug_draw_box/line/ray/sphere/label`, `debug_clear`. s&box has no debug
   spot, unlike runtime particles which can't be seen through the bridge).
 - **Use cases:** visualize `raycast` hits, `physics_overlap` volumes, `trigger_zone` bounds, NPC
   `SightRange`/`FovDegrees` cones, `place_patrol_route` paths.
-- **Impl path (API CONFIRMED in corpus):** a `ClaudeDebugDraw` component (`NetworkMode.Never`)
+- **Impl path (API CONFIRMED in corpus):** a `CodexDebugDraw` component (`NetworkMode.Never`)
   holding a `List<DebugPrim>`. **Edit-mode** render via `protected override void DrawGizmos()` +
   `Gizmo.Draw.*`. **Open question RESOLVED:** `DrawGizmos()` runs even when the object is NOT
   selected — proven by the `Gizmo.Draw.Color = ...WithAlpha( Gizmo.IsSelected ? 1f : 0.2f )` pattern
@@ -69,14 +69,14 @@ Unity: drives the project test runner. s&box bridge only has `run_self_test` (it
 Unity steps the sim N frames deterministically. s&box has no obvious clean tick-advance API from the
 editor. Not worth the dig unless a clear `Scene` tick hook turns up. Skip for now.
 
-## Progress (2026-06-18) — branch `claude/unity-carryover-meta-tools`
+## Progress (2026-06-18) — branch `codex/unity-carryover-meta-tools`
 - **`set_time_scale` (#2): DRAFTED, offline-verified.** `debugviz.ts` + index.ts wiring +
   `DebugVizHandlers.cs::SetTimeScaleHandler` + `Register(...)` in MyEditorMenu.cs. `npm run build`
   clean, parity audit PASS.
 - **`get_profiler_stats` (#3): DRAFTED, offline-verified.** Added to the same files. Parity PASS at
   **194 tools / 185 handlers / 0 orphans @ 1.13.0**.
 - **PENDING live compile-verify** for BOTH (editor was offline at authoring): sync
-  `DebugVizHandlers.cs` + the MyEditorMenu.cs `Register` lines to `<project>/Libraries/claudebridge/
+  `DebugVizHandlers.cs` + the MyEditorMenu.cs `Register` lines to `<project>/Libraries/codexbridge/
   Editor/`, `restart_editor`, `get_compile_errors`; then `start_play` → `set_time_scale 0.1` +
   `get_profiler_stats` to functionally verify. If C# member names are off, `describe_type` and fix.
 - **NOT STARTED (editor-gated):** `debug_draw_*` (#1 — build live; `DrawGizmos` + holder component)

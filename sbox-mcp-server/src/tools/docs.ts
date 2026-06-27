@@ -3,8 +3,8 @@ import { z } from "zod";
 import { BridgeClient } from "../transport/bridge-client.js";
 
 /**
- * Documentation tools (Batch 25 — "let Claude read the real s&box docs"): search
- * and fetch the official s&box guide documentation so Claude can ground itself in
+ * Documentation tools (Batch 25 — "let Codex read the real s&box docs"): search
+ * and fetch the official s&box guide documentation so Codex can ground itself in
  * Facepunch's own pages instead of guessing from possibly-stale training data.
  *
  * The s&box guide docs live in the PUBLIC GitHub repo Facepunch/sbox-docs

@@ -56,7 +56,7 @@ public class CopyAssetWithDependenciesHandler : IBridgeHandler
 			if ( sourceAsset == null )
 			{
 				// Try treating it as a project-relative path.
-				if ( ClaudeBridge.TryResolveProjectPath( sourcePath, out var absAttempt, out _ ) )
+				if ( CodexBridge.TryResolveProjectPath( sourcePath, out var absAttempt, out _ ) )
 					sourceAsset = Editor.AssetSystem.FindByPath( absAttempt )
 						?? Editor.AssetSystem.FindByPath( absAttempt.Replace( '\\', '/' ) );
 			}
@@ -66,7 +66,7 @@ public class CopyAssetWithDependenciesHandler : IBridgeHandler
 			// ---- 2. Target directory ----
 			var targetDir = p.TryGetProperty( "targetDir", out var td ) && !string.IsNullOrWhiteSpace( td.GetString() )
 				? td.GetString() : "Assets/library";
-			if ( !ClaudeBridge.TryResolveProjectPath( targetDir, out var absTargetDir, out var pathErr ) )
+			if ( !CodexBridge.TryResolveProjectPath( targetDir, out var absTargetDir, out var pathErr ) )
 				return Task.FromResult<object>( new { error = pathErr } );
 
 			// SHADOW GUARD for the DESTINATION too: writing anything under a core engine

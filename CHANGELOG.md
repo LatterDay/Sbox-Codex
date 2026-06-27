@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the s&box Claude Bridge. Also online: [sboxskins.gg/claudebridge/changelog](https://sboxskins.gg/claudebridge/changelog).
+All notable changes to the s&box Codex Bridge. Also online: [sboxskins.gg/codexbridge/changelog](https://sboxskins.gg/codexbridge/changelog).
 
 ## [1.17.1] -- 2026-06-25
 
@@ -34,7 +34,7 @@ Limitation: movement injection is controller/spawn-specific (best-effort) -- the
 
 ### Docs
 
-- **Troubleshooting §2 corrected** — the bridge frame loop is a **static** `[EditorEvent.Frame]` handler (since v1.3.0); the Claude Bridge dock does **not** need to be open. The old entry wrongly called the visible dock a hard requirement.
+- **Troubleshooting §2 corrected** — the bridge frame loop is a **static** `[EditorEvent.Frame]` handler (since v1.3.0); the Codex Bridge dock does **not** need to be open. The old entry wrongly called the visible dock a hard requirement.
 - **Troubleshooting §13 (`create_material` dictionary-key error) marked resolved** (v1.7+; verified working live).
 
 ### Investigated — no change needed
@@ -44,11 +44,11 @@ Limitation: movement injection is controller/spawn-specific (best-effort) -- the
 
 ## [1.15.0] -- 2026-06-18
 
-**+5 debug-draw tools ported from the Claude Bridge for Unity -- visualize geometry in the scene. 190 handlers / 199 tools (was 185/194). Additive -- no existing tool contract changed.**
+**+5 debug-draw tools ported from the Codex Bridge for Unity -- visualize geometry in the scene. 190 handlers / 199 tools (was 185/194). Additive -- no existing tool contract changed.**
 
 ### Added -- debug-draw (Unity carry-over wave 2)
 
-- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere`** -- draw world-space debug primitives (line, arrow, wireframe box, wireframe sphere) with a color + thickness. They accumulate on a single NotSaved `ClaudeDebugDraw` holder and render in BOTH modes: editor via `Gizmo.Draw.*` (visible in the live viewport), play via `Scene.DebugOverlay.*` (visible in-game and through `capture_view`). Live-verified on the running bridge -- edit-mode gizmos confirmed in the editor viewport, play-mode overlay confirmed via `capture_view` (green box / red sphere / yellow line / blue ray rendered correctly).
+- **`debug_draw_line` / `debug_draw_ray` / `debug_draw_box` / `debug_draw_sphere`** -- draw world-space debug primitives (line, arrow, wireframe box, wireframe sphere) with a color + thickness. They accumulate on a single NotSaved `CodexDebugDraw` holder and render in BOTH modes: editor via `Gizmo.Draw.*` (visible in the live viewport), play via `Scene.DebugOverlay.*` (visible in-game and through `capture_view`). Live-verified on the running bridge -- edit-mode gizmos confirmed in the editor viewport, play-mode overlay confirmed via `capture_view` (green box / red sphere / yellow line / blue ray rendered correctly).
 - **`debug_clear`** -- remove all debug primitives (destroys the holder).
 - Makes invisible logic visible: a `raycast` hit, a `physics_overlap` volume, a `trigger_zone`'s bounds, an NPC's `SightRange`/`FovDegrees`, a patrol path.
 
@@ -58,7 +58,7 @@ This completes the Unity carry-over wave begun in v1.14.0; the remaining `run_te
 
 ## [1.14.0] -- 2026-06-18
 
-**+2 engine/workflow meta-tools ported from the Claude Bridge for Unity -- play-mode time control and a live performance read-out. 185 handlers / 194 tools (was 183/192). Additive -- no existing tool contract changed.**
+**+2 engine/workflow meta-tools ported from the Codex Bridge for Unity -- play-mode time control and a live performance read-out. 185 handlers / 194 tools (was 183/192). Additive -- no existing tool contract changed.**
 
 ### Added -- debug-viz / meta-tools (Unity carry-over wave)
 
@@ -117,13 +117,13 @@ Partial wave -- the higher-value `debug_draw_*` (editor gizmo + play-mode `Debug
 
 ### Changed -- Whitelist correction (affects all s&box devs reading stale advice)
 
-- **`System.Math` and `System.MathF` NOW COMPILE** in s&box game code on the current SDK -- the old "MathX only" rule documented in `CLAUDE.md` and `docs/BRIDGE_GOTCHAS.md` was stale. Both files corrected. `sandbox_lint` does NOT flag `Math`/`MathF` usage.
+- **`System.Math` and `System.MathF` NOW COMPILE** in s&box game code on the current SDK -- the old "MathX only" rule documented in `CODEX.md` and `docs/BRIDGE_GOTCHAS.md` was stale. Both files corrected. `sandbox_lint` does NOT flag `Math`/`MathF` usage.
 - **`Array.Clone()` is STILL whitelist-blocked** (verified via deliberate live compile failure: "System.Array.Clone() is not allowed when whitelist is enabled"). Use `.ToArray()`. `sandbox_lint` flags this with the fix.
 - `sandbox_lint` tuned accordingly: `Math`/`MathF` removed from the advisory list; `Array.Clone()` is the canonical blocked-clone example.
 
 ### Changed -- Bridge map (semantic rebuild)
 
-- Full semantic bridge-map rebuilt **without an API key** (Claude subagent extraction via the graphify skill): **3548 nodes / 4473 edges / 257 communities** with 50 human-named communities. Previous graph was code/AST only. `docs/graph/` updated (`graph.json`, `graph.html`, `GRAPH_REPORT.md`).
+- Full semantic bridge-map rebuilt **without an API key** (Codex subagent extraction via the graphify skill): **3548 nodes / 4473 edges / 257 communities** with 50 human-named communities. Previous graph was code/AST only. `docs/graph/` updated (`graph.json`, `graph.html`, `GRAPH_REPORT.md`).
 
 ### Notes
 
@@ -216,7 +216,7 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 ### Changed — License
 
 - **Relicensed GPL-3.0 → AGPL-3.0-or-later** (the `LICENSE` file and every `license` field). The AGPL's network/hosted-service clause now applies: if you run a modified bridge as a service, make your modified source available to its users.
-- **Added a `NOTICE`** with the AGPL summary plus a **branding/trademark** note: the code is open under AGPL, but the **"s&box Claude Bridge"** / **"sboxskins.gg"** name and branding may not be reused to present a fork as the original.
+- **Added a `NOTICE`** with the AGPL summary plus a **branding/trademark** note: the code is open under AGPL, but the **"s&box Codex Bridge"** / **"sboxskins.gg"** name and branding may not be reused to present a fork as the original.
 
 ### Notes
 
@@ -288,7 +288,7 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 - **`set_animgraph_param`** — set an AnimationGraph parameter via `SkinnedModelRenderer.Set(name, value)` — the way to drive Citizen/animgraph motion (e.g. `move_x`/`move_y` float, `b_grounded`/`duck` bool, or a Vector3). Poses preview in-editor when `PlayAnimationsInEditorScene` is on. Verified: `duck=1.0` visibly crouches a Citizen.
 - **`play_animation`** — play a named sequence by setting `SkinnedModelRenderer.Sequence` (best for raw-sequence models; for animgraph characters prefer `set_animgraph_param`). Validates the name against the model's sequences and returns the available list on a miss.
 - **`get_bounds`** — a GameObject's world-space bounding box: center, size, extents, mins/maxs, radius (`GameObject.GetBounds()`). Objects with no renderer report `empty:true` with their world position.
-- **`screenshot_orbit`** — capture an object from several angles in one call. Drives `get_bounds` for framing, then `screenshot_from` per angle (each its own frame — the reliable capture path), spacing shots so s&box's 1-second screenshot filenames don't collide. Returns the saved PNG paths in order for Claude to read.
+- **`screenshot_orbit`** — capture an object from several angles in one call. Drives `get_bounds` for framing, then `screenshot_from` per angle (each its own frame — the reliable capture path), spacing shots so s&box's 1-second screenshot filenames don't collide. Returns the saved PNG paths in order for Codex to read.
 
 ### Notes
 
@@ -299,7 +299,7 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 
 ## [1.5.2] — 2026-06-03
 
-**`recompile_asset` — compile a project asset from the bridge (`Editor.AssetSystem.RegisterFile` + `Asset.Compile`), so an asset Claude writes or edits gets its compiled form regenerated without a manual editor step. 152 tools / 145 handlers.**
+**`recompile_asset` — compile a project asset from the bridge (`Editor.AssetSystem.RegisterFile` + `Asset.Compile`), so an asset Codex writes or edits gets its compiled form regenerated without a manual editor step. 152 tools / 145 handlers.**
 
 ### Added
 
@@ -314,12 +314,12 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 
 ## [1.5.1] — 2026-06-03
 
-**Closes the dev loop + adds library awareness. `restart_editor` lets Claude relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 151 tools / 144 handlers.**
+**Closes the dev loop + adds library awareness. `restart_editor` lets Codex relaunch the editor itself (no more manual restarts to apply C# changes); `list_libraries` detects installed addons; and a `sbox-setup` onboarding wizard greets new users. 151 tools / 144 handlers.**
 
 ### Added
 
 - **`restart_editor`** — restart the s&box editor and wait for the bridge to reconnect (`EditorUtility.RestartEditor` + headless unsaved-scene handling, saves by default). Closes the C#-edit→recompile loop: addon/bridge changes apply without a manual restart. Uses the engine API directly — **no dependency on the `auto_restart` library** (that's just where the mechanism was confirmed).
-- **`list_libraries`** — list installed s&box libraries/addons (reads `Libraries/` + each `.sbproj`). Lets Claude discover what's available to build on — character controllers (Shrimple `fish.scc`, `facepunch.playercontroller`), world tools, etc. — and leverage them via `add_component_with_properties` instead of writing from scratch.
+- **`list_libraries`** — list installed s&box libraries/addons (reads `Libraries/` + each `.sbproj`). Lets Codex discover what's available to build on — character controllers (Shrimple `fish.scc`, `facepunch.playercontroller`), world tools, etc. — and leverage them via `add_component_with_properties` instead of writing from scratch.
 - **Setup wizard** — a `sbox-setup` skill plus a connect-time nudge in the MCP `instructions`: welcomes, verifies the bridge, detects libraries, recommends a first move, and points to help + feedback.
 
 ### Notes
@@ -336,7 +336,7 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 
 **Self-diagnosis (MCP-server-side — work even when the editor has crashed):**
 - `read_log` — tail/filter `sbox-dev.log` directly (auto-locates via Steam `libraryfolders.vdf`, or `SBOX_LOG_PATH`).
-- `get_compile_errors` — surface the latest C# compile failures from the log. Claude can finally see its own errors instead of guessing.
+- `get_compile_errors` — surface the latest C# compile failures from the log. Codex can finally see its own errors instead of guessing.
 
 **Verification & camera:**
 - `screenshot_from` — **aim a screenshot at any object or point.** `take_screenshot` always renders from the scene's Main Camera (one fixed angle), which made most visual changes impossible to verify; `screenshot_from` moves the Main Camera to frame a target, captures, and restores it. This is what makes the authoring layer screenshot-verifiable.
@@ -429,7 +429,7 @@ External code-audit remediation:
 - **`SBOX_BRIDGE_IPC_DIR`** (MCP server) — overrides the IPC directory. The #1 cause of a silent 30s hang is the Node side (`os.tmpdir()`, reads `TEMP` first) and the C# side (`Path.GetTempPath()`, reads `TMP` first) resolving **different** temp dirs; point both at one dir to realign. The addon logs and writes its resolved dir (`[SboxBridge] … IPC at <dir>` and `status.json.ipcDir`) so you know what to match.
 - **Timeouts now name the failing side.** Instead of a bare `Request timed out after 30000ms`, a timeout reports whether the editor never consumed the request (not running / wrong IPC dir) or consumed it but never responded (frame loop stalled / handler errored) — with the IPC dir and a pointer to the `[SboxBridge]` console logs.
 - **Richer `get_bridge_status`** — reports the IPC directory, heartbeat age, and the result of a real round-trip, so "heartbeat live but requests not draining" is distinguishable from "fully working" and "not connected". Also surfaces the bridge build version.
-- **`BridgeVersion`** in `status.json` and the **Editor → Claude Bridge → Status** dialog, so a marketplace-addon-vs-MCP-server skew is visible at a glance.
+- **`BridgeVersion`** in `status.json` and the **Editor → Codex Bridge → Status** dialog, so a marketplace-addon-vs-MCP-server skew is visible at a glance.
 - **Transport regression tests** — `npm test` (Node's built-in test runner, zero new deps) covers heartbeat-staleness, the timeout diagnostics, and the IPC-dir override.
 
 ### Changed
@@ -440,13 +440,13 @@ External code-audit remediation:
 
 ## [1.3.1] — 2026-05-16
 
-**Discoverability patch. No tool changes. Surfaces the new Claude Code plugin and the screenshot-driven workflow inside the existing distribution channels.**
+**Discoverability patch. No tool changes. Surfaces the new Codex plugin and the screenshot-driven workflow inside the existing distribution channels.**
 
 ### Added
 
-- **`McpServer.instructions`** — the MCP server now ships an `instructions` string that surfaces at the top of every Claude Code session that uses the bridge (the same mechanism Supabase / TurboTax use). It tells Claude how to work effectively with the bridge: call `get_bridge_status` first, take screenshots and read them after visual changes, use `describe_type` before guessing s&box APIs, scene-mutating tools refuse during play mode, and points at the `sbox-claude` plugin for the full workflow.
-- **`sbox-mcp-server` README rewritten** — leads with the Claude Code plugin install path, falls back to the manual three-step install. Tool table updated to 99 working (was 78 from v1.0.0 docs). Includes the two-discipline summary: screenshot after visual changes, `describe_type` before guessing.
-- **`claudebridge.sbproj` Description rewritten** — mentions the `sbox-claude` plugin install path inline, so users discovering the addon through the s&box Asset Library see the plugin in the first paragraph.
+- **`McpServer.instructions`** — the MCP server now ships an `instructions` string that surfaces at the top of every Codex session that uses the bridge (the same mechanism Supabase / TurboTax use). It tells Codex how to work effectively with the bridge: call `get_bridge_status` first, take screenshots and read them after visual changes, use `describe_type` before guessing s&box APIs, scene-mutating tools refuse during play mode, and points at the `sbox-codex` plugin for the full workflow.
+- **`sbox-mcp-server` README rewritten** — leads with the Codex plugin install path, falls back to the manual three-step install. Tool table updated to 99 working (was 78 from v1.0.0 docs). Includes the two-discipline summary: screenshot after visual changes, `describe_type` before guessing.
+- **`codexbridge.sbproj` Description rewritten** — mentions the `sbox-codex` plugin install path inline, so users discovering the addon through the s&box Asset Library see the plugin in the first paragraph.
 
 ### Why a patch and not a minor
 
@@ -460,13 +460,13 @@ No tool surface changes, no behavior changes outside of the new instructions tex
 
 ### Fixed
 
-- **Editor bootstrap crash on current s&box builds.** `ClaudeBridge`'s static constructor called `Log.Info`, which dispatches to the menu addon's `ConsoleOverlay`. `ConsoleOverlay.OnConsoleMessage` constructs a `ConsoleEntry` panel, and `Panel..ctor()` calls `InitializeEvents()` which accesses `Game.TypeLibrary` — but `TypeLibrary` is explicitly disabled during `PackageLoader.AddAssembly → RunAllStaticConstructors`. Result: `InvalidOperationException: TypeLibrary is currently inaccessible. Reason: Disabled during static constructors.` and any project depending on this addon becomes unopenable. **Fix:** keep the static constructor empty and run logging / handler registration / IPC bridge startup from the first `[EditorEvent.Frame]` callback (gated by an `_initialized` flag) so init happens after bootstrap completes and `TypeLibrary` is accessible. **Original report and patch by [@FurkanZhlp](https://github.com/FurkanZhlp) in [PR #6](https://github.com/LouSputthole/Sbox-Claude/pull/6).**
-- **GitHub issue [#2](https://github.com/LouSputthole/Sbox-Claude/issues/2)** — RPCs hung for 30s whenever the **Claude Bridge** dock panel wasn't open. Reason: `[EditorEvent.Frame]` was on an instance method of `BridgePoller : Widget`, so it only fired during the lifetime of the dock instance. **Fix:** moved the frame handler to a static method on `ClaudeBridge` itself — `[EditorEvent.Frame] public static void OnEditorFrame()`. The dock widget remains as a status display but the bridge no longer depends on it being open.
-- **GitHub issue [#4](https://github.com/LouSputthole/Sbox-Claude/issues/4)** — `get_scene_hierarchy` ignored its `maxDepth` parameter and always returned the full tree, overflowing token budgets on real scenes. **Fix:** the handler now honors `maxDepth` (default 10) and gates recursion at that depth. **Bonus:** added optional `rootId` parameter to start traversal from a specific GameObject GUID instead of the scene roots — drill into a subtree without paying for the rest of the scene.
+- **Editor bootstrap crash on current s&box builds.** `CodexBridge`'s static constructor called `Log.Info`, which dispatches to the menu addon's `ConsoleOverlay`. `ConsoleOverlay.OnConsoleMessage` constructs a `ConsoleEntry` panel, and `Panel..ctor()` calls `InitializeEvents()` which accesses `Game.TypeLibrary` — but `TypeLibrary` is explicitly disabled during `PackageLoader.AddAssembly → RunAllStaticConstructors`. Result: `InvalidOperationException: TypeLibrary is currently inaccessible. Reason: Disabled during static constructors.` and any project depending on this addon becomes unopenable. **Fix:** keep the static constructor empty and run logging / handler registration / IPC bridge startup from the first `[EditorEvent.Frame]` callback (gated by an `_initialized` flag) so init happens after bootstrap completes and `TypeLibrary` is accessible. **Original report and patch by [@FurkanZhlp](https://github.com/FurkanZhlp) in [PR #6](https://github.com/LatterDay/Sbox-Codex/pull/6).**
+- **GitHub issue [#2](https://github.com/LatterDay/Sbox-Codex/issues/2)** — RPCs hung for 30s whenever the **Codex Bridge** dock panel wasn't open. Reason: `[EditorEvent.Frame]` was on an instance method of `BridgePoller : Widget`, so it only fired during the lifetime of the dock instance. **Fix:** moved the frame handler to a static method on `CodexBridge` itself — `[EditorEvent.Frame] public static void OnEditorFrame()`. The dock widget remains as a status display but the bridge no longer depends on it being open.
+- **GitHub issue [#4](https://github.com/LatterDay/Sbox-Codex/issues/4)** — `get_scene_hierarchy` ignored its `maxDepth` parameter and always returned the full tree, overflowing token budgets on real scenes. **Fix:** the handler now honors `maxDepth` (default 10) and gates recursion at that depth. **Bonus:** added optional `rootId` parameter to start traversal from a specific GameObject GUID instead of the scene roots — drill into a subtree without paying for the rest of the scene.
 
 ### Removed
 
-- **GitHub issue [#3](https://github.com/LouSputthole/Sbox-Claude/issues/3)** — Removed 10 tools from the MCP server that never had handlers in the bridge addon and only ever returned `"Unknown command: ..."`. The s&box editor doesn't expose public APIs for any of these:
+- **GitHub issue [#3](https://github.com/LatterDay/Sbox-Codex/issues/3)** — Removed 10 tools from the MCP server that never had handlers in the bridge addon and only ever returned `"Unknown command: ..."`. The s&box editor doesn't expose public APIs for any of these:
   - **console** (3): `get_console_output`, `get_compile_errors`, `clear_console`
   - **playmode** (2): `pause_play`, `resume_play`
   - **publishing** (5): `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish`
@@ -475,8 +475,8 @@ No tool surface changes, no behavior changes outside of the new instructions tex
 
 ### Confirmed already fixed
 
-- **GitHub issue [#1](https://github.com/LouSputthole/Sbox-Claude/issues/1)** — UTF-8 BOM in response files causing silent JSON.parse failures. Fixed in **v1.0.0** with `new UTF8Encoding(false)` on the C# write side and `.replace(/^﻿/, "")` on the Node read side.
-- **GitHub issue [#5](https://github.com/LouSputthole/Sbox-Claude/issues/5)** — Tool invocations timing out after a compile error. Fixed in **v1.2.0** when per-handler registration was made fault-tolerant and `OnFrame` was wrapped in try/catch with deduplicated logging.
+- **GitHub issue [#1](https://github.com/LatterDay/Sbox-Codex/issues/1)** — UTF-8 BOM in response files causing silent JSON.parse failures. Fixed in **v1.0.0** with `new UTF8Encoding(false)` on the C# write side and `.replace(/^﻿/, "")` on the Node read side.
+- **GitHub issue [#5](https://github.com/LatterDay/Sbox-Codex/issues/5)** — Tool invocations timing out after a compile error. Fixed in **v1.2.0** when per-handler registration was made fault-tolerant and `OnFrame` was wrapped in try/catch with deduplicated logging.
 
 ### Compatibility
 
@@ -496,15 +496,15 @@ Drop-in upgrade from 1.2.0. No breaking changes to working tools. Tools that wer
 
 ### Fixed
 
-- **`install.ps1` / `install.sh` installed to the wrong folder.** The old installers copied the addon into `<sbox>/addons/sbox-bridge-addon/`. That folder is built-in only and silently refuses to compile custom C#, so first-time installs appeared to "do nothing" and users had to install twice (eventually by hand) before the bridge worked. Reported as "I have to install this twice." Installer now targets the project's `Libraries/claudebridge/` folder where libraries actually compile.
-- **`Error calling event 'tool.frame' on 'BridgePoller'` spamming every frame.** If `ClaudeBridge`'s static initializer threw (e.g. handler constructor failed on a newer SDK), every subsequent frame re-threw the wrapped `TypeInitializationException` at ~60×/sec, filling the console with the same message. `BridgePoller.OnFrame` now wraps the call in try/catch with message deduplication — the real underlying exception is logged **once per unique error**, not 60×/sec.
-- **Scene corruption from tool calls during play mode.** Mutating the scene while `Game.IsPlaying` was true could desync the serializer and corrupt `.scene` files when saved. Reported as "Claude made tons of errors when trying to make a box and broke my project save." `ProcessRequest` now refuses scene-mutating commands during play and returns a clear error: `'create_gameobject' is not allowed while play mode is active. Stop play first (stop_play) and try again.` Safe-during-play tools (read-only, `take_screenshot`, runtime properties, `start_play` / `stop_play`) unaffected.
+- **`install.ps1` / `install.sh` installed to the wrong folder.** The old installers copied the addon into `<sbox>/addons/sbox-bridge-addon/`. That folder is built-in only and silently refuses to compile custom C#, so first-time installs appeared to "do nothing" and users had to install twice (eventually by hand) before the bridge worked. Reported as "I have to install this twice." Installer now targets the project's `Libraries/codexbridge/` folder where libraries actually compile.
+- **`Error calling event 'tool.frame' on 'BridgePoller'` spamming every frame.** If `CodexBridge`'s static initializer threw (e.g. handler constructor failed on a newer SDK), every subsequent frame re-threw the wrapped `TypeInitializationException` at ~60×/sec, filling the console with the same message. `BridgePoller.OnFrame` now wraps the call in try/catch with message deduplication — the real underlying exception is logged **once per unique error**, not 60×/sec.
+- **Scene corruption from tool calls during play mode.** Mutating the scene while `Game.IsPlaying` was true could desync the serializer and corrupt `.scene` files when saved. Reported as "Codex made tons of errors when trying to make a box and broke my project save." `ProcessRequest` now refuses scene-mutating commands during play and returns a clear error: `'create_gameobject' is not allowed while play mode is active. Stop play first (stop_play) and try again.` Safe-during-play tools (read-only, `take_screenshot`, runtime properties, `start_play` / `stop_play`) unaffected.
 
 ### Changed
 
 - **Handler registration is now fault-tolerant.** `Register()` takes a `Func<IBridgeHandler>` factory and try/catches construction. One broken handler no longer takes the entire bridge offline — only that tool becomes unavailable, and the failure is logged with the exception type and message for diagnosis.
 - **Installer flags:** `-ProjectPath` / explicit project arg (auto-detects if you have one s&box project in `Documents\s&box projects`), `-ListProjects` / `--list` (show projects then exit), `-RemoveStaleAddons` / `--remove-stale` (delete old wrong-location installs).
-- **`install.ps1` removes any stale `claudebridge.editor.csproj`** before s&box gets a chance to use it. The auto-generated `.csproj` contains absolute paths to s&box DLLs on the original build machine and breaks installs on other PCs — deleting it lets s&box regenerate one with the right local paths.
+- **`install.ps1` removes any stale `codexbridge.editor.csproj`** before s&box gets a chance to use it. The auto-generated `.csproj` contains absolute paths to s&box DLLs on the original build machine and breaks installs on other PCs — deleting it lets s&box regenerate one with the right local paths.
 
 ### Added
 
@@ -513,7 +513,7 @@ Drop-in upgrade from 1.2.0. No breaking changes to working tools. Tools that wer
 
 ### Honesty Note
 
-The bridge is excellent at building **game systems** through conversation — player controllers, networking, UI, AI, prefabs, sound events, scripts, components, runtime logic. It is **serviceable but not exceptional** at building **maps** — Claude can drive terrain sculpting, forest placement, and cave layout, but it can't see the result, only read coordinates, so visual polish still needs your eyes on it.
+The bridge is excellent at building **game systems** through conversation — player controllers, networking, UI, AI, prefabs, sound events, scripts, components, runtime logic. It is **serviceable but not exceptional** at building **maps** — Codex can drive terrain sculpting, forest placement, and cave layout, but it can't see the result, only read coordinates, so visual polish still needs your eyes on it.
 
 ### Compatibility
 
@@ -550,7 +550,7 @@ The bridge now drives map-building components that follow a `[Property] List<Fea
 
 ### Added — Code Discovery
 
-Stops Claude from guessing s&box APIs by exposing `Game.TypeLibrary` reflection.
+Stops Codex from guessing s&box APIs by exposing `Game.TypeLibrary` reflection.
 
 - `describe_type` — full surface of any type: properties, methods, events, attributes
 - `search_types` — find types by name pattern, optionally filter to Components only
@@ -623,6 +623,6 @@ Initial public release.
 
 - 78 working tools across 18 categories: project, scenes, GameObjects, components, assets, materials, audio, physics, prefabs, play mode, UI, templates, networking, publishing, status.
 - File-based IPC transport via `%TEMP%/sbox-bridge-ipc/` (replaced earlier WebSocket attempt — s&box's sandboxed C# blocks `System.Net`).
-- Bridge addon as project-local Library at `Libraries/claudebridge/Editor/MyEditorMenu.cs`.
+- Bridge addon as project-local Library at `Libraries/codexbridge/Editor/MyEditorMenu.cs`.
 - BOM-less UTF-8 fix on both sides of the IPC channel (C# `new UTF8Encoding(false)` writes, MCP server strips `﻿` reads).
 - 11 tools defined-but-not-implementable due to missing s&box APIs: `pause_play`, `resume_play`, `get_console_output`, `get_compile_errors`, `clear_console`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `prepare_publish`.

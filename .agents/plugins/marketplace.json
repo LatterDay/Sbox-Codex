@@ -1,0 +1,20 @@
+{
+  "name": "sbox-codex",
+  "interface": {
+    "displayName": "Sbox Codex"
+  },
+  "plugins": [
+    {
+      "name": "sbox-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sbox-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Game Development"
+    }
+  ]
+}

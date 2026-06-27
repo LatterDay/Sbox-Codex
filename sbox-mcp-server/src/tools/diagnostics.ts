@@ -5,8 +5,8 @@ import { existsSync, readFileSync, statSync, readdirSync } from "fs";
 import { join, dirname } from "path";
 
 /**
- * Diagnostic tools (Batch 24 — "let Claude see its own errors"): read s&box's
- * editor log so Claude can check compile errors, exceptions, and Log.Info
+ * Diagnostic tools (Batch 24 — "let Codex see its own errors"): read s&box's
+ * editor log so Codex can check compile errors, exceptions, and Log.Info
  * output directly — instead of flying blind or relying on the user to relay
  * them.
  *
@@ -117,7 +117,7 @@ export function registerDiagnosticTools(
   // ── read_log ───────────────────────────────────────────────────────
   server.tool(
     "read_log",
-    "Read s&box's editor log (sbox-dev.log) so Claude can see compile errors, exceptions, and Log.Info output directly. Reads the log file (not via the bridge), so it works even when the editor has crashed. If auto-detection fails (non-Windows / non-Steam install), set the SBOX_LOG_PATH environment variable to the full log path.",
+    "Read s&box's editor log (sbox-dev.log) so Codex can see compile errors, exceptions, and Log.Info output directly. Reads the log file (not via the bridge), so it works even when the editor has crashed. If auto-detection fails (non-Windows / non-Steam install), set the SBOX_LOG_PATH environment variable to the full log path.",
     {
       lines: z
         .number()
@@ -167,7 +167,7 @@ export function registerDiagnosticTools(
   // ── get_compile_errors ─────────────────────────────────────────────
   server.tool(
     "get_compile_errors",
-    "Scan the recent s&box log for compile errors and exceptions — the fast way for Claude to confirm whether its last script/addon edit actually compiled. Reads sbox-dev.log directly (works even if the editor is mid-crash). Filters out the noisy 'Broken Reference: package.local.* (the compiler failed)' cascade (which masks the real cause) and surfaces the underlying '[Generic] Error | ...CSxxxx... file:line' diagnostics. Returns the real error lines, or an all-clear.",
+    "Scan the recent s&box log for compile errors and exceptions — the fast way for Codex to confirm whether its last script/addon edit actually compiled. Reads sbox-dev.log directly (works even if the editor is mid-crash). Filters out the noisy 'Broken Reference: package.local.* (the compiler failed)' cascade (which masks the real cause) and surfaces the underlying '[Generic] Error | ...CSxxxx... file:line' diagnostics. Returns the real error lines, or an all-clear.",
     {
       lines: z
         .number()
@@ -225,7 +225,7 @@ export function registerDiagnosticTools(
       if (realHits.length === 0) {
         if (cascadeLines.length > 0) {
           // We saw the masking cascade but none of the underlying diagnostics
-          // fell within the scanned window — point Claude at the fuller log.
+          // fell within the scanned window — point Codex at the fuller log.
           return {
             content: [
               {
@@ -267,7 +267,7 @@ export function registerDiagnosticTools(
   // ── frame_camera ─────────────────────────────────────────────────── (bridge)
   server.tool(
     "frame_camera",
-    "Aim the s&box EDITOR viewport camera at a GameObject (by id) or a world point (position + optional radius), then call take_screenshot to capture that view. This is how Claude points its own screenshots at what it's working on — frame a spawned object, then screenshot to verify it actually looks right.",
+    "Aim the s&box EDITOR viewport camera at a GameObject (by id) or a world point (position + optional radius), then call take_screenshot to capture that view. This is how Codex points its own screenshots at what it's working on — frame a spawned object, then screenshot to verify it actually looks right.",
     {
       id: z.string().optional().describe("GUID of a GameObject to frame on"),
       position: Vector3Schema
@@ -292,7 +292,7 @@ export function registerDiagnosticTools(
   // ── screenshot_from ──────────────────────────────────────────────── (bridge)
   server.tool(
     "screenshot_from",
-    "Take a screenshot from a chosen angle. take_screenshot is locked to the scene's main camera; this temporarily moves that camera to frame your target, captures, then restores it — so Claude can finally AIM its own screenshots. Pass id (frame an object) OR position {x,y,z} with optional lookAt {x,y,z} or rotation {pitch,yaw,roll}. After it returns, read the newest PNG in the editor's screenshots folder.",
+    "Take a screenshot from a chosen angle. take_screenshot is locked to the scene's main camera; this temporarily moves that camera to frame your target, captures, then restores it — so Codex can finally AIM its own screenshots. Pass id (frame an object) OR position {x,y,z} with optional lookAt {x,y,z} or rotation {pitch,yaw,roll}. After it returns, read the newest PNG in the editor's screenshots folder.",
     {
       id: z.string().optional().describe("GUID of a GameObject to frame"),
       position: Vector3Schema
@@ -356,7 +356,7 @@ export function registerDiagnosticTools(
     },
     async (params) => {
       const id = `${Date.now().toString(36)}${++execCounter}`;
-      const cmd = `claude_exec_${id}`;
+      const cmd = `codex_exec_${id}`;
       const filePath = `Editor/__Exec_${id}.cs`;
       const marker = `[EXEC ${id}]`;
       const inner = params.expression
@@ -458,7 +458,7 @@ export function registerDiagnosticTools(
   // ── screenshot_orbit ──────────────────────────────────────────────── (orchestrated, Batch 33)
   server.tool(
     "screenshot_orbit",
-    "Capture a GameObject from several angles in ONE call — orbits the scene's main camera around the object and screenshots each angle, so Claude can verify 3D work from multiple sides instead of guessing from one. Drives get_bounds (framing) + screenshot_from per angle (each its own frame, the reliable capture path). Returns the saved PNG paths in order — READ them to inspect.",
+    "Capture a GameObject from several angles in ONE call — orbits the scene's main camera around the object and screenshots each angle, so Codex can verify 3D work from multiple sides instead of guessing from one. Drives get_bounds (framing) + screenshot_from per angle (each its own frame, the reliable capture path). Returns the saved PNG paths in order — READ them to inspect.",
     {
       id: z.string().describe("GUID of the GameObject to orbit"),
       shots: z

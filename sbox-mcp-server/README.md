@@ -1,17 +1,17 @@
 # sbox-mcp-server
 
-MCP Server for the s&box game engine. Lets Claude Code build s&box games through conversation — **170+ tools** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, self-diagnosis, console/C# execution, live docs search, and type discovery.
+MCP Server for the s&box game engine. Lets Codex build s&box games through conversation — **170+ tools** for scenes, scripts, GameObjects, components, assets, materials, audio, physics, UI, networking, publishing, world-gen, lighting & atmosphere, characters, scene layout, navmesh & spatial queries, particles, animation, NPC brains, playable-game scaffolds, networking & scene inspection/lint, save & services queries, self-diagnosis, console/C# execution, live docs search, and type discovery.
 
-## Fastest install — the Claude Code plugin
+## Fastest install — the Codex plugin
 
-If you use Claude Code, the easiest install is the companion plugin. It registers this MCP server automatically, ships the workflow + recipe skills (`sbox-build-feature`, `sbox-api`, `sbox-cookbook`, `sbox-scaffold-game`, `sbox-setup`), and includes the `sbox-game-dev` specialist agent.
+If you use Codex, the easiest install is the companion plugin. It registers this MCP server automatically, ships the workflow + recipe skills (`sbox-build-feature`, `sbox-api`, `sbox-cookbook`, `sbox-scaffold-game`, `sbox-setup`), and includes the `sbox-game-dev` specialist agent.
 
 ```
-/plugin marketplace add LouSputthole/Sbox-Claude
-/plugin install sbox-claude
+codex plugin marketplace add LatterDay/Sbox-Codex
+codex plugin add sbox-codex@sbox-codex
 ```
 
-You still need to install the s&box-side **bridge addon** into your project's `Libraries/` folder (see step 1 below). The plugin handles the Claude side; the addon handles the s&box side.
+You still need to install the s&box-side **bridge addon** into your project's `Libraries/` folder (see step 1 below). The plugin handles the Codex side; the addon handles the s&box side.
 
 ## Manual install — three steps
 
@@ -20,18 +20,18 @@ You still need to install the s&box-side **bridge addon** into your project's `L
 The bridge addon runs inside the s&box editor and receives commands from this MCP server. It MUST live inside a project's `Libraries/` folder — putting it in s&box's global `addons/` will silently fail to compile.
 
 ```powershell
-git clone https://github.com/LouSputthole/Sbox-Claude.git
-cd Sbox-Claude
+git clone https://github.com/LatterDay/Sbox-Codex.git
+cd Sbox-Codex
 .\install.ps1 -RemoveStaleAddons      # Windows, auto-detects your s&box project
 ./install.sh --remove-stale            # Linux/Mac/WSL
 ```
 
-See [INSTALL.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/INSTALL.md) for the full guide and manual fallback.
+See [INSTALL.md](https://github.com/LatterDay/Sbox-Codex/blob/main/INSTALL.md) for the full guide and manual fallback.
 
-### 2. Register the MCP server with Claude Code
+### 2. Register the MCP server with Codex
 
 ```bash
-claude mcp add sbox -- npx sbox-mcp-server
+codex mcp add sbox -- npx sbox-mcp-server
 ```
 
 This is the bare command — equivalent to what the plugin's `.mcp.json` does for you.
@@ -49,7 +49,7 @@ You should see `connected: true` with a healthy `handlerCount`. (That's the edit
 ## How it works
 
 ```
-Claude Code → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → s&box editor
+Codex → (stdio) → sbox-mcp-server → (file IPC) → bridge addon → s&box editor
 ```
 
 Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP server writes request JSON files, the bridge addon (running inside s&box) polls and processes on the main editor thread, then writes response files back. WebSocket is not used — s&box's sandboxed C# environment blocks `System.Net`.
@@ -101,11 +101,11 @@ Communication uses file-based IPC through `%TEMP%/sbox-bridge-ipc/`. The MCP ser
 | **Docs search** *(v1.5.0, MCP-server-side)* | search_docs, get_doc_page, list_doc_categories — official `Facepunch/sbox-docs` |
 | **Inspection & validation** *(v1.9.0)* | inspect_networked_object (per-object `Network.*` + every component's `[Sync]` fields/values), networking_lint (static scan for `[Sync]`/RPC footguns), scene_validate (no-camera / stray root Rigidbody / trigger-vs-trace), save_inspect (list/read/diff `FileSystem.Data` saves), services_query (`Sandbox.Services` stats + leaderboards), simulate_input (drive named input actions in play mode) |
 
-## Working with Claude effectively
+## Working with Codex effectively
 
 Three disciplines prevent the iteration-loop trap:
 
-1. **After visual changes, see the result — and aim the camera.** `take_screenshot` renders from the scene's Main Camera (one fixed angle), so it often won't show the thing you just changed. Use **`screenshot_from`** to point the camera at the target object/point, then read the PNG. Claude is a multimodal model — guessing about visual outcomes from code alone produces long iteration loops.
+1. **After visual changes, see the result — and aim the camera.** `take_screenshot` renders from the scene's Main Camera (one fixed angle), so it often won't show the thing you just changed. Use **`screenshot_from`** to point the camera at the target object/point, then read the PNG. Codex is a multimodal model — guessing about visual outcomes from code alone produces long iteration loops.
 2. **Before writing code that touches an unfamiliar s&box type, call `describe_type` or `search_types`.** Reflection is the source of truth; training data goes stale across SDK versions.
 3. **When something breaks, read the log instead of guessing.** `get_compile_errors` surfaces the latest C# compile failures and `read_log` tails `sbox-dev.log` — both MCP-server-side, so they work even if the editor crashed.
 
@@ -115,18 +115,18 @@ The companion plugin's `sbox-build-feature` skill encodes this workflow plus the
 
 - **Node.js 18+**
 - **s&box** with the bridge addon installed in your project's `Libraries/` folder
-- **Claude Code**
+- **Codex**
 
 ## Documentation
 
-- [Main README](https://github.com/LouSputthole/Sbox-Claude/blob/main/README.md) — full project overview
-- [INSTALL.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/INSTALL.md) — install + manual fallback
-- [TROUBLESHOOTING.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/TROUBLESHOOTING.md) — common failures and fixes
-- [CHANGELOG.md](https://github.com/LouSputthole/Sbox-Claude/blob/main/CHANGELOG.md) — release history
-- [Plugin README](https://github.com/LouSputthole/Sbox-Claude/blob/main/plugins/sbox-claude/README.md) — Claude Code plugin docs
+- [Main README](https://github.com/LatterDay/Sbox-Codex/blob/main/README.md) — full project overview
+- [INSTALL.md](https://github.com/LatterDay/Sbox-Codex/blob/main/INSTALL.md) — install + manual fallback
+- [TROUBLESHOOTING.md](https://github.com/LatterDay/Sbox-Codex/blob/main/TROUBLESHOOTING.md) — common failures and fixes
+- [CHANGELOG.md](https://github.com/LatterDay/Sbox-Codex/blob/main/CHANGELOG.md) — release history
+- [Plugin README](https://github.com/LatterDay/Sbox-Codex/blob/main/plugins/sbox-codex/README.md) — Codex plugin docs
 
 ## License
 
-**AGPL-3.0-or-later** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for details. The code is open under AGPL; the "s&box Claude Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
+**AGPL-3.0-or-later** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for details. The code is open under AGPL; the "s&box Codex Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
 
 Copyright (c) 2026 [sboxskins.gg](https://sboxskins.gg)

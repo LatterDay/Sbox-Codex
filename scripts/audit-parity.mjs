@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * audit-parity.mjs — CI parity audit for the s&box Claude Bridge.
+ * audit-parity.mjs — CI parity audit for the s&box Codex Bridge.
  *
  * Checks:
  *   1. No duplicate server.tool() names in TS sources.
@@ -28,7 +28,7 @@ const ROOT = join(__dir, "..");
 const TS_TOOLS_DIR   = join(ROOT, "sbox-mcp-server", "src", "tools");
 const CS_FILE        = join(ROOT, "sbox-bridge-addon", "Editor", "MyEditorMenu.cs");
 const PKG_JSON       = join(ROOT, "sbox-mcp-server", "package.json");
-const PLUGIN_JSON    = join(ROOT, "plugins", "sbox-claude", ".claude-plugin", "plugin.json");
+const PLUGIN_JSON    = join(ROOT, "plugins", "sbox-codex", ".codex-plugin", "plugin.json");
 const CHANGELOG_MD   = join(ROOT, "CHANGELOG.md");
 
 // ---------------------------------------------------------------------------

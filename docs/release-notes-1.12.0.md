@@ -1,4 +1,4 @@
-# s&box Claude Bridge v1.12.0 -- Six New Tools, a CI Gate, and a Whitelist Correction
+# s&box Codex Bridge v1.12.0 -- Six New Tools, a CI Gate, and a Whitelist Correction
 
 **179 editor handlers. 188 tools total. Two waves of scaffold + lint + asset tools, all verify-gated live against the current SDK.**
 
@@ -52,7 +52,7 @@ This tool kills two gotchas in one call. Gotcha #4: copying a model without its 
 
 `System.Math` and `System.MathF` **now compile** in s&box game code on the current SDK.
 
-The old rule -- "use `MathX` only, `Math`/`MathF` are blocked" -- was correct for an earlier SDK. It has been stale for a while. `CLAUDE.md` and `docs/BRIDGE_GOTCHAS.md` have been corrected. `sandbox_lint` does not flag `Math`/`MathF` usage.
+The old rule -- "use `MathX` only, `Math`/`MathF` are blocked" -- was correct for an earlier SDK. It has been stale for a while. `CODEX.md` and `docs/BRIDGE_GOTCHAS.md` have been corrected. `sandbox_lint` does not flag `Math`/`MathF` usage.
 
 `Array.Clone()` **is still blocked.** Verified via deliberate live compile failure: "System.Array.Clone() is not allowed when whitelist is enabled." Use `.ToArray()`. `sandbox_lint` catches this with a line number and the fix.
 
@@ -66,7 +66,7 @@ If you have been writing `MathX.Clamp` out of habit, keep using it -- it is fine
 
 **C# syntax gate.** `scripts/check-csharp-syntax.py` uses tree-sitter to parse every `.cs` file in the addon before syncing into a live s&box editor. Catches unbalanced braces, truncated files, and broken interpolated-string escaping -- the file states where the editor silently refuses to load the addon and you have no idea why. Known false positive: tree-sitter mis-flags the `$@`-template region in `CreateSaveSystemHandler` that Roslyn compiles correctly. Treat that one as advisory.
 
-**Semantic bridge map rebuilt.** The `docs/graph/` knowledge graph was rebuilt from scratch using the graphify skill's Claude-subagent extraction path -- no API key required. Result: **3548 nodes / 4473 edges / 257 communities** with 50 human-named communities, up from the previous code/AST-only graph. Every tool maps to its C# handler and to the docs.
+**Semantic bridge map rebuilt.** The `docs/graph/` knowledge graph was rebuilt from scratch using the graphify skill's Codex-subagent extraction path -- no API key required. Result: **3548 nodes / 4473 edges / 257 communities** with 50 human-named communities, up from the previous code/AST-only graph. Every tool maps to its C# handler and to the docs.
 
 ---
 
@@ -76,11 +76,11 @@ If you have been writing `MathX.Clamp` out of habit, keep using it -- it is fine
 ```
 npx sbox-mcp-server@1.12.0
 # or pin it:
-claude mcp add sbox -- npx -y sbox-mcp-server@1.12.0
+codex mcp add sbox -- npx -y sbox-mcp-server@1.12.0
 ```
 
-**Claude Code plugin:** update the plugin and reload. The bundled MCP server pin will update automatically.
+**Codex plugin:** update the plugin and reload. The bundled MCP server pin will update automatically.
 
-**Editor addon:** republish `sboxskinsgg.claudebridge` from the Asset Library. The new tools (`create_interactable`, `create_weighted_loot_table`, `create_save_system`, `copy_asset_with_dependencies`) require the updated addon. The lint tools (`sandbox_lint`, `razor_lint`) are MCP-server-side and work without an addon update, but you should update both halves to keep versions aligned -- `get_bridge_status` warns on a mismatch.
+**Editor addon:** republish `sboxskinsgg.codexbridge` from the Asset Library. The new tools (`create_interactable`, `create_weighted_loot_table`, `create_save_system`, `copy_asset_with_dependencies`) require the updated addon. The lint tools (`sandbox_lint`, `razor_lint`) are MCP-server-side and work without an addon update, but you should update both halves to keep versions aligned -- `get_bridge_status` warns on a mismatch.
 
 Restart s&box after updating the addon.
