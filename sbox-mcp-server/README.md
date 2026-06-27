@@ -127,6 +127,6 @@ The companion plugin's `sbox-build-feature` skill encodes this workflow plus the
 
 ## License
 
-**AGPL-3.0-or-later** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for details. The code is open under AGPL; the "s&box Codex Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
+**AGPL-3.0-or-later** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE) for details. The code is open under AGPL; project branding is not a license to present a fork as the original.
 
-Copyright (c) 2026 [sboxskins.gg](https://sboxskins.gg)
+Copyright (c) 2026 LatterDay

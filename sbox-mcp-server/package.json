@@ -35,8 +35,8 @@
     "type": "git",
     "url": "git+https://github.com/LatterDay/Sbox-Codex.git"
   },
-  "author": "sboxskins.gg (https://sboxskins.gg)",
-  "homepage": "https://sboxskins.gg",
+  "author": "LatterDay",
+  "homepage": "https://github.com/LatterDay/Sbox-Codex",
   "bugs": {
     "url": "https://github.com/LatterDay/Sbox-Codex/issues"
   },

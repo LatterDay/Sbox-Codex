@@ -35,7 +35,7 @@ The bridge's distribution channel is the **s&box Asset Library** (`sboxskinsgg.c
 
 - **Genre presets become "templates"** — the equivalent of Unity's "3D Platformer micro-game" or Roblox's template games, but generated live and immediately editable, not a fixed sample you reverse-engineer.
 - **System scaffolds become "modules"** — a health system, a pickup system, a door — the asset-pack equivalent of buying a "starter kit," except they drop into *your* scene wired to *your* objects.
-- This is a strong reason to keep the generated scripts **clean, commented, and self-contained** (one file per system, no hidden runtime dependency on the bridge): they double as **learning material**. A non-coder who scaffolds a game and then reads `Health.cs` is being onboarded to s&box. That is a retention and word-of-mouth lever for sboxskins.gg, not just a convenience.
+- This is a strong reason to keep the generated scripts **clean, commented, and self-contained** (one file per system, no hidden runtime dependency on the bridge): they double as **learning material**. A non-coder who scaffolds a game and then reads `Health.cs` is being onboarded to s&box. That is a retention and word-of-mouth lever for the project, not just a convenience.
 - It also seeds a **virtuous content loop**: the same generators can later be invoked headless to *produce* downloadable template `.scene`/`.prefab` files for the Asset Library — the scaffold tooling and the asset catalog share one code path.
 
 YAGNI note: the asset-export-to-library path is a *future* payoff, not Phase 1 scope. Phase 1 just makes "one ask → playable" real.

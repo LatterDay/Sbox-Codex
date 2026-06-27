@@ -108,7 +108,7 @@
 
 **New skill — `sbox-cookbook`.** A master **router** skill indexing code-grounded recipes mined from **27 current (2026) open-source s&box games** plus the modern engine repos. Its `references/` hold **11 engine** + **15 systems** + **14 genre** recipes; it routes "how do I build a tycoon / an inventory / a save system?" to a grounded how-to. Full bundled skill set: `sbox-api`, `sbox-build-feature`, `sbox-setup`, `sbox-scaffold-game`, `sbox-cookbook`.
 
-**License — relicensed GPL-3.0 → AGPL-3.0-or-later** (LICENSE + all `license` fields). Plus a branding/trademark note (see `NOTICE`): the code is open under AGPL, but the "s&box Codex Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original.
+**License — relicensed GPL-3.0 → AGPL-3.0-or-later** (LICENSE + all `license` fields). Plus a branding note (see `NOTICE`): the code is open under AGPL, but project branding is not a license to present a fork as the original.
 
 ### What's new in v1.5.0
 

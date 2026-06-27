@@ -37,7 +37,7 @@ Based on what's installed and whether the scene is empty (peek with `get_scene_h
 **5. Help + feedback**
 - **Troubleshooting:** I can read my own errors (`read_log`, `get_compile_errors`), and there's a full `TROUBLESHOOTING.md`. Just ask me here anytime — that's what I'm for.
 - **Bugs / feedback:** GitHub issues — https://github.com/LatterDay/Sbox-Codex/issues
-- Built by **sboxskins.gg**.
+- Maintained by **LatterDay**.
 
 **6. Hand off**
 > What do you want to build first?

@@ -135,7 +135,7 @@ public static class CodexBridge
 			_pollTimer = new Timer( ReadRequestFiles, null, 500, 50 );
 
 			Log.Info( $"[SboxBridge] Bridge v{BridgeVersion} started — {_handlers.Count} handlers, IPC at {_ipcDir}" );
-			Log.Info( "[SboxBridge] s&box Codex Bridge by sboxskins.gg — https://sboxskins.gg" );
+			Log.Info( "[SboxBridge] s&box Codex Bridge by LatterDay — https://github.com/LatterDay/Sbox-Codex" );
 		}
 		catch ( Exception ex )
 		{
@@ -5097,10 +5097,10 @@ public class BridgePoller : Widget
 
 		Layout.AddSpacingCell( 8 );
 
-		var credit = Layout.Add( new Label( "A project by sboxskins.gg", this ) );
+		var credit = Layout.Add( new Label( "A project by LatterDay", this ) );
 		credit.SetStyles( "font-size: 11px; color: #4fc3f7;" );
 
-		var url = Layout.Add( new Label( "https://sboxskins.gg", this ) );
+		var url = Layout.Add( new Label( "https://github.com/LatterDay/Sbox-Codex", this ) );
 		url.SetStyles( "font-size: 10px; color: #888;" );
 	}
 }

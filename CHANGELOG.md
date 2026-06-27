@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the s&box Codex Bridge. Also online: [sboxskins.gg/codexbridge/changelog](https://sboxskins.gg/codexbridge/changelog).
+All notable changes to the s&box Codex Bridge. Current docs live at [sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge) while Codex-specific docs are migrated into this repo.
 
 ## [1.17.1] -- 2026-06-25
 
@@ -216,7 +216,7 @@ With v1.10.0's `create_economy_wallet`, these complete a **"game director" trio*
 ### Changed — License
 
 - **Relicensed GPL-3.0 → AGPL-3.0-or-later** (the `LICENSE` file and every `license` field). The AGPL's network/hosted-service clause now applies: if you run a modified bridge as a service, make your modified source available to its users.
-- **Added a `NOTICE`** with the AGPL summary plus a **branding/trademark** note: the code is open under AGPL, but the **"s&box Codex Bridge"** / **"sboxskins.gg"** name and branding may not be reused to present a fork as the original.
+- **Added a `NOTICE`** with the AGPL summary plus a **branding** note: the code is open under AGPL, but project branding is not a license to present a fork as the original.
 
 ### Notes
 

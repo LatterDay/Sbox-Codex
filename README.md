@@ -3,10 +3,10 @@
 > **Build s&box games by talking to Codex.** Describe what you want — Codex writes the C#, builds the scenes, wires up components, and iterates until it works.
 
 <p>
-<strong>v1.17.1</strong> · <strong>201 tools</strong> · <strong>192 handlers</strong> · AGPL-3.0-or-later · built by <a href="https://sboxskins.gg">sboxskins.gg</a>
+<strong>v1.17.1</strong> · <strong>201 tools</strong> · <strong>192 handlers</strong> · AGPL-3.0-or-later · maintained by <a href="https://github.com/LatterDay">LatterDay</a>
 </p>
 
-<p>📖 <strong>Full docs:</strong> <a href="https://sboxskins.gg/codexbridge">sboxskins.gg/codexbridge</a> — <a href="https://sboxskins.gg/codexbridge/plugin">setup</a> · <a href="https://sboxskins.gg/codexbridge/changelog">changelog</a> · <a href="https://sboxskins.gg/codexbridge/troubleshooting">troubleshooting</a> · <a href="https://sboxskins.gg/codexbridge/faq">FAQ</a></p>
+<p>📖 <strong>Current docs:</strong> <a href="https://sboxskins.gg/claudebridge">sboxskins.gg/claudebridge</a> — Codex-specific docs are being migrated into this repo.</p>
 
 ```
 You:    "Make a horror game where I explore an abandoned hospital with a flashlight."
@@ -308,10 +308,10 @@ Then ask for the real thing: *"Create a first-person player controller with WASD
 
 **AGPL-3.0-or-later** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-You can freely use the Codex Bridge in your s&box games, free or commercial, and modify it for your own use. If you redistribute a modified version of the bridge itself — or run it as a network/hosted service — keep it open source under AGPL-3.0-or-later, make your modified source available to its users, and credit sboxskins.gg.
+You can freely use the Codex Bridge in your s&box games, free or commercial, and modify it for your own use. If you redistribute a modified version of the bridge itself — or run it as a network/hosted service — keep it open source under AGPL-3.0-or-later, make your modified source available to its users, and credit LatterDay.
 
-> **Branding & trademark.** The code is open under AGPL, but the **"s&box Codex Bridge"** / **"sboxskins.gg"** name and branding are *not* covered by the code license. Don't reuse them to pass a fork off as the original — rename your fork and remove the original branding. See [NOTICE](NOTICE).
+> **Branding.** The code is open under AGPL, but project branding is not a license to present a fork as the original. Rename forks clearly and keep provenance visible. See [NOTICE](NOTICE).
 
-Built by **[sboxskins.gg](https://sboxskins.gg)** — the s&box community marketplace. Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp); early bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
+Maintained by **[LatterDay](https://github.com/LatterDay)**. Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp); early bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
 
-Copyright © 2026 [sboxskins.gg](https://sboxskins.gg)
+Copyright © 2026 LatterDay

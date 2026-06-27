@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common failure modes and their fixes, ordered roughly by how often each one hits. Also online: [sboxskins.gg/codexbridge/troubleshooting](https://sboxskins.gg/codexbridge/troubleshooting).
+Common failure modes and their fixes, ordered roughly by how often each one hits. Current docs live at [sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge) while Codex-specific docs are migrated into this repo.
 
 Quick orientation:
 

@@ -226,8 +226,8 @@ async function main(): Promise<void> {
   console.error("  ║  s&box Codex Bridge — MCP Server                ║");
   console.error("  ║  Build s&box games through conversation          ║");
   console.error("  ║                                                   ║");
-  console.error("  ║  A project by sboxskins.gg                       ║");
-  console.error("  ║  https://sboxskins.gg                            ║");
+  console.error("  ║  A project by LatterDay                          ║");
+  console.error("  ║  https://github.com/LatterDay/Sbox-Codex         ║");
   console.error("  ╚═══════════════════════════════════════════════════╝");
   console.error("");
 

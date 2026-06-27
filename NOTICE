@@ -1,5 +1,5 @@
 s&box Codex Bridge
-Copyright (c) 2026 sboxskins.gg
+Copyright (c) 2026 LatterDay
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License as published by the Free
@@ -13,14 +13,12 @@ In short:
     network/hosted service — you must release your modified source under
     AGPL-3.0-or-later to its users, and preserve this notice.
 
-Branding & trademark (NOT covered by the code license)
-------------------------------------------------------
-The source code is open under AGPL, but the names and branding —
-"s&box Codex Bridge" and "sboxskins.gg" — are not licensed for reuse.
+Branding (NOT covered by the code license)
+------------------------------------------
+The source code is open under AGPL, but project names, logos, and branding are
+not a license to present a fork as the original.
 
-You may fork the code under AGPL, but you may NOT reuse the "s&box Codex
-Bridge" or "sboxskins.gg" name, logo, or branding to present a fork as the
-original. If you distribute a fork, give it a different name and remove the
-original branding.
+You may fork the code under AGPL. If you distribute a fork, give it a clear
+name and preserve provenance so users can distinguish it from this project.
 
-Built by sboxskins.gg — the s&box community marketplace — https://sboxskins.gg
+Maintained by LatterDay — https://github.com/LatterDay/Sbox-Codex

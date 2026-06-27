@@ -2,7 +2,7 @@
 
 The complete toolkit for building s&box games by talking to Codex.
 
-📖 **Full docs:** [sboxskins.gg/codexbridge](https://sboxskins.gg/codexbridge) — overview, setup, changelog, troubleshooting & FAQ.
+📖 **Current docs:** [sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge). Codex-specific docs are being migrated into this repo.
 
 This plugin bundles:
 
@@ -113,8 +113,8 @@ For deeper issues see the main repo's [TROUBLESHOOTING.md](https://github.com/La
 
 ## License
 
-AGPL-3.0-or-later. Same as the bridge. The code is open under AGPL, but the "s&box Codex Bridge" / "sboxskins.gg" name and branding may not be reused to pass a fork off as the original — see the repo's [NOTICE](https://github.com/LatterDay/Sbox-Codex/blob/main/NOTICE).
+AGPL-3.0-or-later. Same as the bridge. The code is open under AGPL, but project branding is not a license to present a fork as the original — see the repo's [NOTICE](https://github.com/LatterDay/Sbox-Codex/blob/main/NOTICE).
 
 ## Credits
 
-Built by [sboxskins.gg](https://sboxskins.gg). The `sbox-api` skill is adapted from [codex-sbox](https://github.com/gavogavogavo/codex-sbox) by **David Ryan** (MIT). Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp). Original bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).
+Maintained by [LatterDay](https://github.com/LatterDay). The `sbox-api` skill is adapted from [codex-sbox](https://github.com/gavogavogavo/codex-sbox) by **David Ryan** (MIT). Bridge bootstrap-crash fix by [@FurkanZhlp](https://github.com/FurkanZhlp). Original bug reports by [@Jmcasavant](https://github.com/Jmcasavant) and [@dvd900](https://github.com/dvd900).

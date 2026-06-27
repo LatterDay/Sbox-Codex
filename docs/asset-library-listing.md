@@ -5,9 +5,9 @@
 
 But the tools aren't the real story. **The bridge ships a brain.** The companion plugin now bundles `sbox-cookbook` — a deep, code-grounded knowledge base of how to actually build games in s&box, mined from **real, shipped, open-source s&box games** and the modern engine source. So the AI reaches for *proven, shipped patterns* — real inventories, economies, save systems, shops, gacha, progression, multiplayer netcode, whole genre playbooks — instead of guessing.
 
-📖 **Full docs, guides & changelog:** **[sboxskins.gg/codexbridge](https://sboxskins.gg/codexbridge)** — [setup](https://sboxskins.gg/codexbridge/plugin) · [changelog](https://sboxskins.gg/codexbridge/changelog) · [troubleshooting](https://sboxskins.gg/codexbridge/troubleshooting) · [FAQ](https://sboxskins.gg/codexbridge/faq)
+📖 **Current docs:** **[sboxskins.gg/claudebridge](https://sboxskins.gg/claudebridge)**. Codex-specific docs are being migrated into the GitHub repo.
 
-📬 **Feedback & bugs:** **sboxskins@gmail.com** or [GitHub Issues](https://github.com/LatterDay/Sbox-Codex/issues)
+📬 **Feedback & bugs:** [GitHub Issues](https://github.com/LatterDay/Sbox-Codex/issues)
 
 ---
 
@@ -64,7 +64,7 @@ That said — if the tool didn't work for you, that matters. A bad install, a br
 
 The patches have matured a lot since launch. Install paths, tool stability, play-mode safety, timeout confusion, reliability (Codex can read its own errors now), and — the big one this release — the AI no longer *guesses* at how to build a system, because the cookbook brain hands it patterns from real shipped games, plus a direct reference to the live s&box API. A lot of those fixes came straight from user reports, and the reception since has been genuinely positive. Thank you to everyone who took the time to tell me what broke instead of silently launching the tomato cannon. 🍅
 
-If you had a bad experience, please reach out: **sboxskins@gmail.com**. Tell me what happened, what broke, what confused you, or what the bridge should do better. I'll move quickly on real issues and keep improving it.
+If you had a bad experience, please open a [GitHub issue](https://github.com/LatterDay/Sbox-Codex/issues). Tell me what happened, what broke, what confused you, or what the bridge should do better. I'll move quickly on real issues and keep improving it.
 
 Thanks to everyone giving it a shot, testing it, breaking it, and helping make it better.
 
@@ -357,17 +357,16 @@ s&box current SDK · Node.js 18+ · Codex (or any MCP client) · Windows, Linux,
 - **Don't mutate the scene during play mode** — the bridge will refuse with a clear message.
 
 ## License
-**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but the **"s&box Codex Bridge" / "sboxskins.gg" name and branding are not licensed for reuse** — you may not use them to present a fork as the original (see **NOTICE**).
+**AGPL-3.0-or-later.** Free to use in your games (free or commercial), free to modify. If you redistribute a modified copy of the bridge itself — or run a modified version as a network/hosted service — release your modified source under AGPL. The code is open, but project branding is not a license to present a fork as the original (see **NOTICE**).
 
 ## Links
-- **Docs:** https://sboxskins.gg/codexbridge — overview · plugin · changelog · troubleshooting · FAQ
+- **Docs:** https://sboxskins.gg/claudebridge
 - **GitHub:** https://github.com/LatterDay/Sbox-Codex
 - **Issues / bugs:** https://github.com/LatterDay/Sbox-Codex/issues
 - **npm:** https://www.npmjs.com/package/sbox-mcp-server
-- **Feedback:** sboxskins@gmail.com
 
 ---
 
 **Two pieces, zero ceremony. 200+ tools · 192 handlers + a brain trained on real shipped games. Describe your game — Codex builds it.**
 
-*Built by [sboxskins.gg](https://sboxskins.gg), the s&box community marketplace.*
+*Maintained by [LatterDay](https://github.com/LatterDay).*
